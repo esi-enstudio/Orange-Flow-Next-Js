@@ -130,9 +130,16 @@ def _has_search_term(search: Optional[str]) -> bool:
     return bool((search or "").strip())
 
 
+def _apply_mrp_filter(query, mrp: Optional[float]):
+    if mrp is not None:
+        query = query.where(ScratchCardSerial.product.has(Product.mrp == mrp))
+    return query
+
+
 def _serial_list_cache_key(
     pagination,
     product_id,
+    mrp,
     status,
     date_from,
     date_to,
@@ -155,6 +162,7 @@ def _serial_list_cache_key(
         "sort_by": pagination.sort_by,
         "sort_order": pagination.sort_order,
         "product_id": None if has_search else product_id,
+        "mrp": None if has_search else mrp,
         "status": None if has_search else status,
         "date_from": None if has_search else date_from,
         "date_to": None if has_search else date_to,
@@ -201,6 +209,7 @@ def _serial_to_schema(record):
 async def list_serials(
     pagination: PaginationParams = Depends(),
     product_id: Optional[int] = Query(None),
+    mrp: Optional[float] = Query(None),
     status: Optional[str] = Query(None),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
@@ -233,6 +242,7 @@ async def list_serials(
     if not has_search:
         if product_id:
             query = query.where(ScratchCardSerial.product_id == product_id)
+        query = _apply_mrp_filter(query, mrp)
         if status:
             query = query.where(ScratchCardSerial.status == status)
     if not has_search:
@@ -244,6 +254,7 @@ async def list_serials(
     cache_key = _serial_list_cache_key(
         pagination,
         product_id,
+        mrp,
         status,
         date_from if not search else None,
         date_to if not search else None,
@@ -318,6 +329,7 @@ async def list_serials(
 @router.post("/select-all")
 async def select_all_serials(
     product_id: Optional[int] = Query(None),
+    mrp: Optional[float] = Query(None),
     status: Optional[str] = Query(None),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
@@ -362,6 +374,7 @@ async def select_all_serials(
         query = _apply_serial_range(query, serial_from, serial_to)
         if product_id:
             query = query.where(ScratchCardSerial.product_id == product_id)
+        query = _apply_mrp_filter(query, mrp)
         if status:
             query = query.where(ScratchCardSerial.status == status)
         if date_from:
@@ -1051,6 +1064,7 @@ async def confirm_allocation(
 @router.get("/export/list")
 async def export_serials(
     product_id: Optional[int] = Query(None),
+    mrp: Optional[float] = Query(None),
     batch_id: Optional[str] = Query(None),
     house_context: Optional[int] = Depends(get_house_context),
     db: AsyncSession = Depends(get_db),
@@ -1071,6 +1085,8 @@ async def export_serials(
 
     if product_id:
         query = query.where(ScratchCardSerial.product_id == product_id)
+    if mrp is not None:
+        query = query.where(Product.mrp == mrp)
     if batch_id:
         query = query.where(ScratchCardSerial.batch_id == batch_id)
 

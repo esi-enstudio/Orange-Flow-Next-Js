@@ -61,7 +61,7 @@ export default function SCSerialsPage() {
   const [debouncedSerialFrom, setDebouncedSerialFrom] = useState("");
   const [serialTo, setSerialTo] = useState("");
   const [debouncedSerialTo, setDebouncedSerialTo] = useState("");
-  const [filterProductId, setFilterProductId] = useState<string>("");
+  const [filterMrp, setFilterMrp] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
   const fetchDataRequest = useRef(0);
 
@@ -105,6 +105,9 @@ export default function SCSerialsPage() {
 
   // products for dropdown
   const [products, setProducts] = useState<Product[]>([]);
+  const availableMrps = Array.from(
+    new Set(products.map(product => product.mrp).filter(mrp => Number.isFinite(mrp))),
+  ).sort((a, b) => a - b);
 
   // delete confirm
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -179,7 +182,7 @@ export default function SCSerialsPage() {
       if (searchTerm) params.search = searchTerm;
       if (debouncedSerialFrom) params.serial_from = debouncedSerialFrom;
       if (debouncedSerialTo) params.serial_to = debouncedSerialTo;
-      if (filterProductId) params.product_id = Number(filterProductId);
+      if (filterMrp) params.mrp = Number(filterMrp);
       if (filterStatus) params.status = filterStatus;
       const headers: Record<string, string> = {};
       if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
@@ -192,7 +195,7 @@ export default function SCSerialsPage() {
     } finally {
       if (requestId === fetchDataRequest.current) setLoading(false);
     }
-  }, [page, debouncedSearch, debouncedSerialFrom, debouncedSerialTo, filterProductId, filterStatus, selectedHouse?.id, t]);
+  }, [page, debouncedSearch, debouncedSerialFrom, debouncedSerialTo, filterMrp, filterStatus, selectedHouse?.id, t]);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -261,7 +264,7 @@ export default function SCSerialsPage() {
   }, [authLoading]);
 
   // reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, serialFrom, serialTo, filterProductId, filterStatus]);
+  useEffect(() => { setPage(1); }, [search, serialFrom, serialTo, filterMrp, filterStatus]);
 
   const handleExport = async (houseId: number): Promise<boolean> => {
     setExporting(true);
@@ -272,7 +275,7 @@ export default function SCSerialsPage() {
     try {
       const headers: Record<string, string> = { "X-House-ID": String(houseId) };
       const params: Record<string, string> = {};
-      if (filterProductId) params.product_id = filterProductId;
+      if (filterMrp) params.mrp = filterMrp;
       const res = await apiClient.get("/v1/scratch-card-serials/export/list", {
         params, headers, responseType: "blob",
         // A house can hold ~700k serials and the workbook is built server-side,
@@ -405,7 +408,7 @@ export default function SCSerialsPage() {
       if (searchTerm) params.search = searchTerm;
       if (serialFrom) params.serial_from = serialFrom;
       if (serialTo) params.serial_to = serialTo;
-      if (filterProductId) params.product_id = Number(filterProductId);
+      if (filterMrp) params.mrp = Number(filterMrp);
       if (filterStatus) params.status = filterStatus;
       if (!searchTerm && !serialFrom && !serialTo) {
         const { dateFrom, dateTo } = todayDateRange();
@@ -700,6 +703,8 @@ export default function SCSerialsPage() {
               setSearch(e.target.value);
               setSerialFrom("");
               setSerialTo("");
+              setFilterMrp("");
+              setFilterStatus("");
             }}
             className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
@@ -732,15 +737,27 @@ export default function SCSerialsPage() {
           }}
           className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
         />
-        <select value={filterProductId} onChange={e => setFilterProductId(e.target.value)}
-          className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
+        <select
+          value={filterMrp}
+          onChange={e => {
+            setFilterMrp(e.target.value);
+            setSearch("");
+            setDebouncedSearch("");
+          }}
+          className="cursor-pointer px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
           <option value="">{t('scratch_card_serials.filter_all')}</option>
-          {products.map(p => (
-            <option key={p.id} value={p.id}>{p.product_code} - {p.product_name}</option>
+          {availableMrps.map(mrp => (
+            <option key={mrp} value={mrp}>{mrp.toLocaleString('en-US')} Tk</option>
           ))}
         </select>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          className="px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
+        <select
+          value={filterStatus}
+          onChange={e => {
+            setFilterStatus(e.target.value);
+            setSearch("");
+            setDebouncedSearch("");
+          }}
+          className="cursor-pointer px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
           <option value="">{t('scratch_card_serials.filter_all_status')}</option>
           <option value="available">{t('scratch_card_serials.filter_available')}</option>
           <option value="used">{t('scratch_card_serials.filter_used')}</option>

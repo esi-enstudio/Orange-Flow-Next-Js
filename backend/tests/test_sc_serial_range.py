@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select, text
 
+from app.models.product import Product
 from app.models.scratch_card_serial import ScratchCardSerial
 from app.routers import scratch_card_serials as serial_router
 from app.routers.scratch_card_serials import (
@@ -64,6 +65,7 @@ async def test_serial_range_filters_list_and_select_all(db):
     response = await list_serials(
         pagination=pagination,
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -75,6 +77,7 @@ async def test_serial_range_filters_list_and_select_all(db):
     )
     selected = await select_all_serials(
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -116,6 +119,7 @@ async def test_serial_range_searches_all_authorized_houses_not_only_selected_hou
     response = await list_serials(
         pagination=pagination,
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -127,6 +131,7 @@ async def test_serial_range_searches_all_authorized_houses_not_only_selected_hou
     )
     selected = await select_all_serials(
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -140,6 +145,65 @@ async def test_serial_range_searches_all_authorized_houses_not_only_selected_hou
 
     assert [row.serial_number for row in response.data] == ["504000507390"]
     assert selected["data"]["ids"] == [1]
+
+
+@pytest.mark.asyncio
+async def test_mrp_filter_matches_all_products_with_selected_mrp(db):
+    db.add_all(
+        [
+            Product(id=1, product_code="SC-29-A", category="Scratch Card", product_name="29 A", mrp=29),
+            Product(id=2, product_code="SC-29-B", category="Scratch Card", product_name="29 B", mrp=29),
+            Product(id=3, product_code="SC-39-A", category="Scratch Card", product_name="39 A", mrp=39),
+        ]
+    )
+    await db.flush()
+    await db.execute(
+        text(
+            "INSERT INTO scratch_card_serials "
+            "(id, house_id, product_id, serial_number, status) "
+            "VALUES (1, 1, 1, 'serial-29-a', 'available'), "
+            "(2, 1, 2, 'serial-29-b', 'available'), "
+            "(3, 1, 3, 'serial-39-a', 'available')"
+        )
+    )
+    admin = SimpleNamespace(id=1, name="Admin", roles=[SimpleNamespace(name="admin")], houses=[])
+    pagination = PaginationParams(
+        page=1,
+        per_page=20,
+        search=None,
+        sort_by="id",
+        sort_order="desc",
+    )
+
+    response = await list_serials(
+        pagination=pagination,
+        product_id=None,
+        mrp=29,
+        status=None,
+        date_from=None,
+        date_to=None,
+        serial_from=None,
+        serial_to=None,
+        house_context=None,
+        db=db,
+        current_user=admin,
+    )
+    selected = await select_all_serials(
+        product_id=None,
+        mrp=29,
+        status=None,
+        date_from=None,
+        date_to=None,
+        search=None,
+        serial_from=None,
+        serial_to=None,
+        house_context=None,
+        db=db,
+        current_user=admin,
+    )
+
+    assert {row.serial_number for row in response.data} == {"serial-29-a", "serial-29-b"}
+    assert set(selected["data"]["ids"]) == {1, 2}
 
 
 @pytest.mark.asyncio
@@ -170,6 +234,7 @@ async def test_serial_search_ignores_list_filters_but_keeps_house_access(db, ser
             sort_order="desc",
         ),
         product_id=999,
+        mrp=None,
         status="used",
         date_from=today,
         date_to=today,
@@ -181,6 +246,7 @@ async def test_serial_search_ignores_list_filters_but_keeps_house_access(db, ser
     )
     selected = await select_all_serials(
         product_id=999,
+        mrp=None,
         status="used",
         search=serial,
         date_from=today,
@@ -204,6 +270,7 @@ async def test_serial_search_ignores_list_filters_but_keeps_house_access(db, ser
             sort_order="desc",
         ),
         product_id=999,
+        mrp=None,
         status="used",
         date_from=today,
         date_to=today,
@@ -241,6 +308,7 @@ async def test_serial_search_does_not_cross_unassigned_house_scope(db):
             sort_order="desc",
         ),
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -262,6 +330,7 @@ async def test_serial_search_does_not_cross_unassigned_house_scope(db):
             sort_order="desc",
         ),
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -273,6 +342,7 @@ async def test_serial_search_does_not_cross_unassigned_house_scope(db):
     )
     selected = await select_all_serials(
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -327,6 +397,7 @@ async def test_serial_list_cache_is_reused_and_cleared_after_update(db, monkeypa
     first = await list_serials(
         pagination=pagination,
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
@@ -339,6 +410,7 @@ async def test_serial_list_cache_is_reused_and_cleared_after_update(db, monkeypa
     second = await list_serials(
         pagination=pagination,
         product_id=None,
+        mrp=None,
         status=None,
         date_from=None,
         date_to=None,
