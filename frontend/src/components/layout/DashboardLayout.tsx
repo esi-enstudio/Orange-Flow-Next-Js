@@ -67,7 +67,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             // A single transition-property covers both the colour and transform changes:
             // stacking `transition-colors` and `transition-transform` would make them
             // fight over the same CSS property and the slide animation would be dropped.
-            "hidden md:flex h-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 items-center justify-between px-4 md:px-8 z-40 duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none transition-[color,background-color,border-color,outline-color,transform] gap-4",
+            "hidden md:flex h-16 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 items-center justify-between px-4 md:px-8 z-40 duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none transition-[color,background-color,border-color,outline-color,transform] gap-4",
             isFocusMode
               ? cn(
                   "fixed inset-x-0 top-0 shadow-lg will-change-transform",
@@ -85,7 +85,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   <span className="text-lg font-bold text-white">{brand.app_name.charAt(0)}</span>
                 </div>
               )}
-              <span className="max-w-[180px] truncate text-sm font-bold tracking-tight text-gray-800 dark:text-gray-100">
+              <span className="max-w-[180px] truncate text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100">
                 {brand.app_name}
               </span>
             </Link>

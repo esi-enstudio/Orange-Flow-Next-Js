@@ -252,6 +252,18 @@
   .dark *::-webkit-scrollbar-thumb:hover {
     background-color: #64748b;
   }
+
+  .sidebar-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .sidebar-scrollbar::-webkit-scrollbar { width: 4px; }
+  .sidebar-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-scrollbar::-webkit-scrollbar-thumb { background: transparent; border-radius: 9999px; }
+  .sidebar-scrollbar:hover { scrollbar-color: #94a3b8 transparent; }
+  .sidebar-scrollbar:hover::-webkit-scrollbar-thumb { background: #cbd5e1; }
+  .dark .sidebar-scrollbar:hover { scrollbar-color: #475569 transparent; }
+  .dark .sidebar-scrollbar:hover::-webkit-scrollbar-thumb { background: #475569; }
 }
 
 ::view-transition-old(root),

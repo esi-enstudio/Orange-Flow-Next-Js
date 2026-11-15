@@ -104,7 +104,7 @@ function filterChildren(children: any[]): any[] {
   };
 
   const sidebarContent = (
-    <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
+    <div className="sidebar-scrollbar flex flex-col h-full overflow-x-hidden overflow-y-auto">
       <div className="p-2">
         <div className="mb-8 flex items-center justify-between gap-2 rounded-xl bg-gray-50 p-2 dark:bg-slate-800">
           <Link
@@ -148,9 +148,14 @@ function filterChildren(children: any[]): any[] {
           <motion.div
             animate={{ x: selectedNested ? "-66.6667%" : selectedMenu ? "-33.3333%" : "0%" }}
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-            className="flex w-[300%]"
+            className="relative flex w-[300%]"
           >
-            <div className="w-1/3 shrink-0 space-y-1">
+            <div
+              className={cn(
+                "w-1/3 shrink-0 space-y-1",
+                selectedMenu ? "absolute left-0 top-0" : "relative"
+              )}
+            >
               {filteredNavItems.map((item) => {
                 const hasChildren = item.children && item.children.length > 0;
                 const isParentActive = item.children?.some(child =>
@@ -228,7 +233,14 @@ function filterChildren(children: any[]): any[] {
               })}
             </div>
 
-            <div className="w-1/3 shrink-0 space-y-1">
+            <div
+              className={cn(
+                "w-1/3 shrink-0 space-y-1",
+                selectedMenu && !selectedNested
+                  ? "relative left-1/3"
+                  : "absolute left-1/3 top-0"
+              )}
+            >
               {selectedMenu && (
                 <>
                   <button
@@ -305,7 +317,14 @@ function filterChildren(children: any[]): any[] {
               )}
             </div>
 
-            <div className="w-1/3 shrink-0 space-y-1">
+            <div
+              className={cn(
+                "w-1/3 shrink-0 space-y-1",
+                selectedNested
+                  ? "relative left-2/3"
+                  : "absolute left-2/3 top-0"
+              )}
+            >
               {selectedNested && (
                 <>
                   <button
