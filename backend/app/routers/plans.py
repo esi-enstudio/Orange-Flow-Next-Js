@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.routers.deps import get_db, has_permission, has_any_permission
 from app.schemas.subscription import PlanSchema, PlanUpsert
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
-from app.models.subscription import SubscriptionPackage, SubscriptionTier
+from app.models.subscription import HouseSubscription, SubscriptionPackage, SubscriptionTier
 from app.models.user import User
 from app.utils.timezone import now_naive
 from config.modules import valid_module_key, BASE_MODULES
@@ -257,6 +257,30 @@ async def delete_plan(
     ).scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+
+    # A plan that still backs live subscriptions must never be archived: its
+    # subscribers would keep reading a soft-deleted plan and silently lose the
+    # modules/features it granted (e.g. the Reports menu disappearing for every
+    # supervisor in the house). Move them to another plan first.
+    in_use = (
+        await db.execute(
+            select(HouseSubscription.id)
+            .where(
+                HouseSubscription.package_id == plan_id,
+                HouseSubscription.is_deleted == False,  # noqa: E712
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if in_use is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This plan is assigned to one or more houses. Move those "
+                "subscriptions to another plan before deleting it."
+            ),
+        )
+
     # Soft delete
     plan.is_deleted = True
     plan.deleted_at = now_naive()

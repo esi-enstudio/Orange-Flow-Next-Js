@@ -117,6 +117,45 @@ async def test_new_subscription_always_links_a_plan(db, house, plan):
     assert sub.package_id is not None
 
 
+async def test_subscription_on_deleted_plan_is_relinked_to_live_successor(db, house):
+    archived = await make_plan(db, name="Premium", slug="premium", allowed_modules=["dms"])
+    archived.is_deleted = True
+    archived.is_active = False
+    await db.commit()
+    successor = await make_plan(db, name="Premium", slug="premium")
+    sub = await make_sub(db, house.id, archived)
+
+    report = await db_service._migrate_subscriptions_off_deleted_plans(
+        db_engine=test_engine
+    )
+
+    assert report["relinked"] == 1
+    assert report["unresolved"] == []
+    db.expunge_all()
+    repaired = await db.get(HouseSubscription, sub.id)
+    assert repaired.package_id == successor.id
+
+
+async def test_subscription_on_deleted_plan_without_successor_is_reported(db, house):
+    archived = await make_plan(
+        db, name="Retired", slug="retired", allowed_modules=["reports"]
+    )
+    archived.is_deleted = True
+    archived.is_active = False
+    await db.commit()
+    sub = await make_sub(db, house.id, archived)
+
+    report = await db_service._migrate_subscriptions_off_deleted_plans(
+        db_engine=test_engine
+    )
+
+    assert report["relinked"] == 0
+    assert report["unresolved"][0]["subscription_id"] == sub.id
+    db.expunge_all()
+    unchanged = await db.get(HouseSubscription, sub.id)
+    assert unchanged.package_id == archived.id
+
+
 async def test_legacy_audit_endpoint_lists_package_less_rows(db, house, plan):
     """Ops must be able to find every anomalous (fail-open) row via the API."""
     from app.routers.admin_billing import admin_list_legacy_subscriptions

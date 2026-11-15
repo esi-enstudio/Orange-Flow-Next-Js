@@ -2146,6 +2146,102 @@ async def _migrate_drop_inventory_cost_columns():
         logger.warning(f"Migration warning (drop inventory cost columns): {e}")
 
 
+async def _migrate_subscriptions_off_deleted_plans(db_engine=None) -> dict:
+    """Re-point live subscriptions that still reference a soft-deleted plan.
+
+    Soft-deleting a plan used to leave every existing subscriber attached to
+    that archived row. The subscription kept working, but the plan's module
+    grants were frozen at archive time and could silently hide whole modules
+    (e.g. Reports) even though the house's users had the matching role
+    permission. The replacement is the live plan carrying the same slug — the
+    slug is unique among live plans, so the choice is deterministic. A plan
+    with no live successor is reported and left untouched rather than guessed.
+    Idempotent; safe to run on every boot.
+    """
+    from sqlalchemy import select, update
+
+    from app.models.subscription import HouseSubscription, SubscriptionPackage
+    from app.utils.timezone import now_naive
+
+    target_engine = db_engine or engine
+    report: dict = {"relinked": 0, "unresolved": []}
+
+    try:
+        async with target_engine.begin() as conn:
+            stale_rows = (
+                await conn.execute(
+                    select(
+                        HouseSubscription.id,
+                        HouseSubscription.house_id,
+                        SubscriptionPackage.id.label("plan_id"),
+                        SubscriptionPackage.slug,
+                        SubscriptionPackage.name,
+                    )
+                    .select_from(HouseSubscription)
+                    .join(
+                        SubscriptionPackage,
+                        SubscriptionPackage.id == HouseSubscription.package_id,
+                    )
+                    .where(
+                        HouseSubscription.is_deleted.is_(False),
+                        SubscriptionPackage.is_deleted.is_(True),
+                    )
+                    .order_by(HouseSubscription.id)
+                )
+            ).all()
+
+            for row in stale_rows:
+                replacement_id = None
+                if row.slug:
+                    replacement_id = (
+                        await conn.execute(
+                            select(SubscriptionPackage.id).where(
+                                SubscriptionPackage.is_deleted.is_(False),
+                                SubscriptionPackage.is_active.is_(True),
+                                SubscriptionPackage.slug == row.slug,
+                            )
+                        )
+                    ).scalar()
+
+                if replacement_id is None:
+                    report["unresolved"].append(
+                        {
+                            "subscription_id": row.id,
+                            "house_id": row.house_id,
+                            "plan_id": row.plan_id,
+                            "plan_name": row.name,
+                            "slug": row.slug,
+                        }
+                    )
+                    continue
+
+                await conn.execute(
+                    update(HouseSubscription)
+                    .where(HouseSubscription.id == row.id)
+                    .values(package_id=replacement_id, updated_at=now_naive())
+                )
+                report["relinked"] += 1
+
+        if report["relinked"]:
+            logger.warning(
+                "Migration: re-linked %s subscription(s) from soft-deleted "
+                "plans to their live replacement",
+                report["relinked"],
+            )
+        for item in report["unresolved"]:
+            logger.warning(
+                "Migration: subscription %s (house %s) still references deleted "
+                "plan %s (%s); no live plan with the same slug exists",
+                item["subscription_id"],
+                item["house_id"],
+                item["plan_id"],
+                item["plan_name"],
+            )
+    except Exception as e:
+        logger.warning(f"Migration warning (subscriptions on deleted plans): {e}")
+    return report
+
+
 async def _migrate_billing_fail_closed(db_engine=None) -> dict:
     """Deny-by-default rollout: never lock out a tenant that was working before.
 
@@ -2507,6 +2603,7 @@ async def init_db():
         await _migrate_drop_inventory_cost_columns()
         await _migrate_inventory_indexes()
         await _migrate_billing_fail_closed()
+        await _migrate_subscriptions_off_deleted_plans()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()
         await _sync_retailer_markings_on_startup()

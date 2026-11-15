@@ -7,11 +7,13 @@ any archived plan sharing the requested slug matched a second row. The check
 now runs per key against live rows only, matching the partial unique indexes.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 
 from app.models.subscription import SubscriptionPackage, SubscriptionTier
-from app.routers.plans import create_plan
+from app.routers.plans import create_plan, delete_plan
 from app.schemas.subscription import PlanUpsert
 from app.utils.timezone import now_naive
 from conftest import make_plan
@@ -67,3 +69,25 @@ async def test_live_slug_is_still_rejected(db):
         await create_plan(_payload("Starter"), db)
 
     assert exc.value.status_code == 409
+
+
+async def test_delete_plan_with_live_subscription_is_rejected(db, house, plan, sub):
+    with pytest.raises(HTTPException) as exc:
+        await delete_plan(plan.id, db=db, current_user=SimpleNamespace(id=1))
+
+    assert exc.value.status_code == 409
+    db.expunge_all()
+    archived = await db.get(SubscriptionPackage, plan.id)
+    assert archived is not None
+    assert archived.is_deleted is False
+
+
+async def test_delete_unused_plan_soft_deletes_it(db, plan):
+    result = await delete_plan(plan.id, db=db, current_user=SimpleNamespace(id=1))
+
+    assert result["success"] is True
+    db.expunge_all()
+    archived = await db.get(SubscriptionPackage, plan.id)
+    assert archived.is_deleted is True
+    assert archived.is_active is False
+    assert archived.deleted_by == 1
