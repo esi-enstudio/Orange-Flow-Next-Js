@@ -2,8 +2,9 @@
 
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
-import { Search, Loader2, CloudDownload, Minimize2 } from "lucide-react";
+import { Loader2, CloudDownload, Minimize2, Menu, X } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useLanguage } from "@/i18n/useLanguage";
+import { useBrand } from "@/context/BrandContext";
 import { useFullscreen } from "@/context/FullscreenContext";
 import { FullscreenControls } from "./FullscreenControls";
 import { NotificationBell } from "./NotificationBell";
@@ -20,9 +22,10 @@ import { NotificationsProvider } from "@/context/NotificationsContext";
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user } = useAuth();
   const { t } = useLanguage();
+  const { brand } = useBrand();
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { isFocusMode, revealSidebar, revealHeader, setHeaderHovering, setFocusMode } = useFullscreen();
+  const { isFocusMode, revealHeader, setHeaderHovering, setFocusMode } = useFullscreen();
   const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/maintenance";
   // The Liftings module is designed edge-to-edge on phones: minimal outer
   // padding keeps its single-column mobile layout (filters, list accordion,
@@ -52,8 +55,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <Sidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
-        focusMode={isFocusMode}
-        revealed={revealSidebar}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <header
@@ -75,24 +76,33 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               : "sticky top-0"
           )}
         >
-          <div className="flex items-center gap-3 md:gap-6 flex-1 min-w-0">
-            <div className="relative hidden lg:block max-w-xs w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder={t('common.search')} 
-                className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border-none rounded-lg text-sm focus:ring-2 focus:ring-primary-500 transition-all dark:text-gray-100 outline-none"
-              />
-            </div>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Link href="/" aria-label={brand.app_name} className="flex min-w-0 cursor-pointer items-center gap-2.5">
+              {brand.logo ? (
+                <Image src={brand.logo} alt="" width={32} height={32} unoptimized className="h-8 w-8 shrink-0 rounded-lg object-cover" />
+              ) : (
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500 shadow-lg shadow-orange-200 dark:shadow-none">
+                  <span className="text-lg font-bold text-white">{brand.app_name.charAt(0)}</span>
+                </div>
+              )}
+              <span className="max-w-[180px] truncate text-sm font-bold tracking-tight text-gray-800 dark:text-gray-100">
+                {brand.app_name}
+              </span>
+            </Link>
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(open => !open)}
+              aria-label={isSidebarOpen ? t("common.close") : t("common.open_sidebar")}
+              aria-expanded={isSidebarOpen}
+              title={isSidebarOpen ? t("common.close") : t("common.open_sidebar")}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-slate-800 dark:hover:text-gray-100 cursor-pointer"
+            >
+              {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
           </div>
-          
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+
+          <div className="flex flex-shrink-0 items-center gap-2 sm:gap-3">
             <div className="hidden md:flex items-center gap-3">
-               {/* Search icon for smaller desktop */}
-               <button className="lg:hidden p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                 <Search className="w-5 h-5" />
-               </button>
-               
                <Link href="/sync" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/10 rounded-xl transition-all" title="DMS Sync">
                  <CloudDownload className="w-5 h-5" />
                </Link>

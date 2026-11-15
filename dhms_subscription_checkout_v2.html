@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DHMS — Subscription & Checkout</title>
+<style>
+:root {
+  --bg: #f4f7fb;
+  --surface: #ffffff;
+  --ink: #111827;
+  --muted: #5f6c80;
+  --line: #e2e8f0;
+  --primary: #2554e8;
+  --primary-dark: #1d43bd;
+  --soft: #eef3ff;
+  --green: #0f8a5f;
+  --green-soft: #e8f7f1;
+  --red: #d9383a;
+  --red-soft: #fef2f2;
+  --shadow: 0 16px 40px rgba(17, 24, 39, 0.07);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+
+/* Topbar */
+.topbar {
+  height: 68px;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 max(5vw, 22px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.4px;
+}
+.logo {
+  width: 35px;
+  height: 35px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b6cf6, #1d43bd);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 900;
+  box-shadow: 0 4px 12px rgba(37, 84, 232, 0.25);
+}
+.topmeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.wrap { max-width: 1140px; margin: 40px auto; padding: 0 22px 80px; }
+.hidden { display: none !important; }
+
+/* Hero & Billing Toggle */
+.eyebrow {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.hero { text-align: center; margin: 0 auto 34px; max-width: 720px; }
+.hero h1 {
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1.15;
+  letter-spacing: -1.2px;
+  margin: 10px 0 12px;
+}
+.hero p { color: var(--muted); margin: 0 0 22px; font-size: 15.5px; }
+.billing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 5px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+.billing button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-weight: 650;
+  transition: 0.15s;
+}
+.billing button.active { background: var(--soft); color: var(--primary); }
+.save-pill {
+  font-size: 11px;
+  background: var(--green-soft);
+  color: var(--green);
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-weight: 800;
+  margin-left: 6px;
+}
+
+/* Pricing Grid */
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: stretch; }
+.plan {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 26px;
+  position: relative;
+  box-shadow: 0 4px 20px rgba(17, 24, 39, 0.03);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.plan:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.plan.featured { border: 2px solid var(--primary); box-shadow: var(--shadow); }
+.popular {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  background: var(--soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 10px;
+  border-radius: 20px;
+}
+.plan h2 { font-size: 19px; margin: 0 0 6px; }
+.desc { color: var(--muted); font-size: 13.5px; min-height: 42px; }
+.price-wrap { margin: 18px 0 4px; }
+.old-price {
+  font-size: 14px;
+  color: #94a3b8;
+  text-decoration: line-through;
+  margin-right: 6px;
+  font-weight: 600;
+}
+.price { font-size: 35px; font-weight: 850; letter-spacing: -1.2px; }
+.price small { font-size: 13.5px; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+.billing-note { font-size: 12.5px; color: var(--muted); min-height: 20px; }
+.billing-note strong { color: var(--green); }
+.plan hr { border: 0; border-top: 1px solid var(--line); width: 100%; margin: 18px 0; }
+.feature-title {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  margin-bottom: 11px;
+}
+.features { list-style: none; padding: 0; margin: 0 0 22px; display: grid; gap: 10px; font-size: 13.5px; }
+.features li:before { content: "✓"; color: var(--green); font-weight: 900; margin-right: 9px; }
+.features li.off { color: #9aa3b3; }
+.features li.off:before { content: "–"; color: #cbd5e1; }
+.user-cap {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink);
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.btn {
+  border: 0;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  padding: 12px 16px;
+  width: 100%;
+  transition: 0.15s;
+}
+.btn:hover { background: var(--primary-dark); }
+.btn.secondary { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+.btn.secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+.plan .btn { margin-top: auto; }
+
+.promo-hint-bar {
+  margin-top: 22px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.promo-tag {
+  display: inline-block;
+  background: #fff;
+  border: 1px dashed #93c5fd;
+  color: var(--primary);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-family: monospace;
+  font-size: 12.5px;
+}
+
+/* Comparison Table */
+.compare {
+  margin-top: 44px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 24px;
+  overflow: auto;
+}
+.compare h3 { margin: 0 0 16px; font-size: 17px; }
+.compare table { width: 100%; border-collapse: collapse; min-width: 620px; font-size: 13.5px; }
+.compare th, .compare td { padding: 13px; border-bottom: 1px solid var(--line); text-align: center; }
+.compare th:first-child, .compare td:first-child { text-align: left; color: var(--muted); font-weight: 500; }
+.compare th { font-size: 13px; color: var(--ink); background: #f8fafc; }
+
+/* Checkout */
+.checkout-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
+.checkout-head-left { display: flex; align-items: center; gap: 12px; }
+.back {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 9px;
+  padding: 8px 13px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.back:hover { background: #f8fafc; }
+.checkout-head h1 { font-size: 26px; margin: 0; }
+.steps { display: flex; gap: 8px; margin: 0 0 24px; }
+.step {
+  flex: 1;
+  border-bottom: 3px solid var(--line);
+  padding: 0 0 9px;
+  color: #9aa3b3;
+  font-size: 12.5px;
+  font-weight: 750;
+}
+.step.active { border-color: var(--primary); color: var(--primary); }
+
+.checkout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.95fr);
+  gap: 22px;
+  align-items: start;
+}
+.panel, .summary {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 25px;
+}
+.panel h2, .summary h2 { font-size: 17px; margin: 0 0 4px; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+
+.field { margin-bottom: 15px; }
+.field label { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 6px; color: #334155; }
+.field input, .field select, .field textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: #fff;
+  outline: none;
+  transition: 0.15s;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 84, 232, 0.12);
+}
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Payment Methods */
+.payment-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.pay-option {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 12px;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.pay-option.selected { border: 1.5px solid var(--primary); background: #f5f8ff; }
+.pay-option input { accent-color: var(--primary); }
+.pay-option strong { display: block; font-size: 13px; }
+.pay-option small { display: block; color: var(--muted); font-size: 11px; }
+
+.method-box {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  padding: 15px;
+  border-radius: 12px;
+  margin: 10px 0 18px;
+}
+.method-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.method-box strong { font-size: 13.5px; }
+.method-box p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.copy-btn {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.copy-btn:hover { background: var(--soft); }
+
+.notice {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #78350f;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  margin: 16px 0;
+}
+
+/* Order Summary & Discount Box */
+.summary { position: sticky; top: 88px; }
+.cycle-switcher {
+  display: flex;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.cycle-switcher button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.cycle-switcher button.active { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+.promo-section {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px;
+  margin: 16px 0;
+}
+.promo-label { font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 7px; }
+.promo-row { display: flex; gap: 8px; }
+.promo-row input {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  font-weight: 600;
+  outline: none;
+}
+.promo-row input:focus { border-color: var(--primary); }
+.apply-btn {
+  background: var(--ink);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.apply-btn:hover { background: #334155; }
+.promo-msg { font-size: 12px; margin-top: 7px; font-weight: 600; }
+.promo-msg.ok { color: var(--green); }
+.promo-msg.err { color: var(--red); }
+
+.applied-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid #a7f3d0;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 750;
+  margin-top: 8px;
+}
+.remove-promo {
+  background: none;
+  border: 0;
+  color: var(--green);
+  font-weight: 900;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.summary .planline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 11px 0;
+  font-size: 13.5px;
+}
+.summary .muted { color: var(--muted); }
+.summary .discount-line { color: var(--green); font-weight: 650; }
+.summary hr { border: 0; border-top: 1px solid var(--line); margin: 15px 0; }
+.total { font-size: 20px; font-weight: 850; align-items: baseline; }
+.secure { color: var(--muted); font-size: 11.5px; margin-top: 14px; text-align: center; }
+
+/* Success View */
+.success {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 40px 28px;
+  text-align: center;
+  max-width: 620px;
+  margin: 30px auto;
+  box-shadow: var(--shadow);
+}
+.checkmark {
+  width: 60px;
+  height: 60px;
+  background: var(--green-soft);
+  color: var(--green);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 900;
+  margin: 0 auto 15px;
+}
+.success h1 { font-size: 26px; margin: 0 0 8px; }
+.success p { color: var(--muted); font-size: 14px; }
+.ref-card {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  padding: 16px;
+  border-radius: 12px;
+  margin: 20px 0;
+  text-align: left;
+  font-size: 13px;
+}
+.ref-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.ref-row:last-child { border-bottom: 0; }
+.status {
+  display: inline-block;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+/* Enterprise Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 50;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 18px;
+  max-width: 480px;
+  width: 100%;
+  padding: 26px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.2);
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.modal-head h3 { margin: 0; font-size: 19px; }
+.close-modal { background: none; border: 0; font-size: 22px; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .grid { grid-template-columns: 1fr; }
+  .checkout-grid { grid-template-columns: 1fr; }
+  .summary { position: static; grid-row: 1; }
+  .topmeta { display: none; }
+}
+@media (max-width: 520px) {
+  .two, .payment-options { grid-template-columns: 1fr; }
+  .panel, .summary { padding: 18px; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">D</div>
+    DHMS <span style="font-weight:500;color:#8992a5">/ Subscription</span>
+  </div>
+  <div class="topmeta">
+    <span class="badge-dot"></span> Secure Subscription Checkout · Bangladesh
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- PLANS VIEW -->
+  <section id="plansView">
+    <div class="hero">
+      <div class="eyebrow">Simple, Transparent Pricing</div>
+      <h1>আপনার ব্যবসার জন্য সঠিক প্ল্যানটি বেছে নিন</h1>
+      <p>Distribution House-এর দৈনন্দিন অপারেশন, ইনভেন্টরি এবং সেলস রিপোর্টিং সহজ করুন। যেকোনো সময় প্ল্যান পরিবর্তনযোগ্য।</p>
+      <div class="billing">
+        <button class="active" data-cycle="monthly">মাসিক বিলিং</button>
+        <button data-cycle="yearly">বার্ষিক বিলিং <span class="save-pill">২০% সাশ্রয়</span></button>
+      </div>
+    </div>
+
+    <div class="grid" id="planGrid"></div>
+
+    <div class="promo-hint-bar">
+      প্রোমো কোড আছে? চেকআউটে ব্যবহার করুন: <span class="promo-tag">DHMS10</span> (১০% ছাড়) অথবা <span class="promo-tag">WELCOME200</span> (৳২০০ ছাড়)
+    </div>
+
+    <section class="compare">
+      <h3>প্ল্যানগুলোর বিস্তারিত তুলনা</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>সুবিধাসমূহ</th>
+            <th>Starter</th>
+            <th>Professional</th>
+            <th>Enterprise</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>সর্বোচ্চ User সংখ্যা</td><td>5 Users</td><td>30 Users</td><td>Unlimited / Custom</td></tr>
+          <tr><td>Core Inventory & Sales</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Employee & SR Tracking</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Advanced Financial Reports</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Document & Invoice Automation</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Dedicated Priority Support</td><td>—</td><td>—</td><td>✓</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </section>
+
+  <!-- CHECKOUT VIEW -->
+  <section id="checkoutView" class="hidden">
+    <div class="checkout-head">
+      <div class="checkout-head-left">
+        <button class="back" id="backBtn">← ফিরে যান</button>
+        <h1>Subscription Checkout</h1>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step active" id="s1">01 · বিলিং তথ্য</div>
+      <div class="step active" id="s2">02 · পেমেন্ট ও ডিসকাউন্ট</div>
+      <div class="step" id="s3">03 · নিশ্চিতকরণ</div>
+    </div>
+
+    <div class="checkout-grid">
+      <section class="panel">
+        <h2>বিলিং ও প্রতিষ্ঠানের তথ্য</h2>
+        <p class="sub">আপনার Distribution House ও যোগাযোগের সঠিক তথ্য প্রদান করুন।</p>
+
+        <form id="checkoutForm">
+          <div class="field">
+            <label for="house">Distribution House / প্রতিষ্ঠানের নাম *</label>
+            <input id="house" required placeholder="যেমন: Bhairab Distribution House">
+          </div>
+
+          <div class="two">
+            <div class="field">
+              <label for="contact">যোগাযোগকারীর নাম *</label>
+              <input id="contact" required placeholder="পূর্ণ নাম">
+            </div>
+            <div class="field">
+              <label for="phone">মোবাইল নম্বর *</label>
+              <input id="phone" required inputmode="tel" placeholder="01XXXXXXXXX" pattern="01[0-9]{9}">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="email">ইমেইল অ্যাড্রেস (ইনভয়েসের জন্য)</label>
+            <input id="email" type="email" placeholder="name@example.com">
+          </div>
+
+          <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
+
+          <h2>পেমেন্ট পদ্ধতি</h2>
+          <p class="sub">নিচের যেকোনো মাধ্যমে সর্বমোট টাকা পরিশোধ করে ট্রানজেকশন তথ্য দিন।</p>
+
+          <div class="payment-options">
+            <label class="pay-option selected">
+              <input type="radio" name="payment" value="bkash" checked>
+              <span><strong>bKash</strong><small>Merchant / Send</small></span>
+            </label>
+            <label class="pay-option">
+              <input type="radio" name="payment" value="nagad">
+              <span><strong>Nagad</strong><small>Personal / Merchant</small></span>
+            </label>
+            <label class="pay-option">
+              <input type="radio" name="payment" value="bank">
+              <span><strong>Bank Transfer</strong><small>NPSB / BEFTN</small></span>
+            </label>
+          </div>
+
+          <div id="paymentInstructions" class="method-box"></div>
+
+          <div class="two">
+            <div class="field">
+              <label for="txn">Transaction ID / Reference *</label>
+              <input id="txn" required placeholder="যেমন: 8F7K2ABCD">
+            </div>
+            <div class="field">
+              <label for="sender">প্রেরকের নম্বর / অ্যাকাউন্ট *</label>
+              <input id="sender" required placeholder="01XXXXXXXXX">
+            </div>
+          </div>
+
+          <div class="notice">
+            <strong>দ্রষ্টব্য:</strong> এটি একটি ইন্টারঅ্যাক্টিভ UI Prototype। বাস্তব সিস্টেমে পেমেন্ট রিকোয়েস্ট জমা দেওয়ার পর Admin যাচাই করে আপনার সাবস্ক্রিপশন সক্রিয় করবেন।
+          </div>
+
+          <label style="display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--muted);margin:14px 0 18px">
+            <input type="checkbox" id="terms" required style="margin-top:3px">
+            আমি প্ল্যানের শর্তাবলি, বিলিং সাইকেল এবং পেমেন্ট নীতিমালা পড়েছি ও সম্মত আছি।
+          </label>
+
+          <button class="btn" type="submit">পেমেন্ট রিকোয়েস্ট জমা দিন →</button>
+        </form>
+      </section>
+
+      <!-- ORDER SUMMARY WITH DISCOUNT -->
+      <aside class="summary">
+        <h2>Order Summary</h2>
+        <p class="sub" style="margin-bottom:12px">আপনার নির্বাচিত সাবস্ক্রিপশন বিবরণ</p>
+
+        <div class="cycle-switcher">
+          <button type="button" id="sumCycleMonthly" data-sum-cycle="monthly">মাসিক বিলিং</button>
+          <button type="button" id="sumCycleYearly" data-sum-cycle="yearly">বার্ষিক (২০% ছাড়)</button>
+        </div>
+
+        <div class="planline">
+          <strong id="sumName" style="font-size:15px">Professional Plan</strong>
+          <span id="sumCycleBadge" style="color:var(--primary);font-weight:700">মাসিক</span>
+        </div>
+
+        <!-- Promo Code Box -->
+        <div class="promo-section">
+          <label class="promo-label" for="promoInput">ডিসকাউন্ট / প্রোমো কোড</label>
+          <div class="promo-row">
+            <input type="text" id="promoInput" placeholder="কোড লিখুন (যেমন: DHMS10)">
+            <button type="button" class="apply-btn" id="applyPromoBtn">Apply</button>
+          </div>
+          <div id="promoFeedback" class="promo-msg hidden"></div>
+          <div id="appliedPromoBox" class="hidden">
+            <span class="applied-chip">
+              <span id="appliedCodeText">DHMS10</span>
+              <button type="button" class="remove-promo" id="removePromoBtn" title="কোড বাতিল করুন">×</button>
+            </span>
+          </div>
+        </div>
+
+        <div class="planline muted">
+          <span>রেগুলার মূল্য</span>
+          <span id="sumRegularPrice">৳1,500</span>
+        </div>
+
+        <div class="planline discount-line hidden" id="yearlyDiscountRow">
+          <span>বার্ষিক বিলিং ছাড় (২০%)</span>
+          <span id="sumYearlyDiscount">-৳3,600</span>
+        </div>
+
+        <div class="planline discount-line hidden" id="promoDiscountRow">
+          <span id="promoDiscountLabel">প্রোমো ডিসকাউন্ট</span>
+          <span id="sumPromoDiscount">-৳0</span>
+        </div>
+
+        <div class="planline muted">
+          <span>VAT / Tax</span>
+          <span>অন্তর্ভুক্ত (৳0)</span>
+        </div>
+
+        <hr>
+
+        <div class="planline total">
+          <span>সর্বমোট প্রদেয়</span>
+          <span id="sumTotal" style="color:var(--primary)">৳1,500</span>
+        </div>
+
+        <p class="secure">🔒 এনক্রিপ্টেড ও নিরাপদ রিকোয়েস্ট প্রসেসিং</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- SUCCESS VIEW -->
+  <section id="successView" class="hidden">
+    <div class="success">
+      <div class="checkmark">✓</div>
+      <span class="status">অপেক্ষমাণ · Admin Verification</span>
+      <h1>পেমেন্ট রিকোয়েস্ট সফলভাবে জমা হয়েছে</h1>
+      <p>আপনার রিকোয়েস্টটি গ্রহণ করা হয়েছে। Admin পেমেন্ট যাচাই করার পর আপনার প্রতিষ্ঠানের Subscription সক্রিয় হবে।</p>
+
+      <div class="ref-card">
+        <div class="ref-row"><span style="color:var(--muted)">Reference ID</span><strong id="requestRef">DHMS-SUB-000000</strong></div>
+        <div class="ref-row"><span style="color:var(--muted)">প্রতিষ্ঠান</span><strong id="successHouse">-</strong></div>
+        <div class="ref-row"><span style="color:var(--muted)">নির্বাচিত প্ল্যান</span><strong id="successPlan">-</strong></div>
+        <div class="ref-row" id="successDiscountRow"><span style="color:var(--muted)">মোট ডিসকাউন্ট</span><strong id="successDiscount" style="color:var(--green)">৳0</strong></div>
+        <div class="ref-row"><span style="color:var(--muted)">পরিশোধিত পরিমাণ</span><strong id="successAmount" style="color:var(--primary)">৳0</strong></div>
+        <div class="ref-row"><span style="color:var(--muted)">Transaction ID</span><strong id="successTxn">-</strong></div>
+      </div>
+
+      <button class="btn" id="doneBtn">প্ল্যান পেজে ফিরে যান</button>
+    </div>
+  </section>
+</main>
+
+<!-- ENTERPRISE QUOTE MODAL -->
+<div id="enterpriseModal" class="modal-backdrop hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>Enterprise কাস্টম কোটেশন</h3>
+      <button type="button" class="close-modal" id="closeModalBtn">×</button>
+    </div>
+    <p class="sub" style="margin-bottom:16px">আপনার প্রতিষ্ঠানের ইউজার সংখ্যা ও চাহিদা জানান, আমাদের টিম দ্রুত যোগাযোগ করবে।</p>
+    <form id="enterpriseForm">
+      <div class="field"><label>প্রতিষ্ঠানের নাম *</label><input required placeholder="Distribution House-এর নাম"></div>
+      <div class="field"><label>মোবাইল নম্বর *</label><input required placeholder="01XXXXXXXXX"></div>
+      <div class="field"><label>প্রয়োজনীয় User সংখ্যা ও বিবরণ</label><textarea rows="3" placeholder="যেমন: ৫০+ ইউজার, মাল্টি-ব্রাঞ্চ রিপোর্টিং..."></textarea></div>
+      <button type="submit" class="btn">কোটেশন রিকোয়েস্ট পাঠান</button>
+    </form>
+  </div>
+</div>
+
+<script>
+const plans = [
+  {
+    id: 'starter',
+    name: 'Starter',
+    desc: 'ছোট Distribution House-এর জন্য প্রয়োজনীয় ফিচার।',
+    monthly: 500,
+    yearly: 4800,
+    users: 'সর্বোচ্চ 5 Users',
+    features: ['Core Inventory Management', 'Sales & Order Entry', 'Basic Daily Reports'],
+    off: ['Advanced Financial Reports', 'Document Automation', 'Priority Support']
+  },
+  {
+    id: 'professional',
+    name: 'Professional',
+    desc: 'দৈনন্দিন অপারেশন ও রিপোর্টিং একসঙ্গে পরিচালনা করুন।',
+    monthly: 1500,
+    yearly: 14400,
+    users: 'সর্বোচ্চ 30 Users',
+    popular: true,
+    features: ['সব Starter Features', 'Advanced Financial Reports', 'Document & Invoice Automation', 'Employee & SR Management'],
+    off: ['Dedicated Priority Support']
+  },
+  {
+    id: 'enterprise',
+    name: 'Enterprise',
+    desc: 'বড় অপারেশন ও কাস্টম প্রয়োজনের জন্য নমনীয় সমাধান।',
+    monthly: null,
+    yearly: null,
+    users: 'Unlimited / Custom Users',
+    features: ['সব Professional Features', 'Custom Usage & Branch Limits', 'Dedicated Priority Support', 'Custom API & Integration'],
+    off: []
+  }
+];
+
+// Supported Promo Codes
+const promoCodes = {
+  'DHMS10': { type: 'percent', value: 10, label: '১০% প্রোমো ছাড়' },
+  'WELCOME200': { type: 'flat', value: 200, label: '৳২০০ ফ্ল্যাট ছাড়' },
+  'LAUNCH25': { type: 'percent', value: 25, label: '২৫% বার্ষিক ছাড়', yearlyOnly: true }
+};
+
+let cycle = 'monthly';
+let selectedPlan = plans[1];
+let appliedPromo = null;
+
+const money = n => '৳' + Math.round(Number(n)).toLocaleString('en-US');
+
+function renderPlans() {
+  document.getElementById('planGrid').innerHTML = plans.map(p => {
+    const price = p[cycle];
+    const regularYearly = p.monthly ? p.monthly * 12 : null;
+    const yearlySavings = regularYearly ? regularYearly - p.yearly : 0;
+
+    return `
+      <article class="plan ${p.popular ? 'featured' : ''}">
+        ${p.popular ? '<span class="popular">সবচেয়ে জনপ্রিয়</span>' : ''}
+        <h2>${p.name}</h2>
+        <div class="desc">${p.desc}</div>
+        <div class="price-wrap">
+          ${price !== null && cycle === 'yearly' ? `<span class="old-price">${money(regularYearly)}</span>` : ''}
+          <span class="price">${price === null ? 'Custom' : money(price)}</span>
+          <small>${price === null ? '' : '/' + (cycle === 'monthly' ? 'মাস' : 'বছর')}</small>
+        </div>
+        <div class="billing-note">
+          ${price === null ? 'কাস্টম প্রাইসিং ও ডেডিকেটেড সাপোর্ট' : (cycle === 'yearly' ? `বার্ষিক বিলিং · <strong>${money(yearlySavings)} সাশ্রয়</strong>` : 'মাসিক বিলিং · যেকোনো সময় বাতিলযোগ্য')}
+        </div>
+        <hr>
+        <div class="user-cap">${p.users}</div>
+        <div class="feature-title">প্ল্যানে যা থাকছে</div>
+        <ul class="features">
+          ${p.features.map(x => `<li>${x}</li>`).join('')}
+          ${p.off.map(x => `<li class="off">${x}</li>`).join('')}
+        </ul>
+        <button class="btn ${p.id === 'starter' ? 'secondary' : ''}" data-plan="${p.id}">
+          ${price === null ? 'কাস্টম কোটেশন নিন' : 'এই প্ল্যান নির্বাচন করুন'}
+        </button>
+      </article>
+    `;
+  }).join('');
+
+  document.querySelectorAll('[data-plan]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const plan = plans.find(x => x.id === btn.dataset.plan);
+      if (plan.monthly === null) {
+        document.getElementById('enterpriseModal').classList.remove('hidden');
+        return;
+      }
+      selectedPlan = plan;
+      showCheckout();
+    });
+  });
+}
+
+// Top Billing Toggle
+document.querySelectorAll('[data-cycle]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    cycle = btn.dataset.cycle;
+    document.querySelectorAll('[data-cycle]').forEach(x => x.classList.toggle('active', x === btn));
+    renderPlans();
+  });
+});
+
+// Summary Cycle Switcher
+document.querySelectorAll('[data-sum-cycle]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    cycle = btn.dataset.sumCycle;
+    document.querySelectorAll('[data-cycle]').forEach(x => x.classList.toggle('active', x.dataset.cycle === cycle));
+    renderPlans();
+    updateSummary();
+  });
+});
+
+function calculatePricing() {
+  const basePrice = selectedPlan[cycle];
+  const regularPrice = cycle === 'yearly' ? selectedPlan.monthly * 12 : selectedPlan.monthly;
+  const yearlySavings = cycle === 'yearly' ? regularPrice - basePrice : 0;
+
+  let promoDiscount = 0;
+  if (appliedPromo) {
+    const promo = promoCodes[appliedPromo];
+    if (promo.yearlyOnly && cycle !== 'yearly') {
+      // Remove yearly-only promo if switched to monthly
+      appliedPromo = null;
+      showPromoMessage('LAUNCH25 শুধুমাত্র বার্ষিক বিলিংয়ের জন্য প্রযোজ্য।', true);
+    } else if (promo.type === 'percent') {
+      promoDiscount = Math.round((basePrice * promo.value) / 100);
+    } else {
+      promoDiscount = Math.min(promo.value, basePrice);
+    }
+  }
+
+  const finalTotal = Math.max(0, basePrice - promoDiscount);
+  return { regularPrice, basePrice, yearlySavings, promoDiscount, finalTotal };
+}
+
+function updateSummary() {
+  const { regularPrice, yearlySavings, promoDiscount, finalTotal } = calculatePricing();
+
+  document.getElementById('sumName').textContent = selectedPlan.name + ' Plan';
+  document.getElementById('sumCycleBadge').textContent = cycle === 'monthly' ? 'মাসিক' : 'বার্ষিক';
+  document.getElementById('sumCycleMonthly').classList.toggle('active', cycle === 'monthly');
+  document.getElementById('sumCycleYearly').classList.toggle('active', cycle === 'yearly');
+
+  document.getElementById('sumRegularPrice').textContent = money(regularPrice);
+
+  // Yearly Discount Row
+  const yearlyRow = document.getElementById('yearlyDiscountRow');
+  if (yearlySavings > 0) {
+    yearlyRow.classList.remove('hidden');
+    document.getElementById('sumYearlyDiscount').textContent = '-' + money(yearlySavings);
+  } else {
+    yearlyRow.classList.add('hidden');
+  }
+
+  // Promo Discount Row
+  const promoRow = document.getElementById('promoDiscountRow');
+  const appliedBox = document.getElementById('appliedPromoBox');
+  if (appliedPromo && promoDiscount > 0) {
+    promoRow.classList.remove('hidden');
+    appliedBox.classList.remove('hidden');
+    document.getElementById('appliedCodeText').textContent = `${appliedPromo} (${promoCodes[appliedPromo].label})`;
+    document.getElementById('promoDiscountLabel').textContent = `প্রোমো ছাড় (${appliedPromo})`;
+    document.getElementById('sumPromoDiscount').textContent = '-' + money(promoDiscount);
+  } else {
+    promoRow.classList.add('hidden');
+    appliedBox.classList.add('hidden');
+  }
+
+  document.getElementById('sumTotal').textContent = money(finalTotal);
+}
+
+function showPromoMessage(text, isError) {
+  const el = document.getElementById('promoFeedback');
+  el.textContent = text;
+  el.className = 'promo-msg ' + (isError ? 'err' : 'ok');
+  el.classList.remove('hidden');
+}
+
+document.getElementById('applyPromoBtn').addEventListener('click', () => {
+  const input = document.getElementById('promoInput');
+  const code = input.value.trim().toUpperCase();
+  if (!code) {
+    showPromoMessage('অনুগ্রহ করে একটি প্রোমো কোড লিখুন।', true);
+    return;
+  }
+  const promo = promoCodes[code];
+  if (!promo) {
+    showPromoMessage('দুঃখিত, এই প্রোমো কোডটি সঠিক নয়।', true);
+    return;
+  }
+  if (promo.yearlyOnly && cycle !== 'yearly') {
+    showPromoMessage(`"${code}" কোডটি শুধুমাত্র বার্ষিক প্ল্যানের জন্য প্রযোজ্য।`, true);
+    return;
+  }
+  appliedPromo = code;
+  input.value = '';
+  showPromoMessage(`"${code}" কোডটি সফলভাবে যুক্ত হয়েছে!`, false);
+  updateSummary();
+});
+
+document.getElementById('removePromoBtn').addEventListener('click', () => {
+  appliedPromo = null;
+  document.getElementById('promoFeedback').classList.add('hidden');
+  updateSummary();
+});
+
+// Payment Instructions & Copy Feature
+const paymentData = {
+  bkash: {
+    title: 'bKash Payment Instructions',
+    account: '01700000000',
+    desc: 'bKash App থেকে <b>Send Money</b> বা <b>Payment</b> করে নিচে Transaction ID দিন।'
+  },
+  nagad: {
+    title: 'Nagad Payment Instructions',
+    account: '01800000000',
+    desc: 'Nagad App থেকে <b>Send Money</b> করে নিচে Transaction ID ও প্রেরকের নম্বর দিন।'
+  },
+  bank: {
+    title: 'Bank Transfer Instructions',
+    account: '1234567890123',
+    desc: 'City Bank PLC · A/C Name: <b>DHMS Solutions</b> · Transfer Reference দিন।'
+  }
+};
+
+function renderPaymentInstruction(method) {
+  const info = paymentData[method];
+  document.getElementById('paymentInstructions').innerHTML = `
+    <div class="method-header">
+      <strong>${info.title}</strong>
+      <button type="button" class="copy-btn" onclick="copyAccount('${info.account}', this)">Copy: ${info.account}</button>
+    </div>
+    <p>${info.desc}</p>
+  `;
+}
+
+window.copyAccount = function(text, btn) {
+  navigator.clipboard.writeText(text);
+  const old = btn.textContent;
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => btn.textContent = old, 1500);
+};
+
+renderPaymentInstruction('bkash');
+
+document.querySelectorAll('input[name="payment"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.querySelectorAll('.pay-option').forEach(opt => {
+      opt.classList.toggle('selected', opt.querySelector('input').checked);
+    });
+    renderPaymentInstruction(radio.value);
+  });
+});
+
+function showCheckout() {
+  document.getElementById('plansView').classList.add('hidden');
+  document.getElementById('successView').classList.add('hidden');
+  document.getElementById('checkoutView').classList.remove('hidden');
+  updateSummary();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.getElementById('backBtn').addEventListener('click', () => {
+  document.getElementById('checkoutView').classList.add('hidden');
+  document.getElementById('plansView').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// Form Submission
+document.getElementById('checkoutForm').addEventListener('submit', e => {
+  e.preventDefault();
+  if (!e.target.reportValidity()) return;
+
+  const { yearlySavings, promoDiscount, finalTotal } = calculatePricing();
+  const totalSaved = yearlySavings + promoDiscount;
+  const ref = 'DHMS-SUB-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+
+  document.getElementById('requestRef').textContent = ref;
+  document.getElementById('successHouse').textContent = document.getElementById('house').value;
+  document.getElementById('successPlan').textContent = `${selectedPlan.name} (${cycle === 'monthly' ? 'মাসিক' : 'বার্ষিক'})`;
+  document.getElementById('successDiscount').textContent = totalSaved > 0 ? `${money(totalSaved)} সাশ্রয়` : '৳0';
+  document.getElementById('successAmount').textContent = money(finalTotal);
+  document.getElementById('successTxn').textContent = document.getElementById('txn').value.toUpperCase();
+
+  document.getElementById('checkoutView').classList.add('hidden');
+  document.getElementById('successView').classList.remove('hidden');
+  document.getElementById('s3').classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+document.getElementById('doneBtn').addEventListener('click', () => {
+  appliedPromo = null;
+  document.getElementById('promoFeedback').classList.add('hidden');
+  document.getElementById('successView').classList.add('hidden');
+  document.getElementById('plansView').classList.remove('hidden');
+  document.getElementById('checkoutForm').reset();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// Enterprise Modal Logic
+document.getElementById('closeModalBtn').addEventListener('click', () => {
+  document.getElementById('enterpriseModal').classList.add('hidden');
+});
+document.getElementById('enterpriseForm').addEventListener('submit', e => {
+  e.preventDefault();
+  document.getElementById('enterpriseModal').classList.add('hidden');
+  e.target.reset();
+  alert('ধন্যবাদ! আপনার Enterprise কোটেশন রিকোয়েস্ট জমা হয়েছে। আমাদের Sales Team শীঘ্রই যোগাযোগ করবে।');
+});
+
+renderPlans();
+</script>
+</body>
+</html>

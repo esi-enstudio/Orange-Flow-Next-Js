@@ -5,23 +5,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn, getProfilePicUrl } from "@/lib/utils";
 import { navItems } from "@/lib/constants";
-import { ChevronRight, ChevronDown, LogOut, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useEntitlements } from "@/context/EntitlementsContext";
 import { moduleKeyOf } from "@/lib/planModules";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
-import { useBrand } from "@/context/BrandContext";
-import { useFullscreen } from "@/context/FullscreenContext";
 import { SIDEBAR_BADGE_ROUTES, useNotifications } from "@/context/NotificationsContext";
 
 interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
-  /** Focus mode: detach the desktop sidebar from the flow so it can slide in on hover. */
-  focusMode?: boolean;
-  /** Focus mode only: keep the sidebar pinned open while the pointer is over it. */
-  revealed?: boolean;
 }
 
 function isPathMatch(href: string, pathname: string): boolean {
@@ -37,7 +31,7 @@ function isNavPathMatch(
     (isResignationLetterheadActive && href === "/employees/resignation-documents");
 }
 
-export function Sidebar({ isOpen, onClose, focusMode, revealed }: SidebarProps) {
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
   const { hasModule, hasPage } = useEntitlements();
@@ -45,8 +39,6 @@ export function Sidebar({ isOpen, onClose, focusMode, revealed }: SidebarProps) 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [openNested, setOpenNested] = useState<string | null>(null);
   const [isResignationLetterheadActive, setIsResignationLetterheadActive] = useState(false);
-  const { brand } = useBrand();
-  const { setSidebarHovering } = useFullscreen();
   const { count: unreadNotifications } = useNotifications();
 
   // Filter items based on permissions - use memo to prevent mutation of constant
@@ -102,280 +94,307 @@ function filterChildren(children: any[]): any[] {
     );
   }, [pathname]);
 
-  // Auto-open parent menu if a child is active
-  React.useEffect(() => {
-    const activeParent = filteredNavItems.find(item => 
-      item.children?.some(child =>
-        isNavPathMatch(child.href, pathname, isResignationLetterheadActive) ||
-        child.children?.some(sub => isNavPathMatch(sub.href, pathname, isResignationLetterheadActive))
-      )
-    );
-    if (activeParent) {
-      setOpenMenu(activeParent.title);
-    }
-    // Auto-open nested menu if a sub-child is active
-    for (const item of filteredNavItems) {
-      for (const child of (item.children || [])) {
-        if (child.children?.some(sub => isNavPathMatch(sub.href, pathname, isResignationLetterheadActive))) {
-          setOpenNested(child.title);
-          return;
-        }
-      }
-    }
-  }, [pathname, filteredNavItems, isResignationLetterheadActive]);
-
-  const toggleMenu = (title: string) => {
-    setOpenMenu(prev => prev === title ? null : title);
-  };
-
-  const toggleNested = (title: string) => {
-    setOpenNested(prev => prev === title ? null : title);
+  const selectedMenu = filteredNavItems.find(item => item.title === openMenu);
+  const selectedNested = selectedMenu?.children?.find(
+    child => child.title === openNested && child.children?.length
+  );
+  const returnToMainMenu = () => {
+    setOpenMenu(null);
+    setOpenNested(null);
   };
 
   const sidebarContent = (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
-      <div className="p-6">
-        <div className="flex items-center justify-between gap-2 mb-8">
-          <div className="flex items-center gap-2">
-            {brand.logo ? (
-              <img src={brand.logo} alt="Logo" className="w-8 h-8 rounded-lg object-cover" />
-            ) : (
-              <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-200 dark:shadow-none">
-                <span className="text-white font-bold text-lg">{brand.app_name.charAt(0)}</span>
-              </div>
-            )}
-            <span className="font-bold text-xl tracking-tight dark:text-gray-100">{brand.app_name}</span>
-          </div>
-          {/* Mobile Close Button */}
-          <button 
+      <div className="p-2">
+        <div className="mb-8 flex items-center justify-between gap-2 rounded-xl bg-gray-50 p-2 dark:bg-slate-800">
+          <Link
+            href="/profile"
+            title={user?.name || t("common.user")}
+            aria-label={user?.name || t("common.user")}
             onClick={onClose}
-            className="md:hidden p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800"
+            className="group flex min-w-0 flex-1 items-center justify-start gap-3 overflow-hidden"
           >
-            <X className="w-5 h-5" />
-          </button>
+            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-primary-100 text-xs font-bold text-primary-600 transition-transform group-hover:scale-110 dark:bg-primary-500/20 dark:text-primary-400">
+              {user?.profile_pic ? (
+                <img src={getProfilePicUrl(user.profile_pic)!} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center">
+                  {user?.name?.charAt(0) || "U"}
+                </span>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <span className="truncate text-xs font-bold dark:text-gray-100 group-hover:text-primary-500">
+                {user?.name || t("common.user")}
+              </span>
+              <span className="truncate text-[10px] capitalize text-gray-500 dark:text-gray-400">
+                {user?.roles?.[0]?.name || t("common.user")}
+              </span>
+            </div>
+          </Link>
+          <div className="flex shrink-0 items-center">
+            <button
+              onClick={logout}
+              title={t("common.logout")}
+              aria-label={t("common.logout")}
+              className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10 cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <nav className="space-y-1">
-          {filteredNavItems.map((item) => {
-            const hasChildren = item.children && item.children.length > 0;
-            const isOpenMenu = openMenu === item.title;
-            const isParentActive = item.children?.some(c =>
-              isNavPathMatch(c.href, pathname, isResignationLetterheadActive) ||
-              c.children?.some(sub => isNavPathMatch(sub.href, pathname, isResignationLetterheadActive))
-            );
-            const isDirectActive = item.href === pathname;
+        <nav className="overflow-hidden">
+          <motion.div
+            animate={{ x: selectedNested ? "-66.6667%" : selectedMenu ? "-33.3333%" : "0%" }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            className="flex w-[300%]"
+          >
+            <div className="w-1/3 shrink-0 space-y-1">
+              {filteredNavItems.map((item) => {
+                const hasChildren = item.children && item.children.length > 0;
+                const isParentActive = item.children?.some(child =>
+                  (child.href && isNavPathMatch(child.href, pathname, isResignationLetterheadActive)) ||
+                  child.children?.some(sub =>
+                    sub.href && isNavPathMatch(sub.href, pathname, isResignationLetterheadActive)
+                  )
+                );
+                const isDirectActive = item.href === pathname;
+                const label = item.translationKey ? t(item.translationKey) : item.title;
 
-            return (
-              <div key={item.title} className="space-y-1">
-                {hasChildren ? (
-                  <button
-                    onClick={() => toggleMenu(item.title)}
-                    className={cn(
-                      "w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 group",
-                      isParentActive 
-                        ? "bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 font-semibold"
-                        : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-100"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <item.icon className={cn(
-                        "w-5 h-5 transition-colors",
-                        isParentActive ? "text-primary-600 dark:text-primary-400" : item.color || "text-gray-400 dark:text-gray-500",
-                        "group-hover:text-primary-600 dark:group-hover:text-primary-400"
-                      )} />
-                      <span className="text-sm">{item.translationKey ? t(item.translationKey) : item.title}</span>
-                    </div>
-                    <ChevronDown className={cn(
-                      "w-4 h-4 opacity-40 transition-transform duration-200",
-                      isOpenMenu && "rotate-180"
-                    )} />
-                  </button>
-                ) : (
+                if (hasChildren) {
+                  return (
+                    <button
+                      key={item.title}
+                      type="button"
+                      onClick={() => {
+                        setOpenMenu(item.title);
+                        setOpenNested(null);
+                      }}
+                      aria-expanded={selectedMenu?.title === item.title}
+                      title={label}
+                      aria-label={label}
+                      className={cn(
+                        "group flex w-full items-center justify-between rounded-xl px-3 py-2.5 transition-colors duration-200 cursor-pointer",
+                        isParentActive
+                          ? "bg-primary-50 font-semibold text-primary-600 dark:bg-primary-500/10 dark:text-primary-400"
+                          : "text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-slate-800 dark:hover:text-gray-100"
+                      )}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <item.icon className={cn(
+                          "h-5 w-5 shrink-0 transition-colors",
+                          isParentActive ? "text-primary-600 dark:text-primary-400" : item.color || "text-gray-400 dark:text-gray-500",
+                          "group-hover:text-primary-600 dark:group-hover:text-primary-400"
+                        )} />
+                        <span className="whitespace-nowrap text-sm">
+                          {label}
+                        </span>
+                      </span>
+                      <ChevronRight className="h-4 w-4 shrink-0 opacity-50" />
+                    </button>
+                  );
+                }
+
+                return (
                   <Link
+                    key={item.title}
                     href={item.href || "#"}
-                    onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
+                    title={label}
+                    aria-label={label}
+                    onClick={() => {
+                      returnToMainMenu();
+                      onClose?.();
+                    }}
                     className={cn(
-                      "flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 group",
+                      "group flex items-center justify-start rounded-xl px-3 py-2.5 transition-colors duration-200 cursor-pointer",
                       isDirectActive
-                        ? "bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400 font-semibold"
-                        : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-100"
+                        ? "bg-primary-50 font-semibold text-primary-600 dark:bg-primary-500/10 dark:text-primary-400"
+                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-slate-800 dark:hover:text-gray-100"
                     )}
                   >
-                    <div className="flex items-center gap-3">
+                    <span className="flex min-w-0 items-center gap-3">
                       <item.icon className={cn(
-                        "w-5 h-5 transition-colors",
+                        "h-5 w-5 shrink-0 transition-colors",
                         isDirectActive ? "text-primary-600 dark:text-primary-400" : item.color || "text-gray-400 dark:text-gray-500",
                         "group-hover:text-primary-600 dark:group-hover:text-primary-400"
                       )} />
-                      <span className="text-sm">{item.translationKey ? t(item.translationKey) : item.title}</span>
-                    </div>
+                      <span className="whitespace-nowrap text-sm">
+                        {label}
+                      </span>
+                    </span>
                   </Link>
-                )}
+                );
+              })}
+            </div>
 
-                <AnimatePresence>
-                  {hasChildren && isOpenMenu && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: "easeInOut" }}
-                      className="overflow-hidden ml-5"
-                    >
-                      <div className="space-y-1 pt-1 pb-1">
-                        {item.children?.map((child) => {
-                          const childHasNavChildren = child.children && child.children.length > 0;
-                          const isChildActive = pathname === child.href ||
-                            (isResignationLetterheadActive && child.href === "/employees/resignation-documents");
-                          const isNestedOpen = openNested === child.title;
-                          const isNestedActive = child.children?.some(c => c.href === pathname);
+            <div className="w-1/3 shrink-0 space-y-1">
+              {selectedMenu && (
+                <>
+                  <button
+                    type="button"
+                    onClick={returnToMainMenu}
+                    className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-slate-800 dark:hover:text-gray-100 cursor-pointer"
+                    aria-label={t("common.back")}
+                  >
+                    <ChevronLeft className="h-4 w-4 shrink-0" />
+                    <span>{t("common.back")}</span>
+                  </button>
+                  <div className="px-3 pb-1 pt-2 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    {selectedMenu.translationKey ? t(selectedMenu.translationKey) : selectedMenu.title}
+                  </div>
+                  {selectedMenu.children?.map((child) => {
+                    const childHasNavChildren = child.children && child.children.length > 0;
+                    const label = child.translationKey ? t(child.translationKey) : child.title;
+                    const isChildActive = child.href
+                      ? isNavPathMatch(child.href, pathname, isResignationLetterheadActive)
+                      : false;
+                    const isNestedActive = child.children?.some(sub =>
+                      isNavPathMatch(sub.href, pathname, isResignationLetterheadActive)
+                    );
 
-                          if (childHasNavChildren) {
-                            return (
-                              <div key={child.title} className="space-y-1">
-                                <button
-                                  onClick={() => { toggleNested(child.title); if (window.innerWidth < 768 && onClose) onClose(); }}
-                                  className={cn(
-                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all group/item text-left",
-                                    isNestedActive || isChildActive
-                                      ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
-                                      : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
-                                  )}
-                                >
-                                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                                    <div className={cn(
-                                      "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
-                                      isNestedActive || isChildActive
-                                        ? "bg-primary-500 scale-125"
-                                        : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-primary-300"
-                                    )} />
-                                    <span className="truncate">{child.translationKey ? t(child.translationKey) : child.title}</span>
-                                  </div>
-                                  <ChevronDown className={cn(
-                                    "w-3 h-3 opacity-40 transition-transform duration-200 shrink-0",
-                                    isNestedOpen && "rotate-180"
-                                  )} />
-                                </button>
-                                <AnimatePresence>
-                                  {isNestedOpen && (
-                                    <motion.div
-                                      initial={{ height: 0, opacity: 0 }}
-                                      animate={{ height: "auto", opacity: 1 }}
-                                      exit={{ height: 0, opacity: 0 }}
-                                      transition={{ duration: 0.15, ease: "easeInOut" }}
-                                      className="overflow-hidden ml-4"
-                                    >
-                                      <div className="space-y-0.5 pt-0.5 pb-0.5">
-                                        {child.children?.map((sub) => {
-                                          const isSubActive = pathname === sub.href;
-                                          return (
-                                            <Link
-                                              key={sub.href}
-                                              href={sub.href}
-                                              onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
-                                              className={cn(
-                                                "flex items-center gap-3 px-3 py-1.5 rounded-lg text-[11px] transition-all group/sub",
-                                                isSubActive
-                                                  ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
-                                                  : "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                                              )}
-                                            >
-                                              <div className="w-1 h-1 rounded-full bg-gray-300 dark:bg-slate-700 group-hover/sub:bg-primary-300" />
-                                              <span>{sub.translationKey ? t(sub.translationKey) : sub.title}</span>
-                                            </Link>
-                                          );
-                                        })}
-                                      </div>
-                                    </motion.div>
-                                  )}
-                                </AnimatePresence>
-                              </div>
-                            );
-                          }
+                    if (childHasNavChildren) {
+                      return (
+                        <button
+                          key={child.title}
+                          type="button"
+                          onClick={() => setOpenNested(child.title)}
+                          aria-expanded={selectedNested?.title === child.title}
+                          className={cn(
+                            "flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors cursor-pointer",
+                            isNestedActive || isChildActive
+                              ? "bg-primary-50 font-semibold text-primary-700 dark:bg-primary-500/10 dark:text-primary-300"
+                              : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-800"
+                          )}
+                        >
+                          <span className="truncate">{label}</span>
+                          <ChevronRight className="h-4 w-4 shrink-0 opacity-50" />
+                        </button>
+                      );
+                    }
 
-                          return (
-                            <Link
-                              key={child.href}
-                              href={child.href}
-                              onClick={() => { if (window.innerWidth < 768 && onClose) onClose(); }}
-                              className={cn(
-                                "flex items-center gap-4 px-3 py-2 rounded-lg text-xs transition-all group/item",
-                                isChildActive
-                                  ? "text-primary-600 dark:text-primary-400 font-bold bg-primary-50/50 dark:bg-primary-500/5"
-                                  : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-                              )}
-                            >
-                              <div className={cn(
-                                "w-1.5 h-1.5 rounded-full transition-all duration-300",
-                                isChildActive 
-                                  ? "bg-primary-500 scale-125" 
-                                  : "bg-gray-300 dark:bg-slate-700 group-hover/item:bg-primary-300"
-                              )} />
-                              <span className="flex-1">{child.translationKey ? t(child.translationKey) : child.title}</span>
-                              {SIDEBAR_BADGE_ROUTES[child.href] && unreadNotifications > 0 && (
-                                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-                                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                                </span>
-                              )}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          })}
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href || "#"}
+                        onClick={() => {
+                          returnToMainMenu();
+                          onClose?.();
+                        }}
+                        className={cn(
+                          "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors cursor-pointer",
+                          isChildActive
+                            ? "bg-primary-50 font-semibold text-primary-700 dark:bg-primary-500/10 dark:text-primary-300"
+                            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-slate-800 dark:hover:text-gray-100"
+                        )}
+                      >
+                        <span className={cn(
+                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          isChildActive ? "bg-primary-500" : "bg-gray-300 dark:bg-slate-700"
+                        )} />
+                        <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {child.href && SIDEBAR_BADGE_ROUTES[child.href] && unreadNotifications > 0 && (
+                          <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                            {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+
+            <div className="w-1/3 shrink-0 space-y-1">
+              {selectedNested && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setOpenNested(null)}
+                    className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-slate-800 dark:hover:text-gray-100 cursor-pointer"
+                    aria-label={t("common.back")}
+                  >
+                    <ChevronLeft className="h-4 w-4 shrink-0" />
+                    <span>{t("common.back")}</span>
+                  </button>
+                  <div className="px-3 pb-1 pt-2 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    {selectedNested.translationKey ? t(selectedNested.translationKey) : selectedNested.title}
+                  </div>
+                  {selectedNested.children?.map((sub) => {
+                    const label = sub.translationKey ? t(sub.translationKey) : sub.title;
+                    const isSubActive = isNavPathMatch(sub.href, pathname, isResignationLetterheadActive);
+                    return (
+                      <Link
+                        key={sub.href}
+                        href={sub.href}
+                        onClick={() => {
+                          returnToMainMenu();
+                          onClose?.();
+                        }}
+                        className={cn(
+                          "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors cursor-pointer",
+                          isSubActive
+                            ? "bg-primary-50 font-semibold text-primary-700 dark:bg-primary-500/10 dark:text-primary-300"
+                            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-slate-800 dark:hover:text-gray-100"
+                        )}
+                      >
+                        <span className={cn(
+                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          isSubActive ? "bg-primary-500" : "bg-gray-300 dark:bg-slate-700"
+                        )} />
+                        <span className="min-w-0 flex-1 truncate">{label}</span>
+                      </Link>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </motion.div>
         </nav>
       </div>
 
-      <div className="mt-auto p-6 space-y-4">
-        <div className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-slate-800 rounded-xl group/card">
-          <Link href="/profile" className="flex items-center gap-3 flex-1 overflow-hidden group">
-            <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xs group-hover:scale-110 transition-transform overflow-hidden">
-              {user?.profile_pic ? (
-                <img src={getProfilePicUrl(user.profile_pic)!} alt="User" className="w-full h-full object-cover" />
-              ) : (
-                user?.name?.charAt(0) || "U"
-              )}
-            </div>
-            <div className="flex flex-col overflow-hidden">
-              <span className="text-xs font-bold truncate dark:text-gray-100 group-hover:text-primary-500 transition-colors">{user?.name || t('common.user')}</span>
-              <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate capitalize">{user?.roles?.[0]?.name || t('common.user')}</span>
-            </div>
-          </Link>
-          <button 
-            onClick={logout}
-            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-            title={t('common.logout')}
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
     </div>
   );
 
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside
-        // Pinned while the pointer is inside the panel, so nav items stay clickable.
-        onMouseEnter={() => focusMode && setSidebarHovering(true)}
-        onMouseLeave={() => focusMode && setSidebarHovering(false)}
-        className={cn(
-          // One transition-property for both colour and transform — see DashboardLayout.
-          "hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 h-screen scrollbar-hide duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none transition-[color,background-color,border-color,outline-color,transform]",
-          focusMode
-            ? cn(
-                "fixed inset-y-0 left-0 z-[101] shadow-2xl will-change-transform",
-                revealed ? "translate-x-0" : "-translate-x-full"
-              )
-            : "sticky top-0"
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <motion.button
+              type="button"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={onClose}
+              aria-label={t("common.close")}
+              className="fixed inset-0 z-[100] hidden cursor-pointer border-0 bg-black/10 p-0 backdrop-blur-sm md:block"
+            />
+            <motion.aside
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed inset-y-0 left-0 z-[101] hidden w-64 shadow-2xl md:flex"
+            >
+              <div className="flex h-full w-full flex-col overflow-hidden border-r border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-900">
+                {sidebarContent}
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={t("common.close")}
+                title={t("common.close")}
+                className="absolute left-full top-8 ml-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-500 shadow-lg transition-colors hover:bg-gray-100 hover:text-gray-900 dark:bg-slate-800 dark:text-gray-300 dark:hover:bg-slate-700 dark:hover:text-white cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </motion.aside>
+          </>
         )}
-      >
-        {sidebarContent}
-      </aside>
+      </AnimatePresence>
 
       {/* Mobile Drawer */}
       <AnimatePresence>
@@ -396,6 +415,15 @@ function filterChildren(children: any[]): any[] {
               className="fixed inset-y-0 left-0 w-72 bg-white dark:bg-slate-900 z-[101] md:hidden shadow-2xl transition-colors duration-300"
             >
               {sidebarContent}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={t("common.close")}
+                title={t("common.close")}
+                className="absolute left-full top-8 ml-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-500 shadow-lg transition-colors hover:bg-gray-100 hover:text-gray-900 dark:bg-slate-800 dark:text-gray-300 dark:hover:bg-slate-700 dark:hover:text-white cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </motion.aside>
           </>
         )}
