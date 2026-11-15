@@ -177,7 +177,9 @@ export default function BillingPage() {
       const res = await apiClient.get("houses/accessible");
       const list: HouseOption[] = res.data || [];
       setHouses(list);
-      setHouseId(list.length === 1 ? list[0].id : null);
+      const requestedHouseId = Number(new URLSearchParams(window.location.search).get("house_id"));
+      const requestedHouse = list.find((house) => house.id === requestedHouseId);
+      setHouseId(requestedHouse?.id ?? (list.length === 1 ? list[0].id : null));
     } catch {
       /* ignore */
     }

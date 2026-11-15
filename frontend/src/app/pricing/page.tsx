@@ -182,6 +182,13 @@ export default function PricingPage() {
         router.push("/billing");
       }
     } catch (err: any) {
+      const errorCode =
+        err?.response?.data?.error_code || err?.response?.data?.detail?.code;
+      if (errorCode === "OPEN_INVOICE_EXISTS") {
+        toast(t("pricing.open_invoice_redirect"));
+        router.push(`/billing?house_id=${houseId}`);
+        return;
+      }
       toast.error(err?.message || t("pricing.something_went_wrong"));
     } finally {
       setActionId(null);
