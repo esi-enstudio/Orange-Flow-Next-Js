@@ -346,5 +346,14 @@ export function buildPermissionGroups(allPerms: PermissionItem[]): PagePermissio
     }
   }
 
-  return mergedGroups;
+  // A role permission is global by ID, so render a shared key only in its first route group.
+  const assignedPermissionIds = new Set<number>();
+  return mergedGroups.map((group) => ({
+    ...group,
+    perms: group.perms.filter((perm) => {
+      if (assignedPermissionIds.has(perm.id)) return false;
+      assignedPermissionIds.add(perm.id);
+      return true;
+    }),
+  }));
 }
