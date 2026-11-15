@@ -289,19 +289,21 @@ export default function PricingPage() {
                 </p>
               </div>
 
-              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-primary-100 bg-primary-50/60 p-4 dark:border-primary-900/60 dark:bg-primary-950/30">
-                <BadgeCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary-600 dark:text-primary-300" />
-                <div>
-                  <p className="font-bold text-gray-900 dark:text-gray-100">
+              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-primary-100 bg-primary-50/60 p-4 shadow-sm dark:border-primary-400/40 dark:bg-slate-800 dark:shadow-lg">
+                <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-100 dark:bg-primary-500/20 dark:ring-1 dark:ring-primary-400/30">
+                  <BadgeCheck className="h-5 w-5 text-primary-600 dark:text-primary-300" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-gray-900 dark:text-white">
                     {checkoutPlan.name}
                   </p>
                   {checkoutPlan.description && (
-                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                    <p className="mt-1 text-sm text-gray-600 dark:text-slate-200">
                       {checkoutPlan.description}
                     </p>
                   )}
                   {checkoutPlan.trial_days > 0 && (
-                    <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-primary-700 dark:text-primary-300">
+                    <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-100/70 px-2.5 py-1 text-xs font-semibold text-primary-700 dark:border-primary-400/30 dark:bg-primary-500/20 dark:text-primary-100">
                       <Clock3 className="h-3.5 w-3.5" />
                       {t("pricing.trial_days", { days: checkoutPlan.trial_days })}
                     </p>
