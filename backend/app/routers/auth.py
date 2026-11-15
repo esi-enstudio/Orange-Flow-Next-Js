@@ -32,7 +32,7 @@ from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
 from app.services.user_employee import ensure_supervisor_employee, conflict_detail
-from app.utils.access_control import is_admin_user
+from app.utils.access_control import is_super_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.validation import validate_image, MAX_FILE_SIZE
 import logging
@@ -144,11 +144,10 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Admins bypass the users_houses pivot (mirrors GET /houses/accessible).
-    # Without this, an admin with no explicit house rows gets houses: [], the
-    # frontend cannot resolve a default house, and every house-scoped page
-    # silently loads nothing because no X-House-ID header is ever sent.
-    if is_admin_user(current_user) and not current_user.houses:
+    # Only the platform super admin bypasses the users_houses pivot (mirrors
+    # GET /houses/accessible). A tenant admin with no assigned house gets none:
+    # house access is deny-by-default.
+    if is_super_admin_user(current_user) and not current_user.houses:
         result = await db.execute(select(House).order_by(House.name))
         current_user.houses = list(result.scalars().all())
     return current_user

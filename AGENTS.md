@@ -1620,6 +1620,17 @@ const res = await apiClient.get("houses/accessible");
 setHouses(res.data);
 ```
 
+### House Visibility — Assigned Houses Only (Hard Rule)
+
+A user must see **exactly the houses assigned to them** in every house selector, filter, dropdown and list — never the full house table because they hold an admin-ish role.
+
+- `GET /api/houses/accessible`, `GET /api/houses` and `GET /api/houses/filter-options` return `current_user.houses` for every role **except the platform super admin**. Tenant roles (`admin`, `manager`, `house manager`) are house-scoped, not platform roles.
+- Reference helper: `_sees_all_houses()` in `backend/app/routers/houses.py` (mirrors `deps.get_house_context`).
+- `GET /api/auth/me` may attach the full house list only for the super admin, and only when the user has no explicit `users_houses` rows.
+- Enforcement is backend-first: hiding options in the UI is not enough. `TENANT_STRICT_HOUSE_ISOLATION=false` is the only opt-in escape hatch, and only for single-company deployments.
+- Any new house dropdown/filter must read from these endpoints; never build a separate "all houses" list.
+- Regression tests live in `backend/tests/test_tenant_isolation.py`.
+
 ### UI House Selector
 
 Users with multiple houses should see a house switcher in the header/sidebar.

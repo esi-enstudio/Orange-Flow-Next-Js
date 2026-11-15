@@ -124,3 +124,43 @@ async def test_middleware_allows_own_house(db, plan):
     resolved_house, sub = result
     assert resolved_house.id == house.id
     assert sub is not None
+
+
+async def test_accessible_houses_scoped_to_assignments(db, house):
+    """A tenant house manager only sees the houses assigned to them."""
+    from app.routers.houses import get_accessible_houses
+
+    await make_house(db, code="H009", name="Foreign House")
+    rows = await get_accessible_houses(
+        db=db, current_user=_user(role_names=["house manager"], houses=[house])
+    )
+    assert [r["id"] for r in rows] == [house.id]
+
+
+async def test_accessible_houses_super_admin_sees_all(db, house):
+    from app.routers.houses import get_accessible_houses
+
+    other = await make_house(db, code="H010", name="Another House")
+    rows = await get_accessible_houses(
+        db=db, current_user=_user(role_names=["super admin"])
+    )
+    assert {house.id, other.id} <= {r["id"] for r in rows}
+
+
+async def test_house_list_scoped_to_assignments(db, house):
+    from app.routers.houses import list_houses
+    from app.schemas.pagination import PaginationParams
+
+    await make_house(db, code="H011", name="Foreign House 2")
+    res = await list_houses(
+        pagination=PaginationParams(page=1, per_page=20, sort_by="id", sort_order="asc"),
+        search=None,
+        cluster=None,
+        region=None,
+        wh_region=None,
+        district=None,
+        is_active=None,
+        db=db,
+        current_user=_user(role_names=["house manager"], houses=[house]),
+    )
+    assert [row["id"] for row in res.data] == [house.id]

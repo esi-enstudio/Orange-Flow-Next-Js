@@ -20,10 +20,24 @@ from app.services.resignation_pdf import build_preview_html, render_pdf
 from app.utils.access_control import is_admin_user, is_super_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/houses", tags=["houses"])
+
+
+def _sees_all_houses(user: User) -> bool:
+    """Only the platform super admin sees every house.
+
+    Tenant "admin"/"manager"/"house manager" roles are house-scoped like every
+    other user (mirrors `deps.get_house_context`).
+    `TENANT_STRICT_HOUSE_ISOLATION=false` restores the old bypass for
+    single-company deployments.
+    """
+    if is_super_admin_user(user):
+        return True
+    return not settings.TENANT_STRICT_HOUSE_ISOLATION and is_admin_user(user)
 
 
 @router.get("/accessible")
@@ -31,12 +45,11 @@ async def get_accessible_houses(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    is_admin = is_admin_user(current_user)
-    if is_admin:
+    if _sees_all_houses(current_user):
         result = await db.execute(select(House).order_by(House.name))
         houses = result.scalars().all()
     else:
-        houses = current_user.houses
+        houses = sorted(current_user.houses, key=lambda h: h.name)
     return [
         {
             "id": h.id,
@@ -53,9 +66,9 @@ async def get_house_filter_options(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    is_admin = is_admin_user(current_user)
+    sees_all = _sees_all_houses(current_user)
     base = select(House)
-    if not is_admin:
+    if not sees_all:
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
             base = base.where(House.id.in_(user_house_ids))
@@ -90,8 +103,7 @@ async def list_houses(
 ):
     base_query = select(House).order_by(House.name)
 
-    is_admin = is_admin_user(current_user)
-    if not is_admin:
+    if not _sees_all_houses(current_user):
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
             base_query = base_query.where(House.id.in_(user_house_ids))
