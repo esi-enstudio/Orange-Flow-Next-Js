@@ -102,7 +102,8 @@ export default function BTSPage() {
 
       const [btsRes, houseRes, filterRes] = await Promise.all([
         apiClient.get("bts", { params }),
-        apiClient.get("houses").then(r => ({ data: r.data.data || r.data })).catch(() => ({ data: [] })),
+        // Assigned houses only (super admin sees all) — mirrors the backend scope.
+        apiClient.get("houses/accessible").catch(() => ({ data: [] })),
         apiClient.get("bts/filters", { params: filterHouse ? { filter_house_id: filterHouse } : {} }).catch(() => ({ data: { thanas: [] } }))
       ]);
       setBtsList(btsRes.data);
@@ -195,23 +196,29 @@ export default function BTSPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('bts.description')}</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
-          <button
-            onClick={handleImportClick}
-            disabled={isImporting}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
-          >
-            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {t('bts.import_list')}
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={isExporting}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
-          >
-            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {t('bts.export_list')}
-          </button>
+          {hasPermission("bts.import") && (
+            <>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
+              <button
+                onClick={handleImportClick}
+                disabled={isImporting}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {t('bts.import_list')}
+              </button>
+            </>
+          )}
+          {hasPermission("bts.export") && (
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            >
+              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {t('bts.export_list')}
+            </button>
+          )}
         </div>
       </div>
 

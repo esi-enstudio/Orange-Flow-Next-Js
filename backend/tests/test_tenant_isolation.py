@@ -164,3 +164,17 @@ async def test_house_list_scoped_to_assignments(db, house):
         current_user=_user(role_names=["house manager"], houses=[house]),
     )
     assert [row["id"] for row in res.data] == [house.id]
+
+
+async def test_bts_house_filter_is_scoped(db, house):
+    from app.routers.bts import _scoped_house_filter
+
+    user = _user(role_names=["house manager"], houses=[house])
+    assert _scoped_house_filter(user, house.id) == house.id
+    assert _scoped_house_filter(user, None) is None
+    with pytest.raises(HTTPException) as exc:
+        _scoped_house_filter(user, house.id + 1)
+    assert exc.value.status_code == 403
+
+    super_admin = _user(role_names=["super admin"])
+    assert _scoped_house_filter(super_admin, house.id + 1) == house.id + 1

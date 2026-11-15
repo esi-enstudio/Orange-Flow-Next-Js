@@ -10,7 +10,7 @@ from app.routers.deps import get_db, has_permission, get_house_context
 from app.schemas.bts import BTSSchema
 from app.models.bts import BTS
 from app.models.user import User
-from app.utils.access_control import is_admin_user
+from app.utils.access_control import is_super_admin_user
 from app.utils.validation import safe_filename, validate_excel
 from app.services.Automation.bts_excel import process_bts_excel, export_bts_excel
 import logging
@@ -18,6 +18,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bts", tags=["bts"])
+
+
+def _scoped_house_filter(user: User, requested: Optional[int]) -> Optional[int]:
+    """Only the super admin may name a house outside their assignments."""
+    if requested is None or is_super_admin_user(user):
+        return requested
+    if requested not in [h.id for h in user.houses]:
+        raise HTTPException(status_code=403, detail="You do not have access to this house")
+    return requested
 
 @router.get("", response_model=list[BTSSchema])
 async def get_bts(
@@ -30,14 +39,11 @@ async def get_bts(
     current_user: User = Depends(has_permission("bts.view")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    effective_house_id = filter_house_id or house_id
+    effective_house_id = _scoped_house_filter(current_user, filter_house_id) or house_id
     query = select(BTS)
-    is_admin = is_admin_user(current_user)
     if effective_house_id:
         query = query.where(BTS.house_id == effective_house_id)
-    elif is_admin:
-        pass
-    else:
+    elif not is_super_admin_user(current_user):
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
             query = query.where(BTS.house_id.in_(user_house_ids))
@@ -80,10 +86,9 @@ async def export_bts(
     house_id: Optional[int] = Depends(get_house_context)
 ):
     query = select(BTS)
-    is_admin = is_admin_user(current_user)
     if house_id:
         query = query.where(BTS.house_id == house_id)
-    elif not is_admin:
+    elif not is_super_admin_user(current_user):
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
             query = query.where(BTS.house_id.in_(user_house_ids))
@@ -105,12 +110,11 @@ async def get_bts_filters(
     filter_house_id: Optional[int] = Query(None),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    effective_house_id = filter_house_id or house_id
+    effective_house_id = _scoped_house_filter(current_user, filter_house_id) or house_id
     query = select(BTS.thana).distinct()
-    is_admin = is_admin_user(current_user)
     if effective_house_id:
         query = query.where(BTS.house_id == effective_house_id)
-    elif not is_admin:
+    elif not is_super_admin_user(current_user):
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
             query = query.where(BTS.house_id.in_(user_house_ids))
