@@ -1,0 +1,7 @@
+# Frontend module
+
+- App Router source: `frontend/src/app`; shared components/layout: `frontend/src/components`; auth/theme contexts: `frontend/src/context`; API client/utilities/navigation: `frontend/src/lib`; translations and language hook: `frontend/src/i18n`. Alias `@/*` maps to `frontend/src/*`.
+- Uses custom BN/EN i18n (not next-intl): UI text should use the existing translation system and keys in `translations.ts`. Nav titles are in `lib/constants.ts`; dynamic title/lang sync is handled by `components/layout/DynamicPageTitle.tsx`. New pages need bilingual page-title registration and `PageGuideModal` content per root instructions.
+- Before changing Next.js app code, obey the Next 16 agent note in `frontend/AGENTS.md`: consult the relevant installed docs under `frontend/node_modules/next/dist/docs/`; do not assume older Next APIs.
+- Follow root UI standards: permission-aware controls, responsive layouts, project-wide date formatting, standard filter drawer and `EntitySelector`; reuse existing patterns rather than custom duplicates. Tables should follow compact cell styling and responsive accordion behavior where applicable.
+- Commands: `cd frontend && npm run dev|lint|build`; package scripts are in `frontend/package.json`. Use `mem:task_completion` for checks.
