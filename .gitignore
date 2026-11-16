@@ -23,6 +23,9 @@ ENV/
 # IDE / Editor
 # ================================
 .vscode/
+!.vscode/
+.vscode/*
+!.vscode/mcp.json
 .idea/
 *.sublime-project
 *.sublime-workspace
