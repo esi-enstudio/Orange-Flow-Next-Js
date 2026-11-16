@@ -4,13 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Search, Download, Building2, Calendar, Package,
+  Search, Download, Building2, Package,
   RotateCcw, ChevronDown, ChevronLeft, ChevronRight,
   Inbox, TrendingUp, BarChart3, CalendarDays, Hash,
-  ArrowUp, ArrowDown, ChevronsUpDown, X,
+  ArrowUp, ArrowDown, ChevronsUpDown, X, SlidersHorizontal,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
+import { DateRangePicker } from "@/components/date-picker";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -247,6 +249,7 @@ export default function GAQueryPage() {
   const [sortBy, setSortBy] = useState<string>("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // ── Permission check ──
   const canView = hasPermission("ga_query.view");
@@ -419,7 +422,7 @@ export default function GAQueryPage() {
   const handleApply = () => {
     if (!selectedHouseId) {
       toast.error(t("ga_query.select_house_required"));
-      return;
+      return false;
     }
     setSearchText("");
     setSortBy("");
@@ -428,6 +431,7 @@ export default function GAQueryPage() {
     fetchRsoOptions(selectedRetailerIds);
     fetchActivations(selectedRetailerIds, 1, { sortBy: "", sortOrder: "desc", filters: columnFilters });
     fetchSummary(selectedRetailerIds);
+    return true;
   };
 
   // ── Page change ──
@@ -543,157 +547,6 @@ export default function GAQueryPage() {
           </div>
         </div>
 
-        {/* Filters Panel */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-4 sm:p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* House Selector */}
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <Building2 className="w-4 h-4 text-primary-500" />
-                {t("ga_query.select_house")}
-              </label>
-              <select
-                value={selectedHouseId}
-                onChange={(e) => {
-                  setSelectedHouseId(e.target.value);
-                  setSelectedRetailerIds([]);
-                  setRetailers([]);
-                  setActivations([]);
-                  setProductCodes([]);
-                  setSelectedProductCodes([]);
-                  setRsoSelected([]);
-                  setSummary(null);
-                  setPagination(null);
-                }}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
-              >
-                <option value="">{t("ga_query.select_house")}</option>
-                {houses.map((h) => (
-                  <option key={h.id} value={h.id}>
-                    {h.code} — {h.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Start Date */}
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <Calendar className="w-4 h-4 text-primary-500" />
-                {t("ga_query.start_date")}
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
-              />
-            </div>
-
-            {/* End Date */}
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <Calendar className="w-4 h-4 text-primary-500" />
-                {t("ga_query.end_date")}
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
-              />
-            </div>
-
-            {/* Retailer Selector */}
-            <EntitySelector
-              label={t("ga_query.select_retailer")}
-              items={retailers.map((r) => ({
-                id: String(r.id),
-                label: r.name,
-                sublabel: `${r.retailer_code}${r.itop_number ? ` • ${r.itop_number}` : ""}`,
-              }))}
-              selectedIds={selectedRetailerIds}
-              onChange={(ids) => setSelectedRetailerIds(ids.map(String))}
-              placeholder={t("ga_query.select_retailer_placeholder")}
-              searchPlaceholder={t("ga_query.retailer_search")}
-              emptyMessage={loadingRetailers ? t("ga_query.loading_retailers") : t("ga_query.type_to_search")}
-              noResultsMessage={t("ga_query.no_retailers")}
-              onSearchChange={(q) => setRetailerSearch(q)}
-              disabled={!selectedHouseId}
-              selectAllLabel={t("common.select_all")}
-              clearLabel={t("common.clear")}
-              selectedLabel={t("ga_query.selected")}
-            />
-
-            {/* RSO Multi-Select */}
-            <EntitySelector
-              label={t("ga_query.select_rso")}
-              items={rsoOptions.map((o) => ({
-                id: o.value,
-                label: o.value,
-                sublabel: `DMS: ${o.dms_code ?? "—"}${o.itop_number ? ` • ITop: ${o.itop_number}` : ""}`,
-                badge: o.employee_type ? o.employee_type.toUpperCase() : undefined,
-              }))}
-              selectedIds={rsoSelected}
-              onChange={(ids) => handleRsoChange(ids.map(String))}
-              placeholder={t("ga_query.select_rso_placeholder")}
-              searchPlaceholder={t("ga_query.rso_search")}
-              emptyMessage={loadingRso ? t("ga_query.loading_rso") : t("ga_query.no_rso")}
-              noResultsMessage={t("ga_query.no_rso")}
-              disabled={!selectedHouseId}
-              selectAllLabel={t("common.select_all")}
-              clearLabel={t("common.clear")}
-              selectedLabel={t("ga_query.selected")}
-            />
-
-            {/* Product Multi-Select */}
-            <EntitySelector
-              label={t("ga_query.table.product")}
-              items={productCodes.map((p) => ({
-                id: p.code,
-                label: p.code,
-                sublabel: `• ${p.count}`,
-              }))}
-              selectedIds={selectedProductCodes}
-              onChange={(ids) => handleProductChange(ids.map(String))}
-              placeholder={t("ga_query.select_product_placeholder")}
-              searchPlaceholder={t("ga_query.product_search")}
-              emptyMessage={loadingProducts ? t("ga_query.loading_products") : t("ga_query.no_product_codes")}
-              noResultsMessage={t("ga_query.no_product_codes")}
-              disabled={!selectedHouseId}
-              selectAllLabel={t("common.select_all")}
-              clearLabel={t("common.clear")}
-              selectedLabel={t("ga_query.selected")}
-            />
-
-            {/* SIM / MSISDN Filter */}
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <Hash className="w-4 h-4 text-primary-500" />
-                {t("ga_query.table.sim_msisdn")}
-              </label>
-              <FilterInput value={columnFilters.sim_msisdn ?? ""} onApply={(v) => handleColumnFilter("sim_msisdn", v)} placeholder={t("ga_query.table.filter_placeholder")} />
-            </div>
-          </div>
-
-          {/* Apply Button */}
-          <div className="mt-4">
-            <button
-              onClick={handleApply}
-              disabled={!selectedHouseId || loading}
-              className={cn(
-                "inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer",
-                selectedHouseId
-                  ? "bg-primary-600 text-white hover:bg-primary-700 shadow-sm shadow-primary-600/25 active:scale-[0.98]"
-                  : "bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
-              )}
-            >
-              <Search className="w-4 h-4" />
-              {loading ? t("ga_query.loading_data") : t("ga_query.apply")}
-            </button>
-          </div>
-        </div>
-
         {/* Summary Cards */}
         {summary && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -784,6 +637,21 @@ export default function GAQueryPage() {
                     className="w-40 sm:w-56 pl-9 pr-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 transition-colors"
                   />
                 </div>
+
+                {/* Filter drawer trigger */}
+                <button
+                  onClick={() => setFiltersOpen(true)}
+                  title={t("ga_query.filter.open")}
+                  aria-label={t("ga_query.filter.open")}
+                  className="relative p-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-500/10 hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-200 cursor-pointer"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  {Object.values(columnFilters).filter(Boolean).length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary-600 text-white text-[10px] font-semibold flex items-center justify-center">
+                      {Object.values(columnFilters).filter(Boolean).length}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -1018,6 +886,167 @@ export default function GAQueryPage() {
           )}
         </div>
       </div>
+
+      {/* Filter Drawer */}
+      <AnimatePresence>
+        {filtersOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setFiltersOpen(false)}
+              className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm"
+            />
+            <motion.aside
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("ga_query.filter.open")}
+              className="fixed inset-y-0 right-0 z-[101] w-full sm:max-w-md bg-white dark:bg-slate-900 shadow-2xl flex flex-col"
+            >
+              <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 dark:border-slate-800">
+                <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                  {t("ga_query.filter.open")}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen(false)}
+                  aria-label={t("common.close")}
+                  className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                {/* House Selector */}
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <Building2 className="w-4 h-4 text-primary-500" />
+                    {t("ga_query.select_house")}
+                  </label>
+                  <select
+                    value={selectedHouseId}
+                    onChange={(e) => {
+                      setSelectedHouseId(e.target.value);
+                      setSelectedRetailerIds([]);
+                      setRetailers([]);
+                      setActivations([]);
+                      setProductCodes([]);
+                      setSelectedProductCodes([]);
+                      setRsoSelected([]);
+                      setSummary(null);
+                      setPagination(null);
+                    }}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
+                  >
+                    <option value="">{t("ga_query.select_house")}</option>
+                    {houses.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.code} — {h.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Date Range */}
+                <DateRangePicker
+                  label={t("ga_query.date_range")}
+                  value={{ from: startDate || null, to: endDate || null }}
+                  onChange={(range) => {
+                    setStartDate(range.from ?? "");
+                    setEndDate(range.to ?? "");
+                  }}
+                />
+
+                {/* Retailer Selector */}
+                <EntitySelector
+                  label={t("ga_query.select_retailer")}
+                  items={retailers.map((r) => ({
+                    id: String(r.id),
+                    label: r.name,
+                    sublabel: `${r.retailer_code}${r.itop_number ? ` • ${r.itop_number}` : ""}`,
+                  }))}
+                  selectedIds={selectedRetailerIds}
+                  onChange={(ids) => setSelectedRetailerIds(ids.map(String))}
+                  placeholder={t("ga_query.select_retailer_placeholder")}
+                  searchPlaceholder={t("ga_query.retailer_search")}
+                  emptyMessage={loadingRetailers ? t("ga_query.loading_retailers") : t("ga_query.type_to_search")}
+                  noResultsMessage={t("ga_query.no_retailers")}
+                  onSearchChange={(q) => setRetailerSearch(q)}
+                  disabled={!selectedHouseId}
+                  selectAllLabel={t("common.select_all")}
+                  clearLabel={t("common.clear")}
+                  selectedLabel={t("ga_query.selected")}
+                />
+
+                {/* RSO Multi-Select */}
+                <EntitySelector
+                  label={t("ga_query.select_rso")}
+                  items={rsoOptions.map((o) => ({
+                    id: o.value,
+                    label: o.value,
+                    sublabel: `DMS: ${o.dms_code ?? "—"}${o.itop_number ? ` • ITop: ${o.itop_number}` : ""}`,
+                    badge: o.employee_type ? o.employee_type.toUpperCase() : undefined,
+                  }))}
+                  selectedIds={rsoSelected}
+                  onChange={(ids) => handleRsoChange(ids.map(String))}
+                  placeholder={t("ga_query.select_rso_placeholder")}
+                  searchPlaceholder={t("ga_query.rso_search")}
+                  emptyMessage={loadingRso ? t("ga_query.loading_rso") : t("ga_query.no_rso")}
+                  noResultsMessage={t("ga_query.no_rso")}
+                  disabled={!selectedHouseId}
+                  selectAllLabel={t("common.select_all")}
+                  clearLabel={t("common.clear")}
+                  selectedLabel={t("ga_query.selected")}
+                />
+
+                {/* Product Multi-Select */}
+                <EntitySelector
+                  label={t("ga_query.table.product")}
+                  items={productCodes.map((p) => ({
+                    id: p.code,
+                    label: p.code,
+                    sublabel: `• ${p.count}`,
+                  }))}
+                  selectedIds={selectedProductCodes}
+                  onChange={(ids) => handleProductChange(ids.map(String))}
+                  placeholder={t("ga_query.select_product_placeholder")}
+                  searchPlaceholder={t("ga_query.product_search")}
+                  emptyMessage={loadingProducts ? t("ga_query.loading_products") : t("ga_query.no_product_codes")}
+                  noResultsMessage={t("ga_query.no_product_codes")}
+                  disabled={!selectedHouseId}
+                  selectAllLabel={t("common.select_all")}
+                  clearLabel={t("common.clear")}
+                  selectedLabel={t("ga_query.selected")}
+                />
+              </div>
+
+              <div className="px-5 py-4 border-t border-gray-100 dark:border-slate-800">
+                <button
+                  onClick={() => {
+                    if (handleApply()) setFiltersOpen(false);
+                  }}
+                  disabled={!selectedHouseId || loading}
+                  className={cn(
+                    "w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all disabled:cursor-not-allowed",
+                    selectedHouseId
+                      ? "bg-primary-600 text-white hover:bg-primary-700 shadow-sm shadow-primary-600/25 active:scale-[0.98] cursor-pointer"
+                      : "bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-gray-400"
+                  )}
+                >
+                  <Search className="w-4 h-4" />
+                  {loading ? t("ga_query.loading_data") : t("ga_query.apply")}
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1036,61 +1065,7 @@ function DetailRow({ label, value, sub }: { label: string; value: string | null;
   );
 }
 
-// ── Filter input with draft (Enter to apply, date applies on change) ──
-function FilterInput({
-  value,
-  onApply,
-  type = "text",
-  placeholder,
-}: {
-  value: string;
-  onApply: (v: string) => void;
-  type?: "text" | "date";
-  placeholder?: string;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-
-  if (type === "date") {
-    return (
-      <input
-        type="date"
-        value={value}
-        onChange={(e) => onApply(e.target.value)}
-        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer"
-      />
-    );
-  }
-
-  return (
-    <div className="relative">
-      <input
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            onApply(draft.trim());
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        placeholder={placeholder ?? "Filter..."}
-        className="w-full pl-3 pr-8 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors"
-      />
-      {draft && (
-        <button
-          type="button"
-          onClick={() => { setDraft(""); onApply(""); }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ── Sortable column header (filter lives in the top Filters Panel) ──
+// ── Sortable column header (filters live in the filter drawer) ──
 function ColumnHeader({
   label,
   sortKey,

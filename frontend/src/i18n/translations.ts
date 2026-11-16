@@ -5725,6 +5725,7 @@ export const translations = {
       },
       filter: {
         title: "Refine Results",
+        open: "Filters",
         search_placeholder: "Search SIM, MSISDN, product...",
       },
       filters_title: "Sort & Filter",
@@ -12402,6 +12403,7 @@ employees: "Employees",
       },
       filter: {
         title: "ফলাফল পরিশোধন",
+        open: "ফিল্টার",
         search_placeholder: "সিম, মিসিসডিএন, প্রোডাক্ট খুঁজুন...",
       },
       filters_title: "সাজান ও ফিল্টার",

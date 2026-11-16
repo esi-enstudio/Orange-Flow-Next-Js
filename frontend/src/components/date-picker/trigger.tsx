@@ -73,4 +73,4 @@ export function DatePickerTrigger({
 
 /** Panel chrome shared by both pickers: rounded card, no padding of its own. */
 export const DATE_PICKER_PANEL =
-  "w-auto max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-lg shadow-gray-900/5 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/40";
+  "z-[110] w-auto max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-lg shadow-gray-900/5 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/40";

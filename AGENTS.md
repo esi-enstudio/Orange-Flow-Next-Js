@@ -57,6 +57,7 @@ The AI Agent must strictly follow all rules mentioned below for every task, modu
 34. Internationalization (i18n) — Bilingual (বাংলা/English) Support
 35. WhatsApp/Telegram Report Delivery Module
 36. Large-Volume Operations — Background Queue
+37. Filter System — Right-Side Filter Drawer (Project-wide Standard)
 
 ---
 
@@ -825,6 +826,46 @@ The GA Query page is the reference implementation. Use this exact component for 
 
 ---
 
+# Filter System — Right-Side Filter Drawer (Project-wide Standard)
+
+## Principle
+
+কোনো page/table/list-এ **inline filter section রাখা যাবে না**। সব ফিল্টার (house, date range, retailer/employee/product, text filters) একটি **right-side sliding filter panel**-এ থাকবে। Screen-এর বড় জায়গা data table-কে দিতে হবে, filter লাগলে user নিজে drawer খুলবে।
+
+## Reference Implementation
+
+`frontend/src/app/reports/ga-query/page.tsx` — filter icon → right drawer → Apply। নতুন page-এ ঠিক এই pattern follow করতে হবে।
+
+## Mandatory Rules
+
+1. **Trigger** — "Refine Results" toolbar-এ search field-এর **ঠিক পরে** icon-only filter button (`SlidersHorizontal` from `lucide-react`) থাকবে। `title` ও `aria-label` translation key থেকে আসবে। Active filter থাকলে ছোট count badge দেখানো যাবে।
+2. **Panel** — `AnimatePresence` + `motion.aside` দিয়ে **ডান দিক থেকে slide-in** (sidebar-এর মতো): `initial={{ x: "100%" }}`, `animate={{ x: 0 }}`, `exit={{ x: "100%" }}`, `transition={{ type: "spring", damping: 25, stiffness: 200 }}`. Width: `w-full sm:max-w-md`, `fixed inset-y-0 right-0 z-[101]`, `flex flex-col`।
+3. **Backdrop** — panel open থাকলে পেছনের screen হালকা blur + dim হবে: `fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm`; click করলে panel বন্ধ হবে। Panel header-এ close (`X`) button থাকবে।
+4. **One column** — panel body-তে প্রতিটি filter field **full-width, এক কলামে** (`flex-1 overflow-y-auto px-5 py-4 space-y-4`)। কখনো একাধিক column grid ব্যবহার করা যাবে না।
+5. **Date fields** — Start Date ও End Date আলাদা input হিসেবে দেখানো যাবে না। সবসময় shared `DateRangePicker` (`@/components/date-picker`) ব্যবহার করতে হবে:
+   ```tsx
+   <DateRangePicker
+     label={t("...date_range...")}
+     value={{ from: startDate || null, to: endDate || null }}
+     onChange={(range) => { setStartDate(range.from ?? ""); setEndDate(range.to ?? ""); }}
+   />
+   ```
+6. **Staged apply** — filter values draft হিসেবে রাখতে হবে; panel-এর footer-এ full-width **Apply** button click করলে filter apply হবে এবং panel বন্ধ হবে। Apply ছাড়া filter data request trigger করবে না। Backdrop/X-এ বন্ধ করলে draft apply হবে না।
+7. **i18n** — panel title, trigger label, Apply, close — সব text translation key দিয়ে en/bn দুটোতেই থাকবে।
+8. **Cursor / Responsive / Permission** — Apply enabled হলে `cursor-pointer`, disabled হলে `cursor-not-allowed`; mobile-এ panel full-width; filter action page-এর view permission-এর অধীন।
+9. **No duplicates** — একই filter একবারই panel-এ থাকবে; toolbar search আলাদা (immediate search), panel-এর filter গুলো staged apply হিসেবে চলবে।
+
+## Checklist — Filter Drawer
+
+- [ ] Page body-তে কোনো inline filter section নেই
+- [ ] Toolbar search-এর পরে filter icon button আছে (bilingual title/aria-label)
+- [ ] Panel ডান দিক থেকে slide-in হয়, backdrop blurred, एक column fields
+- [ ] Start/End date-এর বদলে `DateRangePicker` ব্যবহৃত
+- [ ] Apply করলে filter apply + panel বন্ধ হয়; Apply ছাড়া কিছু apply হয় না
+- [ ] Mobile (375px)-এ panel full-width ও scrollable
+
+---
+
 # Dynamic Page Title & HTML Lang Synchronization
 
 ## Objective
@@ -1091,6 +1132,7 @@ Before marking any feature complete:
 
 **UX**
 - [ ] Content-aware skeleton added for loading states
+- [ ] Filters follow the right-side filter drawer standard (no inline filter section, `DateRangePicker` for dates)
 
 **Responsive**
 - [ ] Mobile (375px) টেস্ট করা হয়েছে
