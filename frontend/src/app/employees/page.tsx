@@ -54,7 +54,7 @@ import PageGuideModal from "@/components/PageGuideModal";
 import { motion, AnimatePresence } from "framer-motion";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useLanguage } from "@/i18n/useLanguage";
-import EmployeeMasterFilter, { EmployeeFilters, defaultFilters } from "@/components/employees/EmployeeMasterFilter";
+import EmployeeMasterFilter, { EmployeeFilters, defaultFilters, countActiveEmployeeFilters } from "@/components/employees/EmployeeMasterFilter";
 import EmployeeAttachmentsPanel, {
   AttachmentPayload,
   EMPTY_ATTACHMENT_PAYLOAD,
@@ -969,6 +969,8 @@ export default function EmployeesPage() {
   if (authLoading) return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-500"/></div>;
   if (!hasPermission("employees.view")) return <AccessDenied />;
 
+  const activeFilterCount = countActiveEmployeeFilters(filters);
+
   return (
     <div className="-mx-2 -mt-2 sm:mx-0 sm:mt-0 w-full space-y-3 sm:space-y-6">
       {/* Header */}
@@ -1015,18 +1017,6 @@ export default function EmployeesPage() {
         <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden transition-all duration-300">
         <div className="p-3 md:p-4 border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-row gap-2 md:gap-4 justify-between items-center">
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={cn(
-                "p-2 rounded-xl border transition-all active:scale-95 shrink-0 cursor-pointer",
-                showFilters
-                  ? "bg-primary-500 text-white border-primary-500 shadow-sm"
-                  : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700"
-              )}
-              title="Toggle filters"
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
             <div className="relative flex-1 md:w-80 group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
               <input 
@@ -1037,30 +1027,21 @@ export default function EmployeesPage() {
                 onChange={e => {setFilters(f => ({ ...f, search: e.target.value })); setPage(1);}}
               />
             </div>
+            <button
+              onClick={() => setShowFilters(true)}
+              className="relative p-2 rounded-xl border bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-500/10 hover:text-primary-600 dark:hover:text-primary-400 transition-all active:scale-95 shrink-0 cursor-pointer"
+              title={t('employees.filter_title')}
+              aria-label={t('employees.filter_title')}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary-600 text-white text-[10px] font-semibold flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
-
-        {/* Filter dropdown */}
-        <AnimatePresence>
-          {showFilters && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="overflow-hidden border-b dark:border-slate-800"
-            >
-              <div className="p-4">
-                <EmployeeMasterFilter
-                  filters={filters}
-                  onChange={(f) => { setFilters(f); setPage(1); }}
-                  onClear={() => { setFilters({ ...defaultFilters }); setPage(1); }}
-                  houses={houses}
-                />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Status Tabs */}
         <div className="border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 px-2.5 sm:px-4 py-2">
@@ -2318,6 +2299,14 @@ export default function EmployeesPage() {
           </div>
         )}
       </AnimatePresence>
+
+      <EmployeeMasterFilter
+        open={showFilters}
+        filters={filters}
+        onApply={(f) => { setFilters(f); setPage(1); }}
+        onClose={() => setShowFilters(false)}
+        houses={houses}
+      />
     </div>
   );
 }

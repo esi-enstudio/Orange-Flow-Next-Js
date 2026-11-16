@@ -1,30 +1,26 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Search,
-  ChevronDown,
-  ChevronUp,
-  X,
-  Filter,
-  RotateCcw,
-  User,
-  Briefcase,
   Activity,
-  CreditCard,
-  Smartphone,
   Bike,
+  Building2,
   Car,
-  Droplets,
-  Church,
-  Calendar,
-  DollarSign,
   Check,
-  Minus,
+  Church,
+  CreditCard,
+  DollarSign,
+  Droplets,
+  RotateCcw,
+  UserRound,
+  X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
+import { DateRangePicker } from "@/components/date-picker";
 
 export interface EmployeeFilters {
   search: string;
@@ -68,6 +64,13 @@ export const defaultFilters: EmployeeFilters = {
   house_id: null,
 };
 
+/** Filters that live in the drawer (search stays in the toolbar as immediate search). */
+export function countActiveEmployeeFilters(filters: EmployeeFilters): number {
+  return Object.entries(filters).filter(
+    ([key, val]) => key !== "search" && val !== null && val !== ""
+  ).length;
+}
+
 interface House {
   id: number;
   name: string;
@@ -87,122 +90,61 @@ interface FilterOptions {
 }
 
 interface Props {
+  open: boolean;
   filters: EmployeeFilters;
-  onChange: (filters: EmployeeFilters) => void;
-  onClear: () => void;
+  onApply: (filters: EmployeeFilters) => void;
+  onClose: () => void;
   houses: House[];
 }
 
-function FilterSection({ title, icon: Icon, children, defaultOpen = true }: { title: string; icon: any; children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [maxHeight, setMaxHeight] = useState(defaultOpen ? "500px" : "0px");
+const FIELD_CLASS =
+  "w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 transition-colors cursor-pointer";
 
-  useEffect(() => {
-    if (contentRef.current) {
-      setMaxHeight(open ? `${contentRef.current.scrollHeight}px` : "0px");
-    }
-  }, [open, children]);
-
+function Field({ label, icon: Icon, children }: { label: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
-    <div className="border-b dark:border-slate-800 last:border-b-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-[11px] font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <Icon className="w-3.5 h-3.5" />
-          <span>{title}</span>
-        </div>
-        <div className={cn(
-          "transition-transform duration-300",
-          open ? "rotate-180" : "rotate-0"
-        )}>
-          <ChevronDown className="w-3.5 h-3.5" />
-        </div>
-      </button>
-      <div
-        className="overflow-hidden transition-all duration-300 ease-in-out"
-        style={{ maxHeight }}
-      >
-        <div ref={contentRef} className="px-4 pb-3 space-y-2.5">
-          {children}
-        </div>
-      </div>
+    <div className="space-y-1.5">
+      <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+        <Icon className="w-4 h-4 text-primary-500" />
+        {label}
+      </label>
+      {children}
     </div>
   );
 }
 
-function SelectFilter({
+function TriBoolSelect({
   value,
   onChange,
-  options,
-  placeholder,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  options: FilterOption[];
-  placeholder: string;
+  value: boolean | null;
+  onChange: (v: boolean | null) => void;
 }) {
+  const { t } = useLanguage();
   return (
     <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all appearance-none"
+      value={value === null ? "" : String(value)}
+      onChange={(e) => onChange(e.target.value === "" ? null : e.target.value === "true")}
+      className={FIELD_CLASS}
     >
-      <option value="">{placeholder}</option>
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>{opt.label}</option>
-      ))}
+      <option value="">{t("common.all")}</option>
+      <option value="true">{t("common.yes")}</option>
+      <option value="false">{t("common.no")}</option>
     </select>
   );
 }
 
-function ToggleFilter({
-  value,
-  onChange,
-  label,
-}: {
-  value: boolean | null;
-  onChange: (v: boolean | null) => void;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">{label}</span>
-      <div className="flex rounded-lg overflow-hidden border dark:border-slate-700">
-        <button
-          type="button"
-          onClick={() => onChange(value === true ? null : true)}
-          className={cn(
-            "px-2.5 py-1 text-[10px] font-bold transition-all",
-            value === true
-              ? "bg-green-500 text-white"
-              : "bg-gray-50 dark:bg-slate-800 text-gray-400 hover:text-green-600"
-          )}
-        >
-          <Check className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange(value === false ? null : false)}
-          className={cn(
-            "px-2.5 py-1 text-[10px] font-bold transition-all",
-            value === false
-              ? "bg-red-500 text-white"
-              : "bg-gray-50 dark:bg-slate-800 text-gray-400 hover:text-red-600"
-          )}
-        >
-          <Minus className="w-3 h-3" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function EmployeeMasterFilter({ filters, onChange, onClear, houses }: Props) {
+export default function EmployeeMasterFilter({ open, filters, onApply, onClose, houses }: Props) {
   const { t } = useLanguage();
+  const [draft, setDraft] = useState<EmployeeFilters>(filters);
+  const wasOpen = useRef(false);
+
+  // Stage a fresh copy of the applied filters every time the drawer opens, so
+  // closing without Apply leaves the table untouched.
+  useEffect(() => {
+    if (open && !wasOpen.current) setDraft(filters);
+    wasOpen.current = open;
+  }, [open, filters]);
+
   const [options, setOptions] = useState<FilterOptions>({
     statuses: [],
     market_types: [],
@@ -216,270 +158,237 @@ export default function EmployeeMasterFilter({ filters, onChange, onClear, house
     }).catch(() => {});
   }, []);
 
-  const update = useCallback(
-    (key: keyof EmployeeFilters, value: any) => {
-      onChange({ ...filters, [key]: value });
-    },
-    [filters, onChange]
-  );
+  const update = (key: keyof EmployeeFilters, value: EmployeeFilters[keyof EmployeeFilters]) => {
+    setDraft((d) => ({ ...d, [key]: value }));
+  };
 
-  const activeCount = Object.entries(filters).filter(([key, val]) => {
-    if (key === "search") return (val as string).length > 0;
-    if (val === null || val === "") return false;
-    return true;
-  }).length;
-
-  const chipList: { label: string; onRemove: () => void }[] = [];
-  if (filters.house_id) {
-    const h = houses.find(h => h.id === filters.house_id);
-    if (h) chipList.push({ label: `House: ${h.name}`, onRemove: () => update("house_id", null) });
-  }
-  if (filters.role) chipList.push({ label: `Role: ${filters.role}`, onRemove: () => update("role", "") });
-  if (filters.market_type) chipList.push({ label: `Market: ${filters.market_type}`, onRemove: () => update("market_type", "") });
-  if (filters.blood_group) chipList.push({ label: `Blood: ${filters.blood_group}`, onRemove: () => update("blood_group", "") });
-  if (filters.religion) chipList.push({ label: `Religion: ${filters.religion}`, onRemove: () => update("religion", "") });
-  if (filters.has_assisted_code !== null) chipList.push({ label: `Assisted code: ${filters.has_assisted_code ? "Yes" : "No"}`, onRemove: () => update("has_assisted_code", null) });
-  if (filters.has_user !== null) chipList.push({ label: `Has user: ${filters.has_user ? "Yes" : "No"}`, onRemove: () => update("has_user", null) });
-  if (filters.has_bank_info !== null) chipList.push({ label: `Bank info: ${filters.has_bank_info ? "Yes" : "No"}`, onRemove: () => update("has_bank_info", null) });
-  if (filters.joining_date_from) chipList.push({ label: `Joined from: ${filters.joining_date_from}`, onRemove: () => update("joining_date_from", "") });
-  if (filters.joining_date_to) chipList.push({ label: `Joined to: ${filters.joining_date_to}`, onRemove: () => update("joining_date_to", "") });
-  if (filters.resigned_date_from) chipList.push({ label: `Resigned from: ${filters.resigned_date_from}`, onRemove: () => update("resigned_date_from", "") });
-  if (filters.resigned_date_to) chipList.push({ label: `Resigned to: ${filters.resigned_date_to}`, onRemove: () => update("resigned_date_to", "") });
-  if (filters.salary_min) chipList.push({ label: `Salary min: ${filters.salary_min}`, onRemove: () => update("salary_min", "") });
-  if (filters.salary_max) chipList.push({ label: `Salary max: ${filters.salary_max}`, onRemove: () => update("salary_max", "") });
+  const yesNoOptions: FilterOption[] = [
+    { value: "Yes", label: t("common.yes") },
+    { value: "No", label: t("common.no") },
+  ];
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden">
-      {/* Header */}
-      <div className="px-4 py-3 border-b dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-900/50">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-primary-500" />
-          <span className="text-sm font-bold dark:text-gray-100">Filters</span>
-          {activeCount > 0 && (
-            <span className="text-[10px] font-bold bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 px-2 py-0.5 rounded-full">
-              {activeCount}
-            </span>
-          )}
-        </div>
-        {activeCount > 0 && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-[11px] font-bold text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors"
-          >
-            <RotateCcw className="w-3 h-3" />
-            Clear all
-          </button>
-        )}
-      </div>
-
-      {/* Active chips */}
-      {chipList.length > 0 && (
-        <div className="px-4 py-2 border-b dark:border-slate-800 flex flex-wrap gap-1.5">
-          {chipList.map((chip, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-50 dark:bg-primary-500/10 text-primary-700 dark:text-primary-300 rounded-full text-[10px] font-bold"
-            >
-              {chip.label}
-              <button type="button" onClick={chip.onRemove} className="hover:text-red-500 transition-colors">
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Filter sections */}
-      <div className="divide-y dark:divide-slate-800">
-        {/* Search */}
-        <div className="px-4 py-2.5">
-          <div className="relative group">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-            <input
-              type="text"
-              placeholder="Search employees..."
-              className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
-              value={filters.search}
-              onChange={(e) => update("search", e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* House & Role */}
-        <div className="px-4 py-2.5 border-b dark:border-slate-800 space-y-2.5">
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">House</label>
-            <SelectFilter
-              value={filters.house_id ? String(filters.house_id) : ""}
-              onChange={(v) => update("house_id", v ? Number(v) : null)}
-              options={houses.map((h) => ({ value: String(h.id), label: `${h.name} (${h.code})` }))}
-              placeholder="All houses"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Role</label>
-            <SelectFilter
-              value={filters.role}
-              onChange={(v) => update("role", v)}
-              options={["RSO", "BP", "Supervisor", "Manager", "BSP", "RBSP"].map((r) => ({ value: r, label: r }))}
-              placeholder="All roles"
-            />
-          </div>
-        </div>
-
-        {/* Market Type */}
-        <FilterSection title="Market Type" icon={Activity}>
-          <SelectFilter
-            value={filters.market_type}
-            onChange={(v) => update("market_type", v)}
-            options={options.market_types.map((s) => ({ value: s, label: s }))}
-            placeholder="All market types"
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm"
           />
-        </FilterSection>
+          <motion.aside
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("employees.filter_title")}
+            className="fixed inset-y-0 right-0 z-[101] w-full sm:max-w-md bg-white dark:bg-slate-900 shadow-2xl flex flex-col"
+          >
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 dark:border-slate-800">
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                {t("employees.filter_title")}
+              </h2>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...defaultFilters, search: filters.search })}
+                  className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                  title={t("employees.filter_reset")}
+                  aria-label={t("employees.filter_reset")}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label={t("common.close")}
+                  className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
 
-        {/* Personal */}
-        <FilterSection title="Personal" icon={User} defaultOpen={false}>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Blood Group</label>
-              <SelectFilter
-                value={filters.blood_group}
-                onChange={(v) => update("blood_group", v)}
-                options={options.blood_groups.map((s) => ({ value: s, label: s }))}
-                placeholder="Any"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Religion</label>
-              <SelectFilter
-                value={filters.religion}
-                onChange={(v) => update("religion", v)}
-                options={options.religions.map((s) => ({ value: s, label: s }))}
-                placeholder="Any"
-              />
-            </div>
-          </div>
-        </FilterSection>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              <Field label={t("employees.filter_house")} icon={Building2}>
+                <select
+                  value={draft.house_id ? String(draft.house_id) : ""}
+                  onChange={(e) => update("house_id", e.target.value ? Number(e.target.value) : null)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_all_houses")}</option>
+                  {houses.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name} ({h.code})
+                    </option>
+                  ))}
+                </select>
+              </Field>
 
-        {/* Assets */}
-        <FilterSection title="Assets" icon={Bike} defaultOpen={false}>
-          <div className="grid grid-cols-3 gap-2">
-            <SelectFilter
-              value={filters.motor_bike}
-              onChange={(v) => update("motor_bike", v)}
-              options={[{ value: "Yes", label: "Yes" }, { value: "No", label: "No" }]}
-              placeholder="Motor bike"
-            />
-            <SelectFilter
-              value={filters.bicyle}
-              onChange={(v) => update("bicyle", v)}
-              options={[{ value: "Yes", label: "Yes" }, { value: "No", label: "No" }]}
-              placeholder="Bicycle"
-            />
-            <SelectFilter
-              value={filters.driving_license}
-              onChange={(v) => update("driving_license", v)}
-              options={[{ value: "Yes", label: "Yes" }, { value: "No", label: "No" }]}
-              placeholder="License"
-            />
-          </div>
-        </FilterSection>
+              <Field label={t("employees.filter_role")} icon={UserRound}>
+                <select
+                  value={draft.role}
+                  onChange={(e) => update("role", e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_all_roles")}</option>
+                  {["RSO", "BP", "Supervisor", "Manager", "BSP", "RBSP"].map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </Field>
 
-        {/* Presence toggles */}
-        <FilterSection title="Presence" icon={Check} defaultOpen={false}>
-          <div className="space-y-2">
-            <ToggleFilter
-              value={filters.has_assisted_code}
-              onChange={(v) => update("has_assisted_code", v)}
-              label="Assisted retailer code"
-            />
-            <ToggleFilter
-              value={filters.has_user}
-              onChange={(v) => update("has_user", v)}
-              label="Linked user"
-            />
-            <ToggleFilter
-              value={filters.has_bank_info}
-              onChange={(v) => update("has_bank_info", v)}
-              label="Bank info"
-            />
-          </div>
-        </FilterSection>
+              <Field label={t("employees.filter_market_type")} icon={Activity}>
+                <select
+                  value={draft.market_type}
+                  onChange={(e) => update("market_type", e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_all_market_types")}</option>
+                  {options.market_types.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </Field>
 
-        {/* Date ranges */}
-        <FilterSection title="Joining Date" icon={Calendar} defaultOpen={false}>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">From</label>
-              <input
-                type="date"
-                value={filters.joining_date_from}
-                onChange={(e) => update("joining_date_from", e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
+              <DateRangePicker
+                label={t("employees.filter_joining_date")}
+                value={{ from: draft.joining_date_from || null, to: draft.joining_date_to || null }}
+                onChange={(range) => {
+                  update("joining_date_from", range.from ?? "");
+                  update("joining_date_to", range.to ?? "");
+                }}
               />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">To</label>
-              <input
-                type="date"
-                value={filters.joining_date_to}
-                onChange={(e) => update("joining_date_to", e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
-              />
-            </div>
-          </div>
-        </FilterSection>
 
-        <FilterSection title="Resigned Date" icon={Calendar} defaultOpen={false}>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">From</label>
-              <input
-                type="date"
-                value={filters.resigned_date_from}
-                onChange={(e) => update("resigned_date_from", e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
+              <DateRangePicker
+                label={t("employees.filter_resigned_date")}
+                value={{ from: draft.resigned_date_from || null, to: draft.resigned_date_to || null }}
+                onChange={(range) => {
+                  update("resigned_date_from", range.from ?? "");
+                  update("resigned_date_to", range.to ?? "");
+                }}
               />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">To</label>
-              <input
-                type="date"
-                value={filters.resigned_date_to}
-                onChange={(e) => update("resigned_date_to", e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
-              />
-            </div>
-          </div>
-        </FilterSection>
 
-        {/* Salary range */}
-        <FilterSection title="Salary Range" icon={DollarSign} defaultOpen={false}>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Min</label>
-              <input
-                type="number"
-                placeholder="0"
-                value={filters.salary_min}
-                onChange={(e) => update("salary_min", e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
-              />
+              <Field label={t("employees.filter_blood_group")} icon={Droplets}>
+                <select
+                  value={draft.blood_group}
+                  onChange={(e) => update("blood_group", e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_any")}</option>
+                  {options.blood_groups.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label={t("employees.filter_religion")} icon={Church}>
+                <select
+                  value={draft.religion}
+                  onChange={(e) => update("religion", e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_any")}</option>
+                  {options.religions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label={t("employees.filter_motor_bike")} icon={Bike}>
+                <select
+                  value={draft.motor_bike}
+                  onChange={(e) => update("motor_bike", e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_any")}</option>
+                  {yesNoOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label={t("employees.filter_bicycle")} icon={Bike}>
+                <select
+                  value={draft.bicyle}
+                  onChange={(e) => update("bicyle", e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_any")}</option>
+                  {yesNoOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label={t("employees.filter_driving_license")} icon={Car}>
+                <select
+                  value={draft.driving_license}
+                  onChange={(e) => update("driving_license", e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">{t("employees.filter_any")}</option>
+                  {yesNoOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label={t("employees.filter_assisted_code")} icon={Check}>
+                <TriBoolSelect
+                  value={draft.has_assisted_code}
+                  onChange={(v) => update("has_assisted_code", v)}
+                />
+              </Field>
+
+              <Field label={t("employees.filter_linked_user")} icon={UserRound}>
+                <TriBoolSelect value={draft.has_user} onChange={(v) => update("has_user", v)} />
+              </Field>
+
+              <Field label={t("employees.filter_bank_info")} icon={CreditCard}>
+                <TriBoolSelect value={draft.has_bank_info} onChange={(v) => update("has_bank_info", v)} />
+              </Field>
+
+              <Field label={t("employees.filter_salary_min")} icon={DollarSign}>
+                <input
+                  type="number"
+                  placeholder={t("employees.filter_salary_min_placeholder")}
+                  value={draft.salary_min}
+                  onChange={(e) => update("salary_min", e.target.value)}
+                  className={cn(FIELD_CLASS, "cursor-text")}
+                />
+              </Field>
+
+              <Field label={t("employees.filter_salary_max")} icon={DollarSign}>
+                <input
+                  type="number"
+                  placeholder={t("employees.filter_salary_max_placeholder")}
+                  value={draft.salary_max}
+                  onChange={(e) => update("salary_max", e.target.value)}
+                  className={cn(FIELD_CLASS, "cursor-text")}
+                />
+              </Field>
             </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Max</label>
-              <input
-                type="number"
-                placeholder="999999"
-                value={filters.salary_max}
-                onChange={(e) => update("salary_max", e.target.value)}
-                className="w-full p-2 bg-gray-50 dark:bg-slate-800 border border-transparent rounded-lg text-xs dark:text-gray-200 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
-              />
+
+            <div className="px-5 py-4 border-t border-gray-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  onApply(draft);
+                  onClose();
+                }}
+                className="w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 shadow-sm shadow-primary-600/25 active:scale-[0.98] transition-all cursor-pointer"
+              >
+                {t("employees.filter_apply")}
+              </button>
             </div>
-          </div>
-        </FilterSection>
-      </div>
-    </div>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
