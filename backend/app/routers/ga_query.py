@@ -11,15 +11,22 @@ from app.routers.deps import get_db, has_permission, get_house_context, get_curr
 from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.employee import Employee
+from app.models.product import Product, ProductCategory, ProductStatus
 from app.models.user import User
 from app.models.house import House
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
+from app.services.cache_service import cache_service
 from app.services.Automation.activation_excel import export_activations_excel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ga-query", tags=["ga-query"])
+
+# Bumped away (both here and by every writer of Activation/Retailer links) whenever
+# the underlying data changes; a short TTL only bounds Redis memory, not freshness.
+GA_QUERY_CACHE_TTL = 300
+GA_QUERY_CACHE_PREFIX = "ga_query"
 
 
 def _parse_ids(raw: Optional[str]) -> Optional[List[int]]:
@@ -82,6 +89,7 @@ async def get_ga_query_retailers(
 
 @router.get("/activations")
 async def get_ga_query_activations(
+    request: Request,
     retailer_id: Optional[int] = None,
     retailer_code: Optional[str] = None,
     retailer_ids: Optional[str] = None,
@@ -106,6 +114,17 @@ async def get_ga_query_activations(
     Supports server-side sorting (sort_by / sort_order) and per-column filtering
     (f_<column> params) over the activated-on page's visible columns.
     """
+    cache_key = cache_service.cache_key(
+        GA_QUERY_CACHE_PREFIX,
+        "activations",
+        current_user.id,
+        header_house_id,
+        request.url.query,
+    )
+    cached = await cache_service.get(cache_key)
+    if cached is not None:
+        return cached
+
     ids = _parse_ids(retailer_ids)
 
     query = (
@@ -174,6 +193,7 @@ async def get_ga_query_activations(
                 or_(
                     Employee.employee_name.in_(rso_values),
                     Employee.dms_code.in_(rso_values),
+                    Employee.employee_id.in_(rso_values),
                 )
             )
 
@@ -253,7 +273,7 @@ async def get_ga_query_activations(
 
     total_pages = max(1, -(-total // per_page))
 
-    return {
+    payload = {
         "success": True,
         "data": data,
         "pagination": {
@@ -265,134 +285,70 @@ async def get_ga_query_activations(
             "has_prev": page > 1,
         },
     }
+    await cache_service.set(cache_key, payload, ttl=GA_QUERY_CACHE_TTL)
+    return payload
 
 
 @router.get("/product-codes")
 async def get_ga_query_product_codes(
-    retailer_id: Optional[int] = None,
-    retailer_code: Optional[str] = None,
-    retailer_ids: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("ga_query.view")),
-    header_house_id: Optional[int] = Depends(get_house_context),
 ):
-    """Get distinct product codes for filter dropdown."""
-    ids = _parse_ids(retailer_ids)
-
-    query = select(Activation.product_code, func.count(Activation.id).label("count")).where(
-        Activation.product_code.isnot(None), Activation.product_code != ""
+    """Get active SIM-category products for the filter dropdown."""
+    result = await db.execute(
+        select(Product.product_code, Product.product_name)
+        .where(
+            Product.category == ProductCategory.SIM.value,
+            Product.status == ProductStatus.ACTIVE.value,
+            Product.product_code != "",
+        )
+        .order_by(Product.product_code)
     )
-
-    if header_house_id:
-        query = query.where(Activation.house_id == header_house_id)
-    elif not is_admin_user(current_user):
-        user_house_ids = [h.id for h in current_user.houses]
-        if user_house_ids:
-            query = query.where(Activation.house_id.in_(user_house_ids))
-
-    if ids:
-        query = query.where(Activation.retailer_id.in_(ids))
-    elif retailer_id:
-        query = query.where(Activation.retailer_id == retailer_id)
-    elif retailer_code:
-        query = query.where(Activation.retailer_code == retailer_code)
-
-    if start_date:
-        try:
-            sd = datetime.strptime(start_date, "%Y-%m-%d").date()
-            query = query.where(Activation.activation_date >= sd)
-        except ValueError:
-            pass
-    if end_date:
-        try:
-            ed = datetime.strptime(end_date, "%Y-%m-%d").date()
-            query = query.where(Activation.activation_date <= ed)
-        except ValueError:
-            pass
-
-    query = query.group_by(Activation.product_code).order_by(Activation.product_code)
-    result = await db.execute(query)
-    rows = result.all()
-
     return [
-        {"code": row[0], "count": row[1]}
-        for row in rows
+        {"code": code, "product_name": product_name}
+        for code, product_name in result.all()
     ]
 
 
 @router.get("/rso-options")
 async def get_ga_query_rso_options(
-    retailer_id: Optional[int] = None,
-    retailer_code: Optional[str] = None,
-    retailer_ids: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("ga_query.view")),
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
-    """Get distinct RSO options (name + DMS code) for the filter dropdown."""
-    ids = _parse_ids(retailer_ids)
-
-    effective_name = func.coalesce(Employee.employee_name, Employee.dms_code)
+    """Get every employee of the active house for the filter dropdown."""
+    effective_name = func.coalesce(Employee.employee_name, Employee.dms_code, Employee.employee_id)
 
     query = (
         select(
-            effective_name.label("rso_name"),
+            effective_name.label("name"),
             Employee.dms_code,
             Employee.itop_number,
             Employee.employee_type,
-            func.count(Activation.id).label("count"),
         )
-        .outerjoin(Activation.retailer)
-        .outerjoin(Retailer.employee)
-        .outerjoin(Employee.user)
-        .where(Activation.retailer_id.isnot(None), effective_name.isnot(None))
+        .where(effective_name.isnot(None))
     )
 
     if header_house_id:
-        query = query.where(Activation.house_id == header_house_id)
+        query = query.where(Employee.house_id == header_house_id)
     elif not is_admin_user(current_user):
         user_house_ids = [h.id for h in current_user.houses]
         if user_house_ids:
-            query = query.where(Activation.house_id.in_(user_house_ids))
+            query = query.where(Employee.house_id.in_(user_house_ids))
+        else:
+            return []
 
-    if ids:
-        query = query.where(Activation.retailer_id.in_(ids))
-    elif retailer_id:
-        query = query.where(Activation.retailer_id == retailer_id)
-    elif retailer_code:
-        query = query.where(Activation.retailer_code == retailer_code)
-
-    if start_date:
-        try:
-            sd = datetime.strptime(start_date, "%Y-%m-%d").date()
-            query = query.where(Activation.activation_date >= sd)
-        except ValueError:
-            pass
-
-    if end_date:
-        try:
-            ed = datetime.strptime(end_date, "%Y-%m-%d").date()
-            query = query.where(Activation.activation_date <= ed)
-        except ValueError:
-            pass
-
-    query = query.group_by(effective_name, Employee.dms_code, Employee.itop_number, Employee.employee_type).order_by(effective_name)
-    result = await db.execute(query)
-    rows = result.all()
-
+    result = await db.execute(query.order_by(effective_name))
     return [
         {
-            "value": row[0],
-            "dms_code": row[1],
-            "itop_number": row[2],
-            "employee_type": row[3],
-            "count": row[4],
+            # f_rso matches employee_name OR dms_code server-side; dms_code is unique when present.
+            "value": dms_code or name,
+            "name": name,
+            "dms_code": dms_code,
+            "itop_number": itop_number,
+            "employee_type": employee_type,
         }
-        for row in rows
+        for name, dms_code, itop_number, employee_type in result.all()
     ]
 
 
@@ -471,6 +427,7 @@ async def export_ga_query(
 
 @router.get("/summary")
 async def get_ga_query_summary(
+    request: Request,
     retailer_id: Optional[int] = None,
     retailer_code: Optional[str] = None,
     retailer_ids: Optional[str] = None,
@@ -481,6 +438,17 @@ async def get_ga_query_summary(
     header_house_id: Optional[int] = Depends(get_house_context),
 ):
     """Get summary stats for the query results."""
+    cache_key = cache_service.cache_key(
+        GA_QUERY_CACHE_PREFIX,
+        "summary",
+        current_user.id,
+        header_house_id,
+        request.url.query,
+    )
+    cached = await cache_service.get(cache_key)
+    if cached is not None:
+        return cached
+
     ids = _parse_ids(retailer_ids)
 
     base = select(Activation.id, Activation.product_code, Activation.activation_date)
@@ -531,9 +499,11 @@ async def get_ga_query_summary(
     dates_result = await db.execute(dates_q)
     daily = [{"date": row[0].isoformat() if row[0] else None, "count": row[1]} for row in dates_result.all()]
 
-    return {
+    payload = {
         "success": True,
         "total_activations": total,
         "product_breakdown": products,
         "daily_breakdown": daily,
     }
+    await cache_service.set(cache_key, payload, ttl=GA_QUERY_CACHE_TTL)
+    return payload

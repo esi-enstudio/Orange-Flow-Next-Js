@@ -1440,6 +1440,10 @@ async def reassign_employee_retailers(
         request=request,
         status_code=200,
     )
+    # log_activity committed the reassignment; cached GA Query RSO attribution is now stale.
+    from app.services.cache_service import cache_service
+
+    await cache_service.invalidate_pattern("ga_query:*")
     await db.refresh(emp)
     return {
         "message": f"Transferred {retailer_count} retailer(s) and {targets_transferred} target month(s) to {new_emp.employee_name or new_emp.dms_code or new_emp.id} and status set to {req.status}",

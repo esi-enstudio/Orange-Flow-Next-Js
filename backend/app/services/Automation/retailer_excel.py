@@ -10,6 +10,7 @@ from app.models.retailer import Retailer
 from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX, Employee # Essential for auto-linking
 from app.models.house import House
 from app.services.db_service import async_session
+from app.services.cache_service import cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,8 @@ async def process_retailer_excel(file_path, progress_callback=None):
             pbar.close()
             # Single commit at the end ✅
             await session.commit()
+            # Retailer↔employee attribution changed, so cached GA Query rows are stale.
+            await cache_service.invalidate_pattern("ga_query:*")
 
             # A retailer import can create/refresh the assisted-code retailers that
             # auto-managed markings mirror — rebuild them right away.

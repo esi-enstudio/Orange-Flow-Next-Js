@@ -79,15 +79,16 @@ interface Pagination {
 
 interface ProductCodeItem {
   code: string;
-  count: number;
+  product_name?: string | null;
+  count?: number;
 }
 
 interface RsoOption {
   value: string;
+  name: string;
   dms_code: string | null;
   itop_number: string | null;
   employee_type: string | null;
-  count: number;
 }
 
 interface SummaryData {
@@ -295,64 +296,46 @@ export default function GAQueryPage() {
     return () => clearTimeout(timer);
   }, [retailerSearch, fetchRetailers]);
 
-  // ── Fetch RSO options ──
-  const fetchRsoOptions = useCallback(
-    async (retIds: string[]) => {
-      setLoadingRso(true);
-      try {
-        const headers: Record<string, string> = {};
-        if (selectedHouseId) headers["X-House-ID"] = selectedHouseId;
-        const res = await apiClient.get("ga-query/rso-options", {
-          params: {
-            ...(retIds.length > 0 ? { retailer_ids: retIds.join(",") } : {}),
-            start_date: startDate,
-            end_date: endDate,
-          },
-          headers,
-        });
-        setRsoOptions(res.data || []);
-      } catch {
-        setRsoOptions([]);
-      } finally {
-        setLoadingRso(false);
-      }
-    },
-    [selectedHouseId, startDate, endDate]
-  );
-
-  // ── Fetch product codes ──
-  const fetchProductCodes = useCallback(
-    async (retIds: string[]) => {
-      setLoadingProducts(true);
-      try {
-        const headers: Record<string, string> = {};
-        if (selectedHouseId) headers["X-House-ID"] = selectedHouseId;
-        const res = await apiClient.get("ga-query/product-codes", {
-          params: {
-            ...(retIds.length > 0 ? { retailer_ids: retIds.join(",") } : {}),
-            start_date: startDate,
-            end_date: endDate,
-          },
-          headers,
-        });
-        setProductCodes(res.data || []);
-      } catch {
-        setProductCodes([]);
-      } finally {
-        setLoadingProducts(false);
-      }
-    },
-    [selectedHouseId, startDate, endDate]
-  );
-
-  // ── Load RSO & product options when house / date range changes ──
-  useEffect(() => {
-    if (selectedHouseId) {
-      fetchProductCodes([]);
-      fetchRsoOptions([]);
+  // ── Fetch employees of the selected house ──
+  const fetchRsoOptions = useCallback(async () => {
+    if (!selectedHouseId) {
+      setRsoOptions([]);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedHouseId, startDate, endDate]);
+    setLoadingRso(true);
+    try {
+      const res = await apiClient.get("ga-query/rso-options", {
+        headers: { "X-House-ID": selectedHouseId },
+      });
+      setRsoOptions(res.data || []);
+    } catch {
+      setRsoOptions([]);
+    } finally {
+      setLoadingRso(false);
+    }
+  }, [selectedHouseId]);
+
+  // ── Fetch active SIM products ──
+  const fetchProductCodes = useCallback(async () => {
+    setLoadingProducts(true);
+    try {
+      const res = await apiClient.get("ga-query/product-codes");
+      setProductCodes(res.data || []);
+    } catch {
+      setProductCodes([]);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && canView) fetchProductCodes();
+  }, [authLoading, canView, fetchProductCodes]);
+
+  // ── Load house employees when the house changes ──
+  useEffect(() => {
+    fetchRsoOptions();
+  }, [fetchRsoOptions]);
 
   // ── Fetch activations ──
   const fetchActivations = useCallback(
@@ -427,8 +410,6 @@ export default function GAQueryPage() {
     setSearchText("");
     setSortBy("");
     setSortOrder("desc");
-    fetchProductCodes(selectedRetailerIds);
-    fetchRsoOptions(selectedRetailerIds);
     fetchActivations(selectedRetailerIds, 1, { sortBy: "", sortOrder: "desc", filters: columnFilters });
     fetchSummary(selectedRetailerIds);
     return true;
@@ -513,8 +494,8 @@ export default function GAQueryPage() {
   // ── Render ──
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950 p-4 sm:p-6">
-        <div className="max-w-[1400px] mx-auto space-y-6">
+      <div className="-m-4 p-2 sm:m-0 sm:p-6">
+        <div className="max-w-[1400px] mx-auto space-y-3 sm:space-y-6">
           <div className="animate-pulse h-8 w-48 bg-gray-200 dark:bg-slate-700 rounded-md" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
@@ -530,8 +511,8 @@ export default function GAQueryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950 p-4 sm:p-6">
-      <div className="max-w-[1400px] mx-auto space-y-6">
+    <div className="-m-4 p-2 sm:m-0 sm:p-6">
+      <div className="max-w-[1400px] mx-auto space-y-3 sm:space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -549,7 +530,7 @@ export default function GAQueryPage() {
 
         {/* Summary Cards */}
         {summary && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm p-4 sm:p-5">
               <div className="flex items-center gap-2 mb-2">
                 <div className="p-1.5 rounded-md bg-primary-50 dark:bg-primary-500/10">
@@ -989,8 +970,8 @@ export default function GAQueryPage() {
                   label={t("ga_query.select_rso")}
                   items={rsoOptions.map((o) => ({
                     id: o.value,
-                    label: o.value,
-                    sublabel: `DMS: ${o.dms_code ?? "—"}${o.itop_number ? ` • ITop: ${o.itop_number}` : ""}`,
+                    label: o.name,
+                    sublabel: [o.dms_code, o.itop_number].filter(Boolean).join(" · ") || undefined,
                     badge: o.employee_type ? o.employee_type.toUpperCase() : undefined,
                   }))}
                   selectedIds={rsoSelected}
@@ -1011,7 +992,7 @@ export default function GAQueryPage() {
                   items={productCodes.map((p) => ({
                     id: p.code,
                     label: p.code,
-                    sublabel: `• ${p.count}`,
+                    sublabel: p.product_name ?? undefined,
                   }))}
                   selectedIds={selectedProductCodes}
                   onChange={(ids) => handleProductChange(ids.map(String))}
@@ -1019,7 +1000,6 @@ export default function GAQueryPage() {
                   searchPlaceholder={t("ga_query.product_search")}
                   emptyMessage={loadingProducts ? t("ga_query.loading_products") : t("ga_query.no_product_codes")}
                   noResultsMessage={t("ga_query.no_product_codes")}
-                  disabled={!selectedHouseId}
                   selectAllLabel={t("common.select_all")}
                   clearLabel={t("common.clear")}
                   selectedLabel={t("ga_query.selected")}

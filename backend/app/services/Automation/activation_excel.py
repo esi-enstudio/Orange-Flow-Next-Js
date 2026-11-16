@@ -11,6 +11,7 @@ from app.models.activation import Activation
 from app.models.retailer import Retailer
 from app.models.house import House
 from app.services.db_service import async_session
+from app.services.cache_service import cache_service
 from app.utils.helpers import bn_num
 
 # Initialize colorama
@@ -213,6 +214,8 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
                 inserted_count += len(batch_buffer)
 
             await session.commit()
+            # GA Query reports are cached; activation data just changed.
+            await cache_service.invalidate_pattern("ga_query:*")
             pbar.close()
             print(f"{Fore.GREEN}{Style.BRIGHT}✅ Success: {inserted_count} records processed successfully.\n")
             return inserted_count, None

@@ -897,12 +897,16 @@ async def truncate_activations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("activations.import")),
 ):
+    from app.services.cache_service import cache_service
+
     if house_id:
         await db.execute(Activation.__table__.delete().where(Activation.house_id == house_id))
         await db.commit()
+        await cache_service.invalidate_pattern("ga_query:*")
         return {"message": f"Activations deleted for house {house_id}"}
     await db.execute(Activation.__table__.delete())
     await db.commit()
+    await cache_service.invalidate_pattern("ga_query:*")
     return {"message": "All activations deleted successfully"}
 
 @router.delete("/itopup-details/truncate")

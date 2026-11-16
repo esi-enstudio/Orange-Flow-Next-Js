@@ -67,6 +67,8 @@ The AI Agent must strictly follow all rules mentioned below for every task, modu
 
 AI agent সবসময় **Banglish**-এ উত্তর দিবে — অর্থাৎ বাংলা ভাষা English/Roman অক্ষরে (যেমন: "চলো ঠিক করি", "এটা real bug ছিল")।
 
+**Hard rule:** উত্তর সবসময় **Roman script**-এ হবে। কোনো বাংলা অক্ষর (বাংলা script) ব্যবহার করা যাবে না — Banglish মানে বাংলা ভাষা, কিন্তু লেখা English/Roman অক্ষরে।
+
 এই preference সব session-এ প্রযোজ্য।
 
 ## Scope
