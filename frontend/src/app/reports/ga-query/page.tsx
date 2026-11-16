@@ -621,7 +621,10 @@ export default function GAQueryPage() {
 
                 {/* Filter drawer trigger */}
                 <button
-                  onClick={() => setFiltersOpen(true)}
+                  onClick={() => {
+                    fetchProductCodes();
+                    setFiltersOpen(true);
+                  }}
                   title={t("ga_query.filter.open")}
                   aria-label={t("ga_query.filter.open")}
                   className="relative p-2.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-500/10 hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-200 cursor-pointer"
