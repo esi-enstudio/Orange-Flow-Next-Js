@@ -792,6 +792,17 @@ async def _migrate_house_billing_deactivation():
     except Exception as e:
         logger.warning(f"Migration warning (houses.deactivated_for_billing): {e}")
 
+async def _migrate_retailer_scratch_card_seller():
+    """Add retailers.scratch_card_seller (SCRATCH_CARD_SELLER in the DMS file)."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE retailers ADD COLUMN IF NOT EXISTS scratch_card_seller VARCHAR(20)"
+            ))
+    except Exception as e:
+        logger.warning(f"Migration warning (retailers.scratch_card_seller): {e}")
+
+
 async def _migrate_retailer_employee_link():
     """Fix retailers whose employee_id was auto-linked via itop_number but whose
     retailer_code is actually an employee's assisted_retailer_code.
@@ -2866,6 +2877,7 @@ async def init_db():
         await _migrate_house_bn_fields()
         await _migrate_supervisor_rso_pivot()
         await _migrate_retailer_employee_link()
+        await _migrate_retailer_scratch_card_seller()
         await _migrate_retailer_routes()
         await _migrate_activation_route_code()
         await _migrate_activation_employee_id()

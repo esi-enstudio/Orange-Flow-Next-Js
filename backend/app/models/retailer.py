@@ -16,6 +16,7 @@ class Retailer(Base):
     type = Column(String)                          # RETAILER_TYPE
     enabled = Column(String)                       # ENABLED (Yes/No)
     sim_seller = Column(String)                    # SIM_SELLER
+    scratch_card_seller = Column(String)           # SCRATCH_CARD_SELLER
     tran_mobile_no = Column(String)                # TRANMOBILENO
     itop_sr_number = Column(String)                # I_TOP_UP_SR_NUMBER
     itop_number = Column(String)                   # I_TOP_UP_NUMBER

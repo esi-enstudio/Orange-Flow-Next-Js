@@ -23,6 +23,7 @@ COLUMN_MAP = {
     'RETAILER_TYPE': 'type',
     'ENABLED': 'enabled',
     'SIM_SELLER': 'sim_seller',
+    'SCRATCH_CARD_SELLER': 'scratch_card_seller',
     'TRANMOBILENO': 'tran_mobile_no',
     'I_TOP_UP_SR_NUMBER': 'itop_sr_number',
     'I_TOP_UP_NUMBER': 'itop_number',
@@ -62,6 +63,7 @@ async def export_retailers_excel(retailers):
             'RETAILER_TYPE': r.type,
             'ENABLED': r.enabled,
             'SIM_SELLER': r.sim_seller,
+            'SCRATCH_CARD_SELLER': r.scratch_card_seller,
             'TRANMOBILENO': r.tran_mobile_no,
             'I_TOP_UP_SR_NUMBER': r.itop_sr_number,
             'I_TOP_UP_NUMBER': r.itop_number,
@@ -99,6 +101,10 @@ async def process_retailer_excel(file_path, progress_callback=None):
         for alias in ("ROUTE_CODE", "ROUTE_CODES", "ROUTES"):
             if alias in df.columns and "ROUTE" not in df.columns:
                 df.rename(columns={alias: "ROUTE"}, inplace=True)
+        # Optional scratch-card flag; accept the common header variants.
+        for alias in ("SC_SELLER", "SCRATCH_SELLER"):
+            if alias in df.columns and "SCRATCH_CARD_SELLER" not in df.columns:
+                df.rename(columns={alias: "SCRATCH_CARD_SELLER"}, inplace=True)
         has_route_column = "ROUTE" in df.columns
         logger.info(f"📊 Excel Columns found: {df.columns.tolist()}")
         
@@ -225,8 +231,13 @@ async def process_retailer_excel(file_path, progress_callback=None):
                 }
                 
                 for excel_header, db_col in COLUMN_MAP.items():
-                    if db_col not in ['retailer_code', 'dd_code']:
-                        values_to_insert[db_col] = clean(row.get(excel_header))
+                    if db_col in ['retailer_code', 'dd_code']:
+                        continue
+                    # A file without the optional scratch-card column must not wipe
+                    # the stored flag for every retailer it re-imports.
+                    if db_col == 'scratch_card_seller' and excel_header not in df.columns:
+                        continue
+                    values_to_insert[db_col] = clean(row.get(excel_header))
 
                 batch_data.append(values_to_insert)
                 if has_route_column:
@@ -296,10 +307,11 @@ async def do_bulk_upsert(session, batch_data):
     
     # Fields to update on conflict
     excluded = stmt.excluded
+    present = set(batch_data[0].keys())
     update_cols = {
         col: excluded[col] 
         for col in COLUMN_MAP.values() 
-        if col not in ['retailer_code', 'dd_code']
+        if col not in ['retailer_code', 'dd_code'] and col in present
     }
     # house_id and employee_id will be updated ✅
     update_cols['house_id'] = excluded.house_id

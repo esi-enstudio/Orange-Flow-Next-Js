@@ -221,11 +221,14 @@ async def test_backfill_never_reverts_curated_links(db, house):
 
 
 async def test_retailer_api_payload_and_export_prefer_normalized_codes(db, house):
-    from app.routers.retailers import _active_routes
+    from app.routers.retailers import _active_routes, _is_on_route_today
     from app.services.Automation.retailer_excel import _export_route_value
 
     retailer = await _retailer(db, house.id, "R1", f"({A},{B})")
-    await register_routes(db, house.id, [A, B])
+    route_ids = await register_routes(db, house.id, [A, B])
+    for route_code, route_id in route_ids.items():
+        route = await db.get(Route, route_id)
+        route.visit_days = ["monday"] if route_code == A else ["tuesday"]
     await db.commit()
     await sync_retailer_routes(db, {"R1": (house.id, [B, A])})
     await db.commit()
@@ -243,6 +246,8 @@ async def test_retailer_api_payload_and_export_prefer_normalized_codes(db, house
     payload = _active_routes(loaded)
     assert [entry["code"] for entry in payload] == [B, A]
     assert payload[0]["is_primary"] is True
+    assert _is_on_route_today(loaded, "monday") is True
+    assert _is_on_route_today(loaded, "wednesday") is False
     assert _export_route_value(loaded) == f"{B},{A}"
 
 
