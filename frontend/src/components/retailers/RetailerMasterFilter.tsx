@@ -10,7 +10,6 @@ import {
   Store,
   User,
   MapPin,
-  Hash,
   Check,
   Minus,
   type LucideIcon,
@@ -28,7 +27,7 @@ export interface RetailerFilters {
   category: string;
   district: string;
   thana: string;
-  route: string;
+  route_code: string;
   has_employee: boolean | null;
   employee_id: number | null;
 }
@@ -42,7 +41,7 @@ export const defaultFilters: RetailerFilters = {
   category: "",
   district: "",
   thana: "",
-  route: "",
+  route_code: "",
   has_employee: null,
   employee_id: null,
 };
@@ -190,8 +189,20 @@ function ToggleFilter({
 export default function RetailerMasterFilter({ filters, onChange, onClear, houses, selectedHouseId }: Props) {
   const { t } = useLanguage();
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [routes, setRoutes] = useState<{ id: number; code: string; name?: string | null }[]>([]);
 
   const effectiveHouseId = filters.house_id ?? selectedHouseId ?? null;
+
+  // Registered routes only: an unregistered code is rejected at import time, so
+  // the filter mirrors what the data can actually contain.
+  useEffect(() => {
+    const params: Record<string, string | number> = { limit: 500 };
+    if (effectiveHouseId) params.house_id = effectiveHouseId;
+    apiClient
+      .get("routes/options", { params })
+      .then((res) => setRoutes(res.data?.data || []))
+      .catch(() => setRoutes([]));
+  }, [effectiveHouseId]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -230,7 +241,7 @@ export default function RetailerMasterFilter({ filters, onChange, onClear, house
   if (filters.category) chipList.push({ label: `Category: ${filters.category}`, onRemove: () => update("category", "") });
   if (filters.district) chipList.push({ label: `District: ${filters.district}`, onRemove: () => update("district", "") });
   if (filters.thana) chipList.push({ label: `Thana: ${filters.thana}`, onRemove: () => update("thana", "") });
-  if (filters.route) chipList.push({ label: `Route: ${filters.route}`, onRemove: () => update("route", "") });
+  if (filters.route_code) chipList.push({ label: `Route: ${filters.route_code}`, onRemove: () => update("route_code", "") });
   if (filters.employee_id) {
     const e = employees.find(e => e.id === filters.employee_id);
     if (e) chipList.push({ label: `RSO: ${e.employee_name || e.dms_code}`, onRemove: () => update("employee_id", null) });
@@ -350,9 +361,17 @@ export default function RetailerMasterFilter({ filters, onChange, onClear, house
         <FilterSection title={t('retailers.filters_location')} icon={MapPin} defaultOpen={false}>
           <div className="grid grid-cols-2 gap-2">
             <TextFilter value={filters.category} onChange={(v) => update("category", v)} placeholder={t('retailers.filters_category')} icon={Store} />
-            <TextFilter value={filters.route} onChange={(v) => update("route", v)} placeholder={t('retailers.filters_route')} icon={Hash} />
             <TextFilter value={filters.district} onChange={(v) => update("district", v)} placeholder={t('retailers.filters_district')} icon={MapPin} />
             <TextFilter value={filters.thana} onChange={(v) => update("thana", v)} placeholder={t('retailers.filters_thana')} icon={MapPin} />
+            <div className="col-span-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t('retailers.field_route')}</label>
+              <SelectFilter
+                value={filters.route_code}
+                onChange={(v) => update("route_code", v)}
+                options={routes.map((route) => ({ value: route.code, label: route.code }))}
+                placeholder={t('retailers.filters_route')}
+              />
+            </div>
           </div>
         </FilterSection>
 

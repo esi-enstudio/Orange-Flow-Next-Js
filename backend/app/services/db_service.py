@@ -1,15 +1,17 @@
 import json
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import text
+from sqlalchemy import func, or_, select, text
 from config.settings import DATABASE_URL
 from app.models.base import Base
+from app.utils.timezone import now_naive
 import app.models.user
 import app.models.house
 import app.models.role
 import app.models.live_activation
 import app.models.retailer
 import app.models.retailer_marking
+import app.models.route
 import app.models.rule_config
 import app.models.employee
 from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX
@@ -922,6 +924,172 @@ async def _migrate_activation_employee_id():
     except Exception as e:
         logger.warning(f"Migration warning (live_activations.employee_id): {e}")
 
+# Transaction-scoped advisory lock so simultaneous workers do not double-seed
+# the route master. Key is arbitrary but stable ("ROUT").
+_ROUTE_MIGRATION_LOCK_KEY = 0x524F5554
+
+
+async def _migrate_retailer_routes(db_engine=None) -> dict:
+    """Seed the route master from the ROUTE snapshot already on retailers.
+
+    Retailers carried their route cell as a raw string long before routes were
+    a real entity. This one-off, idempotent pass registers every code found in
+    those snapshots (the existing data IS the initial master) and links each
+    retailer to its codes; the first code becomes the primary route.
+
+    Starting the migration only for retailers with **no** active link makes it
+    safe on every boot: manually curated assignments are never reverted, and a
+    re-run is a no-op. Runs under a PostgreSQL advisory lock so N workers booting
+    together serialize instead of each seeding a duplicate.
+    """
+    from collections import defaultdict
+
+    from sqlalchemy import select as sa_select
+
+    from app.models.house import House
+    from app.models.retailer import Retailer
+    from app.models.route import RetailerRoute
+    from app.services.route_service import (
+        parse_route_codes,
+        register_routes,
+        route_ids_for_codes,
+        sync_retailer_routes,
+    )
+
+    report: dict = {
+        "routes_created": 0,
+        "retailers_linked": 0,
+        "skipped": 0,
+    }
+    target_engine = db_engine or engine
+    session_factory = (
+        async_sessionmaker(target_engine, expire_on_commit=False)
+        if db_engine is not None
+        else async_session
+    )
+
+    try:
+        async with session_factory() as session:
+            async with session.begin():
+                if session.bind is not None and session.bind.dialect.name == "postgresql":
+                    await session.execute(
+                        text("SELECT pg_advisory_xact_lock(:key)"),
+                        {"key": _ROUTE_MIGRATION_LOCK_KEY},
+                    )
+
+                house_codes = {
+                    hid: (code or "").strip().upper()
+                    for hid, code in (
+                        await session.execute(sa_select(House.id, House.code))
+                    ).all()
+                }
+                snapshots = (
+                    await session.execute(
+                        sa_select(
+                            Retailer.id,
+                            Retailer.retailer_code,
+                            Retailer.house_id,
+                            Retailer.route,
+                        ).where(Retailer.route.isnot(None))
+                    )
+                ).all()
+                already_linked = set(
+                    (
+                        await session.execute(
+                            sa_select(RetailerRoute.retailer_id)
+                            .where(RetailerRoute.status == "active")
+                            .distinct()
+                        )
+                    ).scalars()
+                )
+
+                assignments: dict[str, tuple[int, list[str]]] = {}
+                codes_by_house: dict[int, set[str]] = defaultdict(set)
+                for retailer_id, retailer_code, house_id, raw in snapshots:
+                    if retailer_id in already_linked or not retailer_code:
+                        report["skipped"] += 1
+                        continue
+                    codes = parse_route_codes(raw, house_codes.get(house_id))
+                    if not codes:
+                        report["skipped"] += 1
+                        continue
+                    assignments[retailer_code] = (house_id, codes)
+                    codes_by_house[house_id].update(codes)
+
+                if not assignments:
+                    return report
+
+                for house_id, codes in codes_by_house.items():
+                    known = await route_ids_for_codes(session, house_id, list(codes))
+                    await register_routes(session, house_id, list(codes))
+                    report["routes_created"] += len(set(codes) - set(known))
+
+                counts = await sync_retailer_routes(session, assignments)
+                report["retailers_linked"] = counts["unchanged"] + counts["added"]
+
+                logger.info(
+                    "Migration complete: route master seeded with %s route(s); "
+                    "%s retailer route link(s) added, %s closed, %s rejected",
+                    report["routes_created"],
+                    counts["added"],
+                    counts["removed"],
+                    counts["rejected"],
+                )
+    except Exception as e:
+        logger.warning(f"Migration warning (retailer routes): {e}")
+    return report
+
+
+async def _migrate_activation_route_code() -> None:
+    """Add the route snapshot to activations and backfill existing rows.
+
+    New imports store the retailer's primary route at import time. Historical
+    rows have no snapshot, so they are backfilled (best effort) from the current
+    primary route link — documented as approximate: a retailer that moved routes
+    is counted under today's route for its past activations. Route ownership is
+    still effective-dated, so the RSO shown for each date remains correct.
+    """
+    try:
+        async with engine.begin() as conn:
+            if conn.sync_connection.dialect.name == "postgresql":
+                await conn.execute(
+                    text("SELECT pg_advisory_xact_lock(:key)"),
+                    {"key": _ROUTE_MIGRATION_LOCK_KEY},
+                )
+            await conn.execute(text(
+                "ALTER TABLE activations ADD COLUMN IF NOT EXISTS route_code VARCHAR(50)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_activations_route_code "
+                "ON activations (route_code)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_activations_house_route_date "
+                "ON activations (house_id, route_code, activation_date)"
+            ))
+            backfilled = await conn.execute(text(
+                """
+                UPDATE activations a
+                SET route_code = r.code
+                FROM retailer_routes rr
+                JOIN routes r ON r.id = rr.route_id
+                WHERE a.retailer_id = rr.retailer_id
+                  AND rr.status = 'active'
+                  AND rr.is_primary = TRUE
+                  AND r.is_deleted = FALSE
+                  AND a.route_code IS NULL
+                """
+            ))
+            if backfilled.rowcount:
+                logger.info(
+                    "Migration complete: backfilled route_code on %s activation(s) "
+                    "from current primary route links (approximate for moved retailers)",
+                    backfilled.rowcount,
+                )
+    except Exception as e:
+        logger.warning(f"Migration warning (activations.route_code): {e}")
+
+
 async def _migrate_supervisor_team_link():
     """Re-tag a supervisor's team (RSO/BP pivot rows) to an active successor
     supervisor when the current supervisor is Resigned/Inactive.
@@ -969,6 +1137,115 @@ async def _migrate_supervisor_team_link():
                 logger.info(f"Migration complete: synced parent_id for {synced.rowcount} user(s)")
     except Exception as e:
         logger.warning(f"Migration warning (supervisor team link): {e}")
+
+async def _migrate_route_owner_link(db_engine=None) -> dict:
+    """Hand a non-Active RSO's routes to an Active successor RSO.
+
+    Mirrors the supervisor-team and target handoff: a Resigned/Inactive owner
+    must not keep route ownership, so each route is closed on the outgoing RSO
+    and re-opened on the Active successor in the same house that now holds their
+    itop_number / pool_number. Without a successor the route stays **Unassigned**
+    (reports show it as such) instead of silently disappearing.
+
+    History is preserved: past activations keep attributing to the old owner
+    because ownership is effective-dated. Idempotent — only links whose owner is
+    still non-Active are touched, so a second boot is a no-op.
+    """
+    from app.models.employee import Employee
+    from app.models.route import EmployeeRoute
+
+    report = {"reassigned": 0, "unassigned": 0}
+    target_engine = db_engine or engine
+    session_factory = (
+        async_sessionmaker(target_engine, expire_on_commit=False)
+        if db_engine is not None
+        else async_session
+    )
+
+    try:
+        async with session_factory() as session:
+            async with session.begin():
+                stale = (
+                    await session.execute(
+                        select(EmployeeRoute, Employee)
+                        .join(Employee, Employee.id == EmployeeRoute.employee_id)
+                        .where(
+                            EmployeeRoute.status == "active",
+                            Employee.status != "Active",
+                        )
+                    )
+                ).all()
+                if not stale:
+                    return report
+
+                timestamp = now_naive()
+                pending: list[tuple[int, int, int]] = []  # (house, old emp, route)
+                for link, employee in stale:
+                    link.status = "inactive"
+                    link.effective_to = timestamp
+                    link.removed_at = timestamp
+                    link.reason = "resign"
+                    pending.append((employee.house_id, employee.id, link.route_id))
+                # Close first: one active owner per route (partial unique index).
+                await session.flush()
+
+                for house_id, outgoing_id, route_id in pending:
+                    outgoing = await session.get(Employee, outgoing_id)
+                    matches: list[Employee] = []
+                    if outgoing is not None:
+                        filters = []
+                        if outgoing.itop_number:
+                            filters.append(Employee.itop_number == outgoing.itop_number)
+                        if outgoing.pool_number:
+                            filters.append(Employee.pool_number == outgoing.pool_number)
+                        if filters:
+                            matches = (
+                                await session.execute(
+                                    select(Employee).where(
+                                        Employee.house_id == house_id,
+                                        Employee.id != outgoing.id,
+                                        Employee.status == "Active",
+                                        func.lower(Employee.employee_type) == "rso",
+                                        or_(*filters),
+                                    )
+                                )
+                            ).scalars().all()
+                    successor = None
+                    if matches:
+                        # Prefer the successor that inherited the iTop number.
+                        itop_hit = [
+                            emp for emp in matches
+                            if outgoing is not None
+                            and outgoing.itop_number
+                            and emp.itop_number == outgoing.itop_number
+                        ]
+                        successor = (itop_hit or matches)[0]
+
+                    if successor is None:
+                        report["unassigned"] += 1
+                        continue
+                    session.add(
+                        EmployeeRoute(
+                            house_id=house_id,
+                            employee_id=successor.id,
+                            route_id=route_id,
+                            status="active",
+                            effective_from=timestamp,
+                            assigned_at=timestamp,
+                            reason="resign",
+                        )
+                    )
+                    report["reassigned"] += 1
+
+                logger.info(
+                    "Migration complete: %s route(s) handed to an active successor, "
+                    "%s left unassigned",
+                    report["reassigned"], report["unassigned"],
+                )
+    except Exception as e:
+        logger.warning(f"Migration warning (route owner link): {e}")
+    return report
+
 
 async def _migrate_target_employee_link():
     """Move monthly targets from a Resigned/Inactive employee to the Active
@@ -2557,8 +2834,11 @@ async def init_db():
         await _migrate_house_bn_fields()
         await _migrate_supervisor_rso_pivot()
         await _migrate_retailer_employee_link()
+        await _migrate_retailer_routes()
+        await _migrate_activation_route_code()
         await _migrate_activation_employee_id()
         await _migrate_supervisor_team_link()
+        await _migrate_route_owner_link()
         await _migrate_target_employee_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()

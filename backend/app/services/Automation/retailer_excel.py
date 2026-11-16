@@ -11,6 +11,7 @@ from app.models.employee import DEMO_EMPLOYEE_ID_PREFIX, Employee # Essential fo
 from app.models.house import House
 from app.services.db_service import async_session
 from app.services.cache_service import cache_service
+from app.services.route_service import parse_route_codes, sync_retailer_routes
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,18 @@ COLUMN_MAP = {
     'ROUTE': 'route'
 }
 
+def _export_route_value(retailer) -> str:
+    links = [
+        link
+        for link in (getattr(retailer, "route_links", None) or [])
+        if link.status == "active" and link.route is not None and not link.route.is_deleted
+    ]
+    if not links:
+        return retailer.route or ""
+    links.sort(key=lambda link: (not link.is_primary, link.route.code))
+    return ",".join(link.route.code for link in links)
+
+
 async def export_retailers_excel(retailers):
     data = []
     for r in retailers:
@@ -63,7 +76,10 @@ async def export_retailers_excel(retailers):
             'BP_CODE': r.bp_code,
             'BP_NUMBER': r.bp_number,
             'DOB': r.dob,
-            'ROUTE': r.route
+            # Excel round-trip: export the normalized active route codes so a
+            # re-import reproduces the same links. Fall back to the raw snapshot
+            # for retailers that were never linked (no route in the file).
+            'ROUTE': _export_route_value(r),
         })
     df = pd.DataFrame(data)
     import io
@@ -78,6 +94,12 @@ async def process_retailer_excel(file_path, progress_callback=None):
         # 1. Data load
         df = pd.read_excel(file_path, dtype=str)
         df.columns = [c.strip().upper().replace(" ", "_") for c in df.columns]
+        # Accept the common ROUTE header variants; the normalized codes live in
+        # routes/retailer_routes while "ROUTE" itself stays the raw snapshot column.
+        for alias in ("ROUTE_CODE", "ROUTE_CODES", "ROUTES"):
+            if alias in df.columns and "ROUTE" not in df.columns:
+                df.rename(columns={alias: "ROUTE"}, inplace=True)
+        has_route_column = "ROUTE" in df.columns
         logger.info(f"📊 Excel Columns found: {df.columns.tolist()}")
         
         total_rows = len(df)
@@ -96,6 +118,7 @@ async def process_retailer_excel(file_path, progress_callback=None):
             # 2. Performance optimization: load all houses and RSOs in memory ✅
             house_res = await session.execute(select(House.id, House.code))
             house_map = {h.code.upper(): h.id for h in house_res.all() if h.code}
+            house_code_by_id = {hid: code for code, hid in house_map.items()}
             logger.info(f"🏠 Loaded {len(house_map)} houses by code")
             
             emp_res = await session.execute(select(Employee.itop_number, Employee.assisted_retailer_code, Employee.id, Employee.status))
@@ -134,6 +157,14 @@ async def process_retailer_excel(file_path, progress_callback=None):
             skipped_count = 0
             batch_size = 500
             batch_data = []
+            batch_routes: dict[str, tuple[int, list[str]]] = {}
+            route_totals = {
+                "added": 0,
+                "removed": 0,
+                "unchanged": 0,
+                "skipped": 0,
+                "rejected": 0,
+            }
 
             pbar = tqdm(total=total_rows, desc="🏪 Retailer Uploading", unit="row")
 
@@ -198,10 +229,22 @@ async def process_retailer_excel(file_path, progress_callback=None):
                         values_to_insert[db_col] = clean(row.get(excel_header))
 
                 batch_data.append(values_to_insert)
+                if has_route_column:
+                    batch_routes[r_code] = (
+                        house_id,
+                        parse_route_codes(
+                            row.get("ROUTE"), house_code_by_id.get(house_id)
+                        ),
+                    )
 
                 # 6. Batch processing and progress update
                 if len(batch_data) >= batch_size:
                     await do_bulk_upsert(session, batch_data)
+                    if batch_routes:
+                        totals = await sync_retailer_routes(session, batch_routes)
+                        for key, value in totals.items():
+                            route_totals[key] += value
+                        batch_routes.clear()
                     count += len(batch_data)
                     pbar.update(len(batch_data))
                     batch_data = []
@@ -211,6 +254,10 @@ async def process_retailer_excel(file_path, progress_callback=None):
             # Process remaining data
             if batch_data:
                 await do_bulk_upsert(session, batch_data)
+                if batch_routes:
+                    totals = await sync_retailer_routes(session, batch_routes)
+                    for key, value in totals.items():
+                        route_totals[key] += value
                 count += len(batch_data)
                 pbar.update(len(batch_data))
                 if progress_callback:
@@ -221,6 +268,8 @@ async def process_retailer_excel(file_path, progress_callback=None):
             await session.commit()
             # Retailer↔employee attribution changed, so cached GA Query rows are stale.
             await cache_service.invalidate_pattern("ga_query:*")
+            # Route links drive the route-wise RSO report.
+            await cache_service.invalidate_pattern("rso_routes:*")
 
             # A retailer import can create/refresh the assisted-code retailers that
             # auto-managed markings mirror — rebuild them right away.
@@ -229,6 +278,14 @@ async def process_retailer_excel(file_path, progress_callback=None):
             await run_auto_marking_sync(session)
 
             logger.info(f"✅ {count} retailers processed successfully. Skipped: {skipped_count}")
+            if has_route_column:
+                logger.info(
+                    "🛣️ Route links: +%s added, -%s removed, %s unchanged, %s rejected",
+                    route_totals["added"],
+                    route_totals["removed"],
+                    route_totals["unchanged"],
+                    route_totals["rejected"],
+                )
             return count, None
 
     except Exception as e:

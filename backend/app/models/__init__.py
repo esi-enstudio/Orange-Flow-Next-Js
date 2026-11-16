@@ -3,6 +3,7 @@ from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
 from app.models.retailer import Retailer
+from app.models.route import Route, RetailerRoute, EmployeeRoute
 from app.models.bts import BTS
 from app.models.employee import Employee
 from app.models.employee_document import EmployeeDocument

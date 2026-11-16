@@ -54,6 +54,7 @@ interface Retailer {
   bp_number: string;
   dob: string;
   route: string;
+  routes?: { id: number; code: string; is_primary: boolean }[];
   house?: { name: string, code: string };
   employee?: { name: string, employee_name?: string, itop_number: string, dms_code: string, user?: { name: string } };
 }
@@ -130,7 +131,7 @@ export default function RetailersPage() {
       if (filters.category) params.category = filters.category;
       if (filters.district) params.district = filters.district;
       if (filters.thana) params.thana = filters.thana;
-      if (filters.route) params.route = filters.route;
+      if (filters.route_code) params.route_code = filters.route_code;
       if (filters.has_employee !== null) params.has_employee = filters.has_employee;
       if (filters.employee_id) params.employee_id = filters.employee_id;
       const retRes = await apiClient.get("retailers", { params });
@@ -441,6 +442,11 @@ export default function RetailersPage() {
                             <p className="text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
                               <Phone className="w-2.5 h-2.5" /> {r.itop_number} <Hash className="w-2.5 h-2.5 ml-1" /> {r.retailer_code}
                             </p>
+                            {r.routes && r.routes.length > 0 && (
+                              <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono truncate max-w-[240px]">
+                                {r.routes.map((route) => route.code).join(", ")}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -554,7 +560,14 @@ export default function RetailersPage() {
               <Field label={t('retailers.field_retailer_name')} value={viewingRetailer.name} />
               <Field label={t('retailers.field_type')} value={viewingRetailer.type} />
               <Field label={t('retailers.field_category')} value={viewingRetailer.category} />
-              <Field label={t('retailers.field_route')} value={viewingRetailer.route} />
+              <Field
+                label={t('retailers.field_route')}
+                value={
+                  viewingRetailer.routes && viewingRetailer.routes.length > 0
+                    ? viewingRetailer.routes.map((route) => route.code).join(", ")
+                    : viewingRetailer.route
+                }
+              />
               <Field label={t('retailers.field_itop')} value={viewingRetailer.itop_number} />
               <Field label={t('retailers.field_sr_number')} value={viewingRetailer.itop_sr_number} />
               <Field label={t('retailers.field_tran_mobile')} value={viewingRetailer.tran_mobile_no} />

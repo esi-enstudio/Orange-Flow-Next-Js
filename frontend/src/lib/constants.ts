@@ -183,6 +183,7 @@ export const navItems: NavItem[] = [
     color: "text-orange-500",
     children: [
       { title: "Retailer List", translationKey: "nav.retailer_list", href: "/retailers", permission: "retailers.view" },
+      { title: "Routes", translationKey: "nav.routes", href: "/retailers/routes", permissions: ["routes.view", "routes.create", "routes.edit", "routes.delete", "routes.assign", "routes.export"] },
       { title: "Marked Retailers", translationKey: "nav.marking_retailers", href: "/retailers/retailer-marking", permission: "retailer_markings.view" },
       { title: "Markings", translationKey: "nav.markings", href: "/retailers/markings", permission: "retailer_markings.view" },
       { title: "Assign Markings", translationKey: "nav.marking_assign", href: "/retailers/assign-marking", permission: "retailer_markings.assign" },
@@ -242,6 +243,7 @@ export const navItems: NavItem[] = [
       { title: "GA Query", translationKey: "nav.report_ga_query", href: "/reports/ga-query", permission: "ga_query.view" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permissions: ["reports.view", "scratch_card.view"] },
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permissions: ["reports.view", "sim_issues.view"] },
+      { title: "RSO Route Performance", translationKey: "nav.report_rso_routes", href: "/reports/rso-routes", permissions: ["reports.view", "activations.view"] },
     ]
   },
   {

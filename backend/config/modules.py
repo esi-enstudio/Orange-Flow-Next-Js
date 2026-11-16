@@ -82,6 +82,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
 
     ("/api/retailer-markings", "retailers"),
     ("/api/retailers", "retailers"),
+    ("/api/routes", "retailers"),
 
     ("/api/lifting", "lifting"),
     ("/api/products", "lifting"),
@@ -173,6 +174,7 @@ MODULE_LEAF_ROUTES: dict = {
     "live_location": ("/live-location",),
     "retailers": (
         "/retailers",
+        "/retailers/routes",
         "/retailers/retailer-marking",
         "/retailers/markings",
         "/retailers/assign-marking",
@@ -202,6 +204,7 @@ MODULE_LEAF_ROUTES: dict = {
         "/reports/ga-query",
         "/reports/scratch-card",
         "/reports/sim-issues",
+        "/reports/rso-routes",
     ),
     "sim_management": ("/sim-inventory", "/sim-replacement"),
     "inventory": (
@@ -280,7 +283,10 @@ LEAF_TO_API_PREFIXES: dict = {
     "/live-location": ("/api/v1/locations",),
 
     # ---- retailers ----
-    "/retailers": ("/api/retailers",),
+    # Route options feed the retailer list's route filter, so both leaves own it
+    # (longest-prefix match allows either granted page).
+    "/retailers": ("/api/retailers", "/api/routes/options"),
+    "/retailers/routes": ("/api/routes",),
     # the retailer-markings router serves the marking/assign/import/history pages.
     "/retailers/retailer-marking": ("/api/retailer-markings",),
     "/retailers/markings": ("/api/retailer-markings",),
@@ -317,6 +323,7 @@ LEAF_TO_API_PREFIXES: dict = {
     "/reports/ga-query": ("/api/ga-query",),
     "/reports/scratch-card": ("/api/scratch-card",),
     "/reports/sim-issues": ("/api/sim-issues",),
+    "/reports/rso-routes": ("/api/reports/rso-routes",),
 
     # ---- inventory ----
     "/inventory/receiving": ("/api/v1/inventory/receipts",),

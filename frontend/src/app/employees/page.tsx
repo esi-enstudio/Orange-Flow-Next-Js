@@ -45,6 +45,7 @@ import {
   ArrowUp,
   ArrowDown,
   FileText,
+  Route as RouteIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
@@ -361,6 +362,13 @@ export default function EmployeesPage() {
   const [reassignTargetsLoading, setReassignTargetsLoading] = useState(false);
   const [reassignTargetsLoaded, setReassignTargetsLoaded] = useState(false);
   const [reassignTargetsLoadFailed, setReassignTargetsLoadFailed] = useState(false);
+
+  // Reassign RSO Routes
+  const [routeReassignData, setRouteReassignData] = useState<{ emp: Employee; newStatus: string; routeCount: number } | null>(null);
+  const [routeReassignTargetId, setRouteReassignTargetId] = useState<number>(0);
+  const [routeReassignLoading, setRouteReassignLoading] = useState(false);
+  const [routeReassignTargets, setRouteReassignTargets] = useState<Employee[]>([]);
+  const [routeReassignTargetsLoading, setRouteReassignTargetsLoading] = useState(false);
 
   // Reassign Supervisor Team
   const [reassignTeamData, setReassignTeamData] = useState<{ emp: Employee; newStatus: string; memberCount: number } | null>(null);
@@ -690,6 +698,15 @@ export default function EmployeesPage() {
               setFormLoading(false);
               return;
             }
+            const routeRes = await apiClient.get(`employees/${editingMember.id}/route-count`);
+            const routeCount = routeRes.data?.count ?? 0;
+            if (routeCount > 0) {
+              setRouteReassignData({ emp: editingMember as any, newStatus, routeCount });
+              setRouteReassignTargetId(0);
+              fetchRouteReassignTargets(editingMember as any);
+              setFormLoading(false);
+              return;
+            }
           }
           const isSupervisor = editingMember.employee_type?.toLowerCase() === "supervisor";
           if (isSupervisor) {
@@ -810,6 +827,14 @@ export default function EmployeesPage() {
           setReassignTargetId(0);
           return;
         }
+        const routeRes = await apiClient.get(`employees/${empId}/route-count`);
+        const routeCount = routeRes.data?.count ?? 0;
+        if (routeCount > 0) {
+          setRouteReassignData({ emp, newStatus, routeCount });
+          setRouteReassignTargetId(0);
+          fetchRouteReassignTargets(emp);
+          return;
+        }
       } catch {
         toast.error(t('common.action_failed'));
         return;
@@ -871,6 +896,49 @@ export default function EmployeesPage() {
       toast.error(err?.response?.data?.detail || t('common.action_failed'));
     } finally {
       setReassignLoading(false);
+    }
+  };
+
+  const fetchRouteReassignTargets = async (emp: Employee) => {
+    setRouteReassignTargetsLoading(true);
+    setRouteReassignTargets([]);
+    try {
+      const params = new URLSearchParams();
+      params.set("status", "Active");
+      params.set("employee_type", "rso");
+      params.set("per_page", "100");
+      if (emp.house_id) params.set("filter_house_id", String(emp.house_id));
+      const headers: Record<string, string> = {};
+      if (emp.house_id) headers["X-House-ID"] = String(emp.house_id);
+      const res = await apiClient.get(`employees?${params.toString()}`, { headers });
+      const list = (res.data.data || []).filter((m: Employee) => m.id !== emp.id);
+      setRouteReassignTargets(list);
+    } catch {
+      toast.error(t('common.action_failed'));
+    } finally {
+      setRouteReassignTargetsLoading(false);
+    }
+  };
+
+  const handleRouteReassignConfirm = async () => {
+    if (!routeReassignData || !routeReassignTargetId) return;
+    setRouteReassignLoading(true);
+    try {
+      await apiClient.post(`employees/${routeReassignData.emp.id}/reassign-routes`, {
+        new_employee_id: routeReassignTargetId,
+        status: routeReassignData.newStatus,
+      });
+      toast.success(
+        t('employees.reassign_routes_success', { count: routeReassignData.routeCount })
+      );
+      setRouteReassignData(null);
+      setRouteReassignTargetId(0);
+      setIsFormModalOpen(false);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || t('common.action_failed'));
+    } finally {
+      setRouteReassignLoading(false);
     }
   };
 
@@ -2293,6 +2361,88 @@ export default function EmployeesPage() {
                   className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
                 >
                   Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reassign RSO Routes Modal */}
+      <AnimatePresence>
+        {routeReassignData && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden"
+            >
+              <div className="p-5 sm:p-8">
+                <div className="flex flex-col items-center text-center mb-6">
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-sky-100 dark:bg-sky-500/20">
+                    <RouteIcon className="w-10 h-10 text-sky-600 dark:text-sky-400" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                    {t('employees.reassign_routes_title')}
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                    {t('employees.reassign_routes_desc', {
+                      count: routeReassignData.routeCount,
+                      status: routeReassignData.newStatus,
+                    })}
+                  </p>
+                </div>
+
+                <div className="space-y-2 mb-6">
+                  <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    {t('employees.reassign_routes_transfer_to')}
+                  </label>
+                  <select
+                    value={routeReassignTargetId}
+                    onChange={e => setRouteReassignTargetId(Number(e.target.value))}
+                    className="w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer"
+                  >
+                    <option value={0} disabled>
+                      {t('employees.reassign_routes_placeholder')}
+                    </option>
+                    {routeReassignTargets.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {employeeDisplayName(m)} — {m.dms_code || "N/A"}
+                      </option>
+                    ))}
+                  </select>
+                  {routeReassignTargetsLoading ? (
+                    <div className="flex items-center gap-2 mt-1 animate-pulse">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary-500" />
+                      <p className="text-xs text-gray-400">
+                        {t('employees.reassign_routes_placeholder')}
+                      </p>
+                    </div>
+                  ) : routeReassignTargets.length === 0 && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {t('employees.reassign_routes_none')}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-5 sm:px-8 pb-5 sm:pb-6 flex flex-col gap-3">
+                <button
+                  onClick={handleRouteReassignConfirm}
+                  disabled={!routeReassignTargetId || routeReassignLoading}
+                  className="w-full py-4 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white font-bold transition-all shadow-lg active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {routeReassignLoading
+                    ? "..."
+                    : t('employees.reassign_routes_confirm', { status: routeReassignData.newStatus })}
+                </button>
+                <button
+                  onClick={() => { setRouteReassignData(null); setRouteReassignTargetId(0); }}
+                  disabled={routeReassignLoading}
+                  className="w-full py-4 rounded-2xl text-gray-500 dark:text-gray-400 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  {t('common.cancel')}
                 </button>
               </div>
             </motion.div>

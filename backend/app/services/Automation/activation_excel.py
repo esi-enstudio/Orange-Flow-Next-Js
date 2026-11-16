@@ -115,6 +115,22 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
             ret_rows = ret_res.all()
             retailer_map = {r.retailer_code: r.id for r in ret_rows}
             retailer_emp_map = {r.retailer_code: r.employee_id for r in ret_rows}
+            # Primary route snapshot per retailer (route_code on the activation),
+            # used by the route-wise RSO report.
+            from app.models.route import RetailerRoute, Route
+
+            route_rows = await session.execute(
+                select(Retailer.retailer_code, Route.code)
+                .join(RetailerRoute, RetailerRoute.retailer_id == Retailer.id)
+                .join(Route, Route.id == RetailerRoute.route_id)
+                .where(
+                    Retailer.house_id == house_id,
+                    RetailerRoute.status == "active",
+                    RetailerRoute.is_primary.is_(True),
+                    Route.is_deleted.is_(False),
+                )
+            )
+            retailer_route_map = {code: route_code for code, route_code in route_rows.all()}
 
             processed_count = 0
             inserted_count = 0
@@ -147,6 +163,7 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
                     "house_id": house_id,
                     "retailer_id": target_retailer_id,
                     "employee_id": retailer_emp_map.get(r_code) if r_code else None,
+                    "route_code": retailer_route_map.get(r_code) if r_code else None,
                     "sim_no": sim_no,
                     "activation_date": act_date,
                     "activation_time": clean(row.get('ACTIVATION_TIME')),
@@ -216,6 +233,7 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
             await session.commit()
             # GA Query reports are cached; activation data just changed.
             await cache_service.invalidate_pattern("ga_query:*")
+            await cache_service.invalidate_pattern("rso_routes:*")
             pbar.close()
             print(f"{Fore.GREEN}{Style.BRIGHT}✅ Success: {inserted_count} records processed successfully.\n")
             return inserted_count, None

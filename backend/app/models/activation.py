@@ -10,6 +10,10 @@ class Activation(Base):
     house_id = Column(Integer, ForeignKey('houses.id'), nullable=False)
     retailer_id = Column(Integer, ForeignKey('retailers.id'), nullable=True)
     employee_id = Column(Integer, ForeignKey('employees.id'), nullable=True, index=True)  # Snapshot of attribution at import time
+    # Snapshot of the retailer's primary route at import time. The owning RSO is
+    # resolved from employee_routes effective windows, so reports survive a
+    # handover.
+    route_code = Column(String(50), index=True)
     
     # All columns (like live activation)
     activation_date = Column(Date, index=True) # Date type for calculations ✅

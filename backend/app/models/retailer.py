@@ -40,5 +40,10 @@ class Retailer(Base):
 
     # Relation:
     activations = relationship("Activation", back_populates="retailer")
+    # Normalized, effective-dated route links. `route` above stays the raw import
+    # snapshot; these links are the source of truth for filters and reports.
+    route_links = relationship(
+        "RetailerRoute", back_populates="retailer", order_by="RetailerRoute.id"
+    )
     live_activations = relationship("LiveActivation", back_populates="retailer")
     employee = relationship("Employee", back_populates="retailers")

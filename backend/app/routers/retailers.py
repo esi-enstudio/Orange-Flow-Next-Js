@@ -11,12 +11,27 @@ from app.routers.deps import get_db, has_permission, has_any_permission, get_hou
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.retailer import Retailer
 from app.models.employee import Employee
+from app.models.route import RetailerRoute, Route
 from app.models.user import User
 from app.utils.access_control import is_admin_user
 from app.utils.validation import safe_filename, validate_excel
 from app.services.Automation.retailer_excel import process_retailer_excel, export_retailers_excel
 
 router = APIRouter(prefix="/api/retailers", tags=["retailers"])
+
+
+def _active_routes(retailer: Retailer) -> list[dict]:
+    """Normalized active route links in primary-first order."""
+    links = [
+        link
+        for link in (retailer.route_links or [])
+        if link.status == "active" and link.route is not None and not link.route.is_deleted
+    ]
+    links.sort(key=lambda link: (not link.is_primary, link.route.code))
+    return [
+        {"id": link.route_id, "code": link.route.code, "is_primary": link.is_primary}
+        for link in links
+    ]
 
 @router.get("")
 async def get_retailers(
@@ -31,12 +46,15 @@ async def get_retailers(
     district: Optional[str] = None,
     thana: Optional[str] = None,
     route: Optional[str] = None,
+    route_id: Optional[int] = None,
+    route_code: Optional[str] = None,
     has_employee: Optional[bool] = None,
     employee_id: Optional[int] = None,
 ):
     base_query = select(Retailer).options(
         joinedload(Retailer.house),
-        joinedload(Retailer.employee).selectinload(Employee.user)
+        joinedload(Retailer.employee).selectinload(Employee.user),
+        selectinload(Retailer.route_links).joinedload(RetailerRoute.route),
     )
     is_admin = is_admin_user(current_user)
     if house_id:
@@ -70,6 +88,27 @@ async def get_retailers(
         base_query = base_query.where(Retailer.thana.ilike(f"%{thana}%"))
     if route:
         base_query = base_query.where(Retailer.route.ilike(f"%{route}%"))
+    if route_id:
+        base_query = base_query.where(
+            Retailer.id.in_(
+                select(RetailerRoute.retailer_id).where(
+                    RetailerRoute.route_id == route_id,
+                    RetailerRoute.status == "active",
+                )
+            )
+        )
+    if route_code:
+        base_query = base_query.where(
+            Retailer.id.in_(
+                select(RetailerRoute.retailer_id)
+                .join(Route, Route.id == RetailerRoute.route_id)
+                .where(
+                    Route.code == route_code.strip().upper(),
+                    Route.is_deleted.is_(False),
+                    RetailerRoute.status == "active",
+                )
+            )
+        )
     if employee_id:
         base_query = base_query.where(Retailer.employee_id == employee_id)
     elif has_employee is not None:
@@ -100,7 +139,8 @@ async def get_retailers(
             "owner_name": r.owner_name, "contact_no": r.contact_no,
             "district": r.district, "thana": r.thana, "address": r.address,
             "nid": r.nid, "bp_code": r.bp_code, "bp_number": r.bp_number,
-            "dob": r.dob, "route": r.route, "house": None, "employee": None
+            "dob": r.dob, "route": r.route, "house": None, "employee": None,
+            "routes": _active_routes(r),
         }
         if r.house:
             item["house"] = {"id": r.house.id, "name": r.house.name, "code": r.house.code}
@@ -209,7 +249,8 @@ async def export_retailers(
 ):
     query = select(Retailer).options(
         joinedload(Retailer.house),
-        joinedload(Retailer.employee).selectinload(Employee.user)
+        joinedload(Retailer.employee).selectinload(Employee.user),
+        selectinload(Retailer.route_links).joinedload(RetailerRoute.route),
     )
     is_admin = is_admin_user(current_user)
     if house_id:

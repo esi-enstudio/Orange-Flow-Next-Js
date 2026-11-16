@@ -72,7 +72,13 @@
         "retailers.import",
         "retailers.export",
         "retailers.sync",
-        "retailers.marking"
+        "retailers.marking",
+        "routes.view",
+        "routes.create",
+        "routes.edit",
+        "routes.delete",
+        "routes.assign",
+        "routes.export"
       ]
     },
     "retailer_markings": {
@@ -625,6 +631,7 @@
         "documents.signatories.manage",
         "documents.audit.view",
         "retailers.view",
+        "routes.view",
         "employees.view",
         "employees.assign",
         "employees.resignation_view",
@@ -650,7 +657,8 @@
         "active_lso.export",
         "active_lso.print",
         "active_sso.view",
-        "active_sso.export", "active_sso.print",
+        "active_sso.export",
+        "active_sso.print",
         "transactions.view",
         "transactions.export",
         "ga_report_builder.view",
@@ -683,6 +691,7 @@
       "permissions": [
         "reports.view",
         "retailers.view",
+        "routes.view",
         "employees.view",
         "employees.assign",
         "employees.resignation_view",
@@ -711,7 +720,8 @@
         "active_lso.export",
         "active_lso.print",
         "active_sso.view",
-        "active_sso.export", "active_sso.print",
+        "active_sso.export",
+        "active_sso.print",
         "transactions.view",
         "transactions.export",
         "ga_report_builder.view",
@@ -742,6 +752,7 @@
       "permissions": [
         "reports.view",
         "retailers.view",
+        "routes.view",
         "sim_status.view",
         "activations.view",
         "reports.target_achievement",

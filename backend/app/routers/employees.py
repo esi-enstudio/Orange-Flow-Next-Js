@@ -24,6 +24,7 @@ from app.models.supervisor_target import SupervisorTarget
 from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
 from app.models.supervisor_assignment import SupervisorRSOAssignment
+from app.models.route import EmployeeRoute, Route
 from app.models.rso_bp_assignment import RSOBPAssignment
 from pydantic import BaseModel
 from app.utils.access_control import is_admin_user
@@ -503,6 +504,15 @@ async def _count_retailers(db: AsyncSession, emp_id: int) -> int:
     )
     return result.scalar() or 0
 
+async def _count_employee_routes(db: AsyncSession, emp_id: int) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(EmployeeRoute)
+        .where(EmployeeRoute.employee_id == emp_id, EmployeeRoute.status == "active")
+    )
+    return result.scalar() or 0
+
+
 async def _dms_conflict_error(db: AsyncSession, emp: Employee) -> HTTPException:
     """Build a duplicate-DMS-code error that names the existing employee.
 
@@ -677,6 +687,15 @@ async def update_employee(emp_id: int, emp_data: EmployeeCreate, request: Reques
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot set status to {new_status} while the RSO still has {count} retailer(s). Reassign retailers first."
+            )
+        route_count = await _count_employee_routes(db, emp.id)
+        if route_count > 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Cannot set status to {new_status} while the RSO still owns "
+                    f"{route_count} route(s). Reassign routes first."
+                ),
             )
     for key, value in updates.items():
         setattr(emp, key, value)
@@ -1260,6 +1279,11 @@ class ReassignSupervisorTeamRequest(BaseModel):
     new_supervisor_id: int
     status: str
 
+
+class ReassignEmployeeRoutesRequest(BaseModel):
+    new_employee_id: int
+    status: Optional[str] = None
+
 @router.get("/{emp_id}/retailer-count")
 async def get_employee_retailer_count(
     emp_id: int,
@@ -1417,6 +1441,43 @@ async def reassign_employee_retailers(
     targets_transferred = (
         0 if req.create_demo_employee else await _transfer_employee_targets(db, emp, new_emp)
     )
+
+    # Routes follow the same handoff. Ownership is effective-dated, so closing
+    # the old link and opening a new one keeps past activations with this RSO.
+    route_links = (
+        await db.execute(
+            select(EmployeeRoute).where(
+                EmployeeRoute.employee_id == emp.id,
+                EmployeeRoute.status == "active",
+            )
+        )
+    ).scalars().all()
+    route_count = len(route_links)
+    routes_transferred = 0 if req.create_demo_employee else route_count
+    handover_at = now_naive()
+    for link in route_links:
+        link.status = "inactive"
+        link.effective_to = handover_at
+        link.removed_at = handover_at
+        link.removed_by = current_user.id
+        link.reason = "resign"
+    # One active owner per route: the closures must be written before the
+    # successor's rows are inserted.
+    await db.flush()
+    if not req.create_demo_employee:
+        for link in route_links:
+            db.add(
+                EmployeeRoute(
+                    house_id=emp.house_id,
+                    employee_id=new_emp.id,
+                    route_id=link.route_id,
+                    status="active",
+                    effective_from=handover_at,
+                    assigned_at=handover_at,
+                    assigned_by=current_user.id,
+                    reason="transfer",
+                )
+            )
     # Update employee status
     emp.status = req.status
     if emp.status == "Resigned" and not emp.resigned_date:
@@ -1429,10 +1490,15 @@ async def reassign_employee_retailers(
         "reassign_retailers",
         record_id=emp.id,
         record_identifier=emp.employee_id or emp.dms_code,
-        old_values={"status": old_status, "retailer_count": retailer_count},
+        old_values={
+            "status": old_status,
+            "retailer_count": retailer_count,
+            "route_count": route_count,
+        },
         new_values={
             "status": req.status,
             "retailer_count": retailer_count,
+            "route_count": route_count,
             "new_employee_id": new_emp.id,
             "new_employee_name": new_emp.employee_name,
             "demo_employee": req.create_demo_employee,
@@ -1444,12 +1510,14 @@ async def reassign_employee_retailers(
     from app.services.cache_service import cache_service
 
     await cache_service.invalidate_pattern("ga_query:*")
+    await cache_service.invalidate_pattern("rso_routes:*")
     await db.refresh(emp)
     return {
-        "message": f"Transferred {retailer_count} retailer(s) and {targets_transferred} target month(s) to {new_emp.employee_name or new_emp.dms_code or new_emp.id} and status set to {req.status}",
+        "message": f"Transferred {retailer_count} retailer(s), {route_count} route(s) and {targets_transferred} target month(s) to {new_emp.employee_name or new_emp.dms_code or new_emp.id} and status set to {req.status}",
         "demo_employee_id": new_emp.id if req.create_demo_employee else None,
         "demo_employee_name": new_emp.employee_name if req.create_demo_employee else None,
         "retailers_transferred": retailer_count,
+        "routes_transferred": routes_transferred,
         "targets_transferred": targets_transferred,
     }
 
@@ -1539,6 +1607,122 @@ async def get_supervisor_team_count(
         )
     )
     return {"count": len(count_result.all())}
+
+@router.get("/{emp_id}/route-count")
+async def get_employee_route_count(
+    emp_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.view")),
+):
+    emp = await db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
+    routes = (
+        await db.execute(
+            select(Route.code)
+            .join(EmployeeRoute, EmployeeRoute.route_id == Route.id)
+            .where(
+                EmployeeRoute.employee_id == emp_id,
+                EmployeeRoute.status == "active",
+            )
+            .order_by(Route.code)
+        )
+    ).scalars().all()
+    return {"count": len(routes), "routes": list(routes)}
+
+
+@router.post("/{emp_id}/reassign-routes")
+async def reassign_employee_routes(
+    emp_id: int,
+    req: ReassignEmployeeRoutesRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("employees.edit")),
+):
+    """Hand a resigning/inactive RSO's routes to an Active successor."""
+    emp = await db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    _assert_house_access(emp, current_user)
+    successor = await db.get(Employee, req.new_employee_id)
+    if not successor:
+        raise HTTPException(status_code=404, detail="New RSO not found")
+    if successor.id == emp.id:
+        raise HTTPException(status_code=422, detail="Successor must be a different employee")
+    if (successor.employee_type or "").lower() != "rso":
+        raise HTTPException(status_code=422, detail="Target employee is not an RSO")
+    if (successor.status or "") != "Active":
+        raise HTTPException(status_code=422, detail="Target RSO is not active")
+    if successor.house_id != emp.house_id:
+        raise HTTPException(status_code=422, detail="RSOs must be in the same house")
+    if req.status is not None and req.status not in ("Active", "Resigned", "Suspended", "Inactive"):
+        raise HTTPException(status_code=422, detail="Invalid status")
+
+    links = (
+        await db.execute(
+            select(EmployeeRoute)
+            .join(Route, Route.id == EmployeeRoute.route_id)
+            .where(
+                EmployeeRoute.employee_id == emp.id,
+                EmployeeRoute.status == "active",
+            )
+        )
+    ).scalars().all()
+    timestamp = now_naive()
+    route_ids = [link.route_id for link in links]
+    for link in links:
+        link.status = "inactive"
+        link.effective_to = timestamp
+        link.removed_at = timestamp
+        link.removed_by = current_user.id
+        link.reason = "resign"
+    # Flush the closure first: the partial unique index allows only one active
+    # owner per route, so the successor's row must be inserted afterwards.
+    await db.flush()
+    for route_id in route_ids:
+        db.add(
+            EmployeeRoute(
+                house_id=emp.house_id,
+                employee_id=successor.id,
+                route_id=route_id,
+                status="active",
+                effective_from=timestamp,
+                assigned_at=timestamp,
+                assigned_by=current_user.id,
+                reason="transfer",
+            )
+        )
+
+    if req.status:
+        emp.status = req.status
+        if req.status == "Resigned" and not emp.resigned_date:
+            emp.resigned_date = now_naive().strftime("%Y-%m-%d")
+
+    await db.commit()
+    from app.services.cache_service import cache_service
+
+    await cache_service.invalidate_pattern("rso_routes:*")
+    await log_activity(
+        db, current_user.id, current_user.name, "employees", "reassign_routes",
+        record_id=emp.id,
+        record_identifier=emp.employee_id or emp.dms_code,
+        old_values={"outgoing_employee_id": emp.id},
+        new_values={
+            "new_employee_id": successor.id,
+            "status": req.status,
+            "route_count": len(links),
+        },
+        request=request, status_code=200,
+    )
+    return {
+        "message": (
+            f"Transferred {len(links)} route(s) to "
+            f"{successor.employee_id or successor.dms_code}"
+        ),
+        "transferred": len(links),
+    }
+
 
 @router.post("/{emp_id}/reassign-team")
 async def reassign_supervisor_team(
