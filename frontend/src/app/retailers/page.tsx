@@ -712,10 +712,10 @@ export default function RetailersPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-2 py-1">
+                      <td className="px-2 py-1 text-center">
                         <span className="text-xs text-gray-700 dark:text-gray-200">{r.type || "—"}</span>
                       </td>
-                      <td className="px-2 py-1">
+                      <td className="px-2 py-1 text-center">
                         <span className="text-xs text-gray-700 dark:text-gray-200">{r.category || "—"}</span>
                       </td>
                       <td className="px-6 py-4">
@@ -747,7 +747,7 @@ export default function RetailersPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-2 py-1">
+                      <td className="px-2 py-1 text-center">
                         <span className={cn(
                           "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
                           r.on_route_today
