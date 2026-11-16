@@ -22,13 +22,18 @@ function isPathMatch(href: string, pathname: string): boolean {
   return href === pathname || pathname.startsWith(href.endsWith("/") ? href : `${href}/`);
 }
 
-function isNavPathMatch(
-  href: string,
-  pathname: string,
-  isResignationLetterheadActive: boolean
-): boolean {
-  return isPathMatch(href, pathname) ||
-    (isResignationLetterheadActive && href === "/employees/resignation-documents");
+function navHrefs(items: any[]): string[] {
+  return items.flatMap((item) => [
+    ...(item.href ? [item.href] : []),
+    ...(item.children ? navHrefs(item.children) : []),
+  ]);
+}
+
+/** The one active nav item: the longest matching href wins, so a child page such
+ * as /retailers/routes does not also light up its parent /retailers. */
+function activeNavHref(items: any[], pathname: string): string | null {
+  const matches = navHrefs(items).filter((href) => isPathMatch(href, pathname));
+  return matches.sort((a, b) => b.length - a.length)[0] ?? null;
 }
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
@@ -86,6 +91,14 @@ function filterChildren(children: any[]): any[] {
         return true;
       });
   }, [hasPermission, hasModule, hasPage]);
+
+  const activeHref = React.useMemo(
+    () =>
+      isResignationLetterheadActive
+        ? "/employees/resignation-documents"
+        : activeNavHref(filteredNavItems, pathname),
+    [filteredNavItems, pathname, isResignationLetterheadActive]
+  );
 
   useEffect(() => {
     const employeeId = Number(new URLSearchParams(window.location.search).get("emp_id"));
@@ -159,12 +172,10 @@ function filterChildren(children: any[]): any[] {
               {filteredNavItems.map((item) => {
                 const hasChildren = item.children && item.children.length > 0;
                 const isParentActive = item.children?.some(child =>
-                  (child.href && isNavPathMatch(child.href, pathname, isResignationLetterheadActive)) ||
-                  child.children?.some(sub =>
-                    sub.href && isNavPathMatch(sub.href, pathname, isResignationLetterheadActive)
-                  )
+                  (child.href && child.href === activeHref) ||
+                  child.children?.some(sub => sub.href && sub.href === activeHref)
                 );
-                const isDirectActive = item.href === pathname;
+                const isDirectActive = item.href === activeHref;
                 const label = item.translationKey ? t(item.translationKey) : item.title;
 
                 if (hasChildren) {
@@ -259,10 +270,10 @@ function filterChildren(children: any[]): any[] {
                     const childHasNavChildren = child.children && child.children.length > 0;
                     const label = child.translationKey ? t(child.translationKey) : child.title;
                     const isChildActive = child.href
-                      ? isNavPathMatch(child.href, pathname, isResignationLetterheadActive)
+                      ? child.href === activeHref
                       : false;
                     const isNestedActive = child.children?.some(sub =>
-                      isNavPathMatch(sub.href, pathname, isResignationLetterheadActive)
+                      sub.href === activeHref
                     );
 
                     if (childHasNavChildren) {
@@ -341,7 +352,7 @@ function filterChildren(children: any[]): any[] {
                   </div>
                   {selectedNested.children?.map((sub) => {
                     const label = sub.translationKey ? t(sub.translationKey) : sub.title;
-                    const isSubActive = isNavPathMatch(sub.href, pathname, isResignationLetterheadActive);
+                    const isSubActive = sub.href === activeHref;
                     return (
                       <Link
                         key={sub.href}
