@@ -1510,7 +1510,6 @@ async def reassign_employee_retailers(
     from app.services.cache_service import cache_service
 
     await cache_service.invalidate_pattern("ga_query:*")
-    await cache_service.invalidate_pattern("rso_routes:*")
     await db.refresh(emp)
     return {
         "message": f"Transferred {retailer_count} retailer(s), {route_count} route(s) and {targets_transferred} target month(s) to {new_emp.employee_name or new_emp.dms_code or new_emp.id} and status set to {req.status}",
@@ -1700,9 +1699,6 @@ async def reassign_employee_routes(
             emp.resigned_date = now_naive().strftime("%Y-%m-%d")
 
     await db.commit()
-    from app.services.cache_service import cache_service
-
-    await cache_service.invalidate_pattern("rso_routes:*")
     await log_activity(
         db, current_user.id, current_user.name, "employees", "reassign_routes",
         record_id=emp.id,

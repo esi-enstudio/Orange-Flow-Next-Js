@@ -112,6 +112,10 @@ export default function RoutesPage() {
   const [editing, setEditing] = useState<RouteRow | null>(null);
   const [formCode, setFormCode] = useState("");
   const [formName, setFormName] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formRouteLength, setFormRouteLength] = useState("");
+  const [formVisitDays, setFormVisitDays] = useState<string[]>([]);
+  const [formActive, setFormActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -184,6 +188,10 @@ export default function RoutesPage() {
     setEditing(null);
     setFormCode("");
     setFormName("");
+    setFormDescription("");
+    setFormRouteLength("");
+    setFormVisitDays([]);
+    setFormActive(true);
     setFormError(null);
     setShowForm(true);
   };
@@ -192,11 +200,23 @@ export default function RoutesPage() {
     setEditing(row);
     setFormCode(row.code);
     setFormName(row.name || "");
+    setFormDescription(row.description || "");
+    setFormRouteLength(row.route_length == null ? "" : String(row.route_length));
+    setFormVisitDays(row.visit_days ?? []);
+    setFormActive(row.is_active);
     setFormError(null);
     setShowForm(true);
   };
 
   const handleSave = async () => {
+    const routeLength = formRouteLength.trim() ? Number(formRouteLength) : null;
+    if (
+      routeLength !== null &&
+      (!Number.isFinite(routeLength) || routeLength < 0)
+    ) {
+      setFormError(t("routes.validation_length"));
+      return;
+    }
     setSaving(true);
     setFormError(null);
     try {
@@ -204,7 +224,13 @@ export default function RoutesPage() {
       if (editing) {
         await apiClient.patch(
           `routes/${editing.id}`,
-          { name: formName },
+          {
+            name: formName,
+            description: formDescription,
+            route_length: routeLength,
+            visit_days: formVisitDays,
+            is_active: formActive,
+          },
           { headers }
         );
         toast.success(t("routes.toast_update_success"));
@@ -1041,7 +1067,7 @@ export default function RoutesPage() {
       {/* Create / edit */}
       {showForm && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg max-h-[90vh] rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden flex flex-col">
             <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-slate-800">
               <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
                 <RouteIcon className="w-5 h-5 text-primary-600 dark:text-primary-400" />
@@ -1055,7 +1081,7 @@ export default function RoutesPage() {
                 </p>
               </div>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto">
               {formError && (
                 <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -1073,7 +1099,10 @@ export default function RoutesPage() {
                   onChange={(e) => setFormCode(e.target.value.toUpperCase())}
                   placeholder={t("routes.field_code_placeholder")}
                   maxLength={50}
-                  className={cn(inputClass, "font-mono disabled:opacity-60")}
+                  className={cn(
+                    inputClass,
+                    "font-mono disabled:opacity-60 disabled:cursor-not-allowed"
+                  )}
                 />
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
                   {t("routes.field_code_hint")}
@@ -1096,6 +1125,76 @@ export default function RoutesPage() {
                   className={inputClass}
                 />
               </div>
+              {editing && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
+                      {t("routes.field_description")}
+                    </label>
+                    <textarea
+                      value={formDescription}
+                      onChange={(e) => setFormDescription(e.target.value)}
+                      rows={3}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
+                      {t("routes.field_length")}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={formRouteLength}
+                      onChange={(e) => setFormRouteLength(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <fieldset>
+                    <legend className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                      {t("routes.field_visit_days")}
+                    </legend>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {DAY_VALUES.map((day, index) => (
+                        <label
+                          key={day}
+                          className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={formVisitDays.includes(day)}
+                            onChange={(event) =>
+                              setFormVisitDays((days) =>
+                                event.target.checked
+                                  ? [...days, day]
+                                  : days.filter((value) => value !== day)
+                              )
+                            }
+                            className="cursor-pointer"
+                          />
+                          {t(`routes.day_${DAY_KEYS[index]}`)}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
+                      {t("routes.filter_status")}
+                    </label>
+                    <select
+                      value={formActive ? "active" : "inactive"}
+                      onChange={(event) =>
+                        setFormActive(event.target.value === "active")
+                      }
+                      className={cn(inputClass, "cursor-pointer")}
+                    >
+                      <option value="active">{t("routes.status_active")}</option>
+                      <option value="inactive">{t("routes.status_inactive")}</option>
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
             <div className="p-6 pt-0 flex gap-3">
               <button
@@ -1151,7 +1250,7 @@ export default function RoutesPage() {
                 placeholder={t("routes.assign_placeholder")}
                 searchPlaceholder={t("routes.assign_search")}
                 emptyMessage={
-                  rsoLoading ? t("rso_routes.loading") : t("routes.assign_empty")
+                  rsoLoading ? t("routes.loading") : t("routes.assign_empty")
                 }
                 noResultsMessage={t("routes.assign_empty")}
                 onSearchChange={(q) => loadRso(q)}
@@ -1160,7 +1259,7 @@ export default function RoutesPage() {
                 portal
                 selectAllLabel={t("common.select_all")}
                 clearLabel={t("common.clear")}
-                selectedLabel={t("rso_routes.selected")}
+                selectedLabel={t("routes.selected")}
               />
             </div>
             <div className="p-6 pt-0 flex gap-3">

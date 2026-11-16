@@ -92,6 +92,65 @@ async def test_create_route_rejects_malformed_code(db):
     assert res.status_code == 400
 
 
+async def test_edit_route_updates_all_route_details(db):
+    house = await _house(db, "MYMVAI01")
+    route = Route(
+        house_id=house.id,
+        code="MYMVAI01_ROUTE0001",
+        name="Old Name",
+        description="Old description",
+        route_length=2.5,
+        visit_days=["saturday"],
+    )
+    db.add(route)
+    await db.commit()
+    await db.refresh(route)
+
+    async with _client(db, _user(house)) as client:
+        res = await client.patch(
+            f"/api/routes/{route.id}",
+            json={
+                "name": "New Name",
+                "description": "Updated description",
+                "route_length": 12.75,
+                "visit_days": ["monday", "friday", "monday"],
+                "is_active": False,
+            },
+        )
+
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert data["name"] == "New Name"
+    assert data["description"] == "Updated description"
+    assert data["route_length"] == 12.75
+    assert data["visit_days"] == ["monday", "friday"]
+    assert data["is_active"] is False
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"route_length": -1}, "non-negative number"),
+        ({"route_length": True}, "non-negative number"),
+        ({"visit_days": ["funday"]}, "valid weekdays"),
+        ({"is_active": "false"}, "boolean"),
+        ({"code": "MYMVAI01_ROUTE0002"}, "cannot be changed"),
+    ],
+)
+async def test_edit_route_rejects_invalid_or_immutable_values(db, payload, message):
+    house = await _house(db, "MYMVAI01")
+    route = Route(house_id=house.id, code="MYMVAI01_ROUTE0001")
+    db.add(route)
+    await db.commit()
+    await db.refresh(route)
+
+    async with _client(db, _user(house)) as client:
+        res = await client.patch(f"/api/routes/{route.id}", json=payload)
+
+    assert res.status_code == 400, res.text
+    assert message in res.json()["detail"]
+
+
 async def test_assign_requires_active_rso_from_same_house(db):
     house = await _house(db, "MYMVAI01")
     other = await _house(db, "MYMVAI02")

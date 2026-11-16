@@ -204,7 +204,6 @@ MODULE_LEAF_ROUTES: dict = {
         "/reports/ga-query",
         "/reports/scratch-card",
         "/reports/sim-issues",
-        "/reports/rso-routes",
     ),
     "sim_management": ("/sim-inventory", "/sim-replacement"),
     "inventory": (
@@ -323,7 +322,6 @@ LEAF_TO_API_PREFIXES: dict = {
     "/reports/ga-query": ("/api/ga-query",),
     "/reports/scratch-card": ("/api/scratch-card",),
     "/reports/sim-issues": ("/api/sim-issues",),
-    "/reports/rso-routes": ("/api/reports/rso-routes",),
 
     # ---- inventory ----
     "/inventory/receiving": ("/api/v1/inventory/receipts",),

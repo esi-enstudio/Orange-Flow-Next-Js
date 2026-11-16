@@ -6,6 +6,7 @@ one Active RSO at a time (``employee_routes``), both effective-dated so history
 survives a resignation, transfer or re-import.
 """
 import io
+import math
 from typing import List, Optional
 
 import pandas as pd
@@ -20,7 +21,6 @@ from app.models.route import EmployeeRoute, RetailerRoute, Route
 from app.models.user import User
 from app.routers.deps import get_db, get_house_context, has_permission
 from app.schemas.pagination import PaginatedResponse, PaginationMeta, PaginationParams
-from app.services.cache_service import cache_service
 from app.services.route_list_excel import WEEKDAYS, import_route_list
 from app.services.route_service import ROUTE_CODE_RE, route_house_prefix
 from app.utils.access_control import is_super_admin_user
@@ -204,7 +204,6 @@ async def import_routes(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     await db.commit()
-    await cache_service.invalidate_pattern("rso_routes:*")
     await log_activity(
         db, current_user.id, current_user.name, "routes", "import",
         new_values=report, request=request, status_code=200,
@@ -366,22 +365,89 @@ async def update_route(
 ):
     route = await _get_route_or_404(db, route_id)
     _assert_house_access(current_user, route.house_id)
-    old = {"name": route.name, "is_active": route.is_active}
+    if "code" in payload and payload["code"] != route.code:
+        raise HTTPException(
+            status_code=400,
+            detail="Route code cannot be changed after creation",
+        )
+
+    old = {
+        "name": route.name,
+        "description": route.description,
+        "route_length": route.route_length,
+        "visit_days": route.visit_days or [],
+        "is_active": route.is_active,
+    }
     if "name" in payload:
-        route.name = (payload.get("name") or "").strip() or None
+        value = payload["name"]
+        if value is not None and not isinstance(value, str):
+            raise HTTPException(status_code=400, detail="Route name must be text")
+        route.name = (value or "").strip() or None
+    if "description" in payload:
+        value = payload["description"]
+        if value is not None and not isinstance(value, str):
+            raise HTTPException(status_code=400, detail="Route description must be text")
+        route.description = (value or "").strip() or None
+    if "route_length" in payload:
+        value = payload["route_length"]
+        if value is None:
+            route.route_length = None
+        else:
+            try:
+                length = float(value)
+            except (TypeError, ValueError, OverflowError):
+                length = math.nan
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(length)
+                or length < 0
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Route length must be a non-negative number",
+                )
+            route.route_length = length
+    if "visit_days" in payload:
+        value = payload["visit_days"]
+        if not isinstance(value, list) or any(
+            not isinstance(day, str) or day.strip().lower() not in WEEKDAYS
+            for day in value
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Visit days must be a list of valid weekdays",
+            )
+        route.visit_days = list(dict.fromkeys(day.strip().lower() for day in value))
     if "is_active" in payload:
-        route.is_active = bool(payload.get("is_active"))
+        if not isinstance(payload["is_active"], bool):
+            raise HTTPException(status_code=400, detail="Route status must be a boolean")
+        route.is_active = payload["is_active"]
     route.updated_by = current_user.id
     await db.commit()
     await db.refresh(route)
+    new = {
+        "name": route.name,
+        "description": route.description,
+        "route_length": route.route_length,
+        "visit_days": route.visit_days or [],
+        "is_active": route.is_active,
+    }
     await log_activity(
         db, current_user.id, current_user.name, "routes", "edit",
         record_id=route.id, record_identifier=route.code,
         old_values=old,
-        new_values={"name": route.name, "is_active": route.is_active},
+        new_values=new,
         request=request, status_code=200,
     )
-    return {"success": True, "data": {"id": route.id, "code": route.code, "name": route.name, "is_active": route.is_active}}
+    return {
+        "success": True,
+        "data": {
+            "id": route.id,
+            "code": route.code,
+            **new,
+        },
+    }
 
 
 @router.delete("/{route_id}", status_code=204)
@@ -546,7 +612,6 @@ async def assign_rso(
     employee = await _active_rso_or_422(db, int(employee_id), route.house_id)
     await _assign_route(db, route, employee)
     await db.commit()
-    await cache_service.invalidate_pattern("rso_routes:*")
     await log_activity(
         db, current_user.id, current_user.name, "routes", "assign",
         record_id=route.id, record_identifier=route.code,
@@ -585,7 +650,6 @@ async def unassign_rso(
     current.removed_by = current_user.id
     current.reason = "manual"
     await db.commit()
-    await cache_service.invalidate_pattern("rso_routes:*")
     await log_activity(
         db, current_user.id, current_user.name, "routes", "unassign",
         record_id=route.id, record_identifier=route.code,
@@ -631,7 +695,6 @@ async def bulk_assign(
             )
         await _assign_route(db, route, employee)
     await db.commit()
-    await cache_service.invalidate_pattern("rso_routes:*")
     await log_activity(
         db, current_user.id, current_user.name, "routes", "assign",
         record_identifier=employee.employee_id or employee.dms_code,

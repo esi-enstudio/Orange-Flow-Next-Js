@@ -268,8 +268,6 @@ async def process_retailer_excel(file_path, progress_callback=None):
             await session.commit()
             # Retailer↔employee attribution changed, so cached GA Query rows are stale.
             await cache_service.invalidate_pattern("ga_query:*")
-            # Route links drive the route-wise RSO report.
-            await cache_service.invalidate_pattern("rso_routes:*")
 
             # A retailer import can create/refresh the assisted-code retailers that
             # auto-managed markings mirror — rebuild them right away.

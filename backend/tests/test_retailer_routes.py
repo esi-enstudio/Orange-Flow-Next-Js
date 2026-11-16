@@ -11,10 +11,13 @@ the three behaviours the normalized tables rely on:
 3. The startup backfill seeds the master from existing snapshots, is idempotent,
    and never reverts links that were curated afterwards.
 """
+from datetime import datetime
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.models.employee import Employee
 from app.models.retailer import Retailer
 from app.models.route import EmployeeRoute, Route, RetailerRoute
 from app.services import db_service
@@ -257,6 +260,78 @@ async def test_export_falls_back_to_raw_snapshot(db, house):
         )
     ).scalars().one()
     assert _export_route_value(loaded) == "3 Days Route"
+
+
+async def test_route_owner_self_heal_hands_over_and_unassigns_resigned_owner(db, house):
+    route_a = Route(house_id=house.id, code=f"{house.code}_ROUTE0001")
+    route_b = Route(house_id=house.id, code=f"{house.code}_ROUTE0002")
+    outgoing = Employee(
+        house_id=house.id,
+        employee_name="RSO Out",
+        employee_id="RsoOut",
+        employee_type="rso",
+        status="Resigned",
+        itop_number="1915270101",
+    )
+    successor = Employee(
+        house_id=house.id,
+        employee_name="RSO New",
+        employee_id="RsoNew",
+        employee_type="rso",
+        status="Active",
+        itop_number="1915270101",
+    )
+    orphan = Employee(
+        house_id=house.id,
+        employee_name="RSO Gone",
+        employee_id="RsoGone",
+        employee_type="rso",
+        status="Resigned",
+        itop_number="1999",
+    )
+    db.add_all([route_a, route_b, outgoing, successor, orphan])
+    await db.flush()
+    start = datetime(2026, 10, 1)
+    db.add_all(
+        [
+            EmployeeRoute(
+                house_id=house.id,
+                employee_id=outgoing.id,
+                route_id=route_a.id,
+                status="active",
+                effective_from=start,
+                assigned_at=start,
+            ),
+            EmployeeRoute(
+                house_id=house.id,
+                employee_id=orphan.id,
+                route_id=route_b.id,
+                status="active",
+                effective_from=start,
+                assigned_at=start,
+            ),
+        ]
+    )
+    await db.commit()
+
+    assert await db_service._migrate_route_owner_link(db_engine=test_engine) == {
+        "reassigned": 1,
+        "unassigned": 1,
+    }
+
+    owners = {
+        link.route_id: link.employee_id
+        for link in (
+            await db.execute(
+                select(EmployeeRoute).where(EmployeeRoute.status == "active")
+            )
+        ).scalars()
+    }
+    assert owners == {route_a.id: successor.id}
+    assert await db_service._migrate_route_owner_link(db_engine=test_engine) == {
+        "reassigned": 0,
+        "unassigned": 0,
+    }
 
 
 async def test_employee_route_owner_unique_per_route(db, house):

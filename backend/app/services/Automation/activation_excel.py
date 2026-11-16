@@ -233,7 +233,6 @@ async def process_activation_excel(file_path, house_id=None, progress_callback=N
             await session.commit()
             # GA Query reports are cached; activation data just changed.
             await cache_service.invalidate_pattern("ga_query:*")
-            await cache_service.invalidate_pattern("rso_routes:*")
             pbar.close()
             print(f"{Fore.GREEN}{Style.BRIGHT}✅ Success: {inserted_count} records processed successfully.\n")
             return inserted_count, None
