@@ -9,7 +9,7 @@ import io
 from typing import List, Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,10 +21,12 @@ from app.models.user import User
 from app.routers.deps import get_db, get_house_context, has_permission
 from app.schemas.pagination import PaginatedResponse, PaginationMeta, PaginationParams
 from app.services.cache_service import cache_service
+from app.services.route_list_excel import WEEKDAYS, import_route_list
 from app.services.route_service import ROUTE_CODE_RE, route_house_prefix
 from app.utils.access_control import is_super_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
+from app.utils.validation import validate_excel
 
 router = APIRouter(prefix="/api/routes", tags=["routes"])
 
@@ -62,6 +64,8 @@ def _owner_map(rows) -> dict:
             "employee_id": employee.id,
             "name": employee.employee_name or employee.dms_code or employee.employee_id,
             "employee_code": employee.employee_id or employee.dms_code,
+            "dms_code": employee.dms_code,
+            "itop_number": employee.itop_number,
             "assigned_at": link.assigned_at,
         }
     return owners
@@ -145,6 +149,12 @@ async def export_routes(
             "DISTRIBUTOR_CODE": house_codes.get(route.house_id, ""),
             "ROUTE_CODE": route.code,
             "ROUTE_NAME": route.name or "",
+            "DESCRIPTION": route.description or "",
+            "ROUTE_LENGTH": route.route_length,
+            **{
+                day.upper(): "Y" if day in (route.visit_days or []) else "N"
+                for day in WEEKDAYS
+            },
             "STATUS": "Active" if route.is_active else "Inactive",
             "RSO": (owners.get(route.id) or {}).get("name", ""),
             "RSO_CODE": (owners.get(route.id) or {}).get("employee_code", ""),
@@ -155,8 +165,9 @@ async def export_routes(
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         pd.DataFrame(data, columns=[
-            "DISTRIBUTOR_CODE", "ROUTE_CODE", "ROUTE_NAME", "STATUS",
-            "RSO", "RSO_CODE", "RETAILER_COUNT",
+            "DISTRIBUTOR_CODE", "ROUTE_CODE", "ROUTE_NAME", "DESCRIPTION",
+            "ROUTE_LENGTH", *[day.upper() for day in WEEKDAYS],
+            "STATUS", "RSO", "RSO_CODE", "RETAILER_COUNT",
         ]).to_excel(writer, index=False, sheet_name="Routes")
     await log_activity(
         db, current_user.id, current_user.name, "routes", "export",
@@ -167,6 +178,38 @@ async def export_routes(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=routes_export.xlsx"},
     )
+
+
+@router.post("/import")
+async def import_routes(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("routes.import")),
+):
+    """Upsert the DMS RouteList export into the route master.
+
+    Creates missing routes, refreshes name/description/length/visit days and
+    syncs route ownership to the Active RSO named in the file.
+    """
+    if not validate_excel(file.filename or ""):
+        raise HTTPException(
+            status_code=400, detail="Only .xls and .xlsx files are allowed"
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty")
+    try:
+        report = await import_route_list(db, data, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await db.commit()
+    await cache_service.invalidate_pattern("rso_routes:*")
+    await log_activity(
+        db, current_user.id, current_user.name, "routes", "import",
+        new_values=report, request=request, status_code=200,
+    )
+    return {"success": True, "data": report}
 
 
 @router.get("")
@@ -215,6 +258,9 @@ async def list_routes(
                 "house_id": route.house_id,
                 "code": route.code,
                 "name": route.name,
+                "description": route.description,
+                "route_length": route.route_length,
+                "visit_days": route.visit_days or [],
                 "is_active": route.is_active,
                 "rso": owners.get(route.id),
                 "retailer_count": counts.get(route.id, 0),

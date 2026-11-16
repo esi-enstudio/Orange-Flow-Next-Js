@@ -1138,6 +1138,38 @@ async def _migrate_supervisor_team_link():
     except Exception as e:
         logger.warning(f"Migration warning (supervisor team link): {e}")
 
+async def _migrate_route_master_columns():
+    """Add the DMS route-list attributes to the route master.
+
+    ``description``, ``route_length`` and ``visit_days`` come from the DMS
+    RouteList export; existing rows stay NULL until the next import fills them.
+    """
+    columns = {
+        "description": "TEXT",
+        "route_length": "DOUBLE PRECISION",
+        "visit_days": "JSON",
+    }
+    try:
+        async with engine.begin() as conn:
+            for column, column_type in columns.items():
+                exists = await conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_name='routes' AND column_name=:column"
+                    ),
+                    {"column": column},
+                )
+                if exists.scalar():
+                    continue
+                logger.info("Migrating routes: adding %s column...", column)
+                await conn.execute(
+                    text(f"ALTER TABLE routes ADD COLUMN {column} {column_type}")
+                )
+                logger.info("Migration complete: routes.%s", column)
+    except Exception as e:
+        logger.warning(f"Migration warning (routes master columns): {e}")
+
+
 async def _migrate_route_owner_link(db_engine=None) -> dict:
     """Hand a non-Active RSO's routes to an Active successor RSO.
 
@@ -2839,6 +2871,7 @@ async def init_db():
         await _migrate_activation_employee_id()
         await _migrate_supervisor_team_link()
         await _migrate_route_owner_link()
+        await _migrate_route_master_columns()
         await _migrate_target_employee_link()
         await _migrate_retailer_filter_tag_id()
         await _migrate_retailer_markings()

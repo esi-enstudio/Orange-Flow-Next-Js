@@ -9,9 +9,11 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -35,6 +37,12 @@ class Route(Base):
     code = Column(String(50), nullable=False, index=True)
     name = Column(String(120), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
+
+    # DMS route-list attributes (description, beat length, weekly visit plan)
+    description = Column(Text, nullable=True)
+    route_length = Column(Float, nullable=True)
+    # Weekday codes the route is served on: saturday ... friday
+    visit_days = Column(JSON, nullable=True)
 
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)

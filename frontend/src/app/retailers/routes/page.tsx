@@ -22,6 +22,7 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  Upload,
   UserCheck,
   UserX,
   X,
@@ -35,7 +36,8 @@ import { houseHeaders, type PaginationMeta } from "../retailer-marking/types";
 interface RsoOwner {
   employee_id: number;
   name: string;
-  employee_code: string | null;
+  dms_code: string | null;
+  itop_number: string | null;
 }
 
 interface RouteRow {
@@ -43,6 +45,9 @@ interface RouteRow {
   house_id: number;
   code: string;
   name: string | null;
+  description: string | null;
+  route_length: number | null;
+  visit_days: string[];
   is_active: boolean;
   rso: RsoOwner | null;
   retailer_count: number;
@@ -60,6 +65,28 @@ interface RouteFilters {
 }
 
 const defaultFilters: RouteFilters = { status: "", owner: "" };
+
+const DAY_KEYS = ["sat", "sun", "mon", "tue", "wed", "thu", "fri"] as const;
+const DAY_VALUES = [
+  "saturday",
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+] as const;
+
+interface ImportResult {
+  total_rows: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  rso_assigned: number;
+  rso_unmatched: number;
+  skipped: number;
+  errors: string[];
+}
 
 const inputClass =
   "w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm dark:text-gray-100 focus:ring-2 focus:ring-primary-500 outline-none";
@@ -98,10 +125,16 @@ export default function RoutesPage() {
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  const [showImport, setShowImport] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+
   const canCreate = hasPermission("routes.create");
   const canEdit = hasPermission("routes.edit");
   const canDelete = hasPermission("routes.delete");
   const canAssign = hasPermission("routes.assign");
+  const canImport = hasPermission("routes.import");
   const canExport = hasPermission("routes.export");
   const activeFilterCount = (filters.status ? 1 : 0) + (filters.owner ? 1 : 0);
 
@@ -128,7 +161,12 @@ export default function RoutesPage() {
         params,
         headers: houseHeaders(selectedHouse),
       });
-      setRows(res.data.data || []);
+      setRows(
+        (res.data.data || []).map((row: RouteRow) => ({
+          ...row,
+          visit_days: row.visit_days ?? [],
+        }))
+      );
       setPagination(res.data.pagination || null);
     } catch (err) {
       console.error(err);
@@ -317,6 +355,28 @@ export default function RoutesPage() {
     }
   };
 
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", importFile);
+      const res = await apiClient.post("routes/import", formData, {
+        headers: houseHeaders(selectedHouse),
+      });
+      setImportResult(res.data?.data ?? null);
+      toast.success(t("routes.import_success"));
+      setPage(1);
+      fetchRoutes();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : t("routes.import_failed"));
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return rows;
@@ -353,6 +413,19 @@ export default function RoutesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canImport && (
+            <button
+              onClick={() => {
+                setImportFile(null);
+                setImportResult(null);
+                setShowImport(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              {t("routes.import")}
+            </button>
+          )}
           {canExport && (
             <button
               onClick={handleExport}
@@ -434,10 +507,12 @@ export default function RoutesPage() {
         ) : (
           <>
             <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-left min-w-[880px]">
+              <table className="w-full text-left min-w-[980px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
                     <th className="px-6 py-4">{t("routes.table_code")}</th>
+                    <th className="px-6 py-4">{t("routes.table_name")}</th>
+                    <th className="px-6 py-4">{t("routes.table_visit_plan")}</th>
                     <th className="px-6 py-4">{t("routes.table_rso")}</th>
                     <th className="px-6 py-4">{t("routes.table_retailers")}</th>
                     <th className="px-6 py-4">{t("routes.table_status")}</th>
@@ -456,21 +531,63 @@ export default function RoutesPage() {
                             <p className="font-mono text-sm font-bold text-gray-900 dark:text-gray-100">
                               {row.code}
                             </p>
-                            {row.name && (
-                              <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                                {row.name}
-                              </p>
-                            )}
                           </div>
                         </div>
+                      </td>
+                      <td className="px-2 py-1">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                          {row.name || "—"}
+                        </p>
+                        {row.description && (
+                          <p
+                            title={row.description}
+                            className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-1 max-w-[240px]"
+                          >
+                            {row.description}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-2 py-1">
+                        {row.route_length == null && row.visit_days.length === 0 ? (
+                          <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
+                        ) : (
+                          <div>
+                            {row.route_length != null && (
+                              <p className="text-xs font-bold text-gray-700 dark:text-gray-200">
+                                {row.route_length} {t("routes.length_unit")}
+                              </p>
+                            )}
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {DAY_KEYS.map((key, index) => {
+                                const active = row.visit_days.includes(DAY_VALUES[index]);
+                                return (
+                                  <span
+                                    key={key}
+                                    title={t(`routes.day_${key}`)}
+                                    className={cn(
+                                      "px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase",
+                                      active
+                                        ? "bg-primary-50 dark:bg-primary-500/20 text-primary-700 dark:text-primary-400"
+                                        : "bg-gray-100 dark:bg-slate-800 text-gray-300 dark:text-slate-600"
+                                    )}
+                                  >
+                                    {t(`routes.day_${key}`)}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-1">
                         {row.rso ? (
                           <div>
                             <p className="text-sm text-gray-800 dark:text-gray-100">{row.rso.name}</p>
-                            {row.rso.employee_code && (
+                            {(row.rso.dms_code || row.rso.itop_number) && (
                               <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                                {row.rso.employee_code}
+                                {[row.rso.dms_code, row.rso.itop_number]
+                                  .filter(Boolean)
+                                  .join(" · ")}
                               </p>
                             )}
                           </div>
@@ -572,6 +689,11 @@ export default function RoutesPage() {
                       <p className="font-mono text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
                         {row.code}
                       </p>
+                      {row.name && (
+                        <p className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate">
+                          {row.name}
+                        </p>
+                      )}
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                         {row.rso ? row.rso.name : t("routes.unassigned")} · {row.retailer_count}
                       </p>
@@ -609,6 +731,35 @@ export default function RoutesPage() {
                           {row.is_active ? t("routes.status_active") : t("routes.status_inactive")}
                         </span>
                       </div>
+                      {row.route_length != null && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-500 dark:text-gray-400">
+                            {t("routes.table_length")}
+                          </span>
+                          <span className="font-medium text-gray-800 dark:text-gray-100">
+                            {row.route_length} {t("routes.length_unit")}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">
+                          {t("routes.table_visit_plan")}
+                        </span>
+                        <span className="font-medium text-gray-800 dark:text-gray-100">
+                          {row.visit_days.length
+                            ? DAY_KEYS.filter((_, index) =>
+                                row.visit_days.includes(DAY_VALUES[index])
+                              )
+                                .map((key) => t(`routes.day_${key}`))
+                                .join(", ")
+                            : "—"}
+                        </span>
+                      </div>
+                      {row.description && (
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          {row.description}
+                        </p>
+                      )}
                       <div className="flex flex-wrap items-center gap-2 pt-1">
                         {canAssign && (
                           <button
@@ -773,6 +924,119 @@ export default function RoutesPage() {
           </>
         )}
       </AnimatePresence>
+
+      {/* DMS route-list import */}
+      {showImport && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-800 overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-slate-800">
+              <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
+                <Upload className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                  {t("routes.import_title")}
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t("routes.import_subtitle")}
+                </p>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <label
+                htmlFor="route-import-file"
+                className="block text-xs font-semibold text-gray-500 dark:text-gray-400"
+              >
+                {t("routes.import_file")}
+              </label>
+              <input
+                id="route-import-file"
+                type="file"
+                accept=".xls,.xlsx"
+                onChange={(e) => {
+                  setImportFile(e.target.files?.[0] ?? null);
+                  setImportResult(null);
+                }}
+                className="block w-full text-sm text-gray-600 dark:text-gray-300 file:mr-3 file:px-4 file:py-2.5 file:rounded-xl file:border-0 file:bg-primary-50 dark:file:bg-primary-500/20 file:text-primary-700 dark:file:text-primary-300 file:text-sm file:font-bold file:cursor-pointer cursor-pointer"
+              />
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                {t("routes.import_hint")}
+              </p>
+              {importResult && (
+                <div className="rounded-xl bg-gray-50 dark:bg-slate-800/60 p-4 space-y-2 text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {t("routes.import_created")}:{" "}
+                      <span className="font-bold text-gray-900 dark:text-gray-100">
+                        {importResult.created}
+                      </span>
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {t("routes.import_updated")}:{" "}
+                      <span className="font-bold text-gray-900 dark:text-gray-100">
+                        {importResult.updated}
+                      </span>
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {t("routes.import_rso")}:{" "}
+                      <span className="font-bold text-gray-900 dark:text-gray-100">
+                        {importResult.rso_assigned}
+                      </span>
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {t("routes.import_unmatched")}:{" "}
+                      <span className="font-bold text-gray-900 dark:text-gray-100">
+                        {importResult.rso_unmatched}
+                      </span>
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {t("routes.import_unchanged")}:{" "}
+                      <span className="font-bold text-gray-900 dark:text-gray-100">
+                        {importResult.unchanged}
+                      </span>
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {t("routes.import_skipped")}:{" "}
+                      <span className="font-bold text-gray-900 dark:text-gray-100">
+                        {importResult.skipped}
+                      </span>
+                    </p>
+                  </div>
+                  {importResult.errors.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                        {t("routes.import_errors")}
+                      </p>
+                      <ul className="max-h-32 overflow-y-auto space-y-0.5 text-[11px] text-gray-600 dark:text-gray-400">
+                        {importResult.errors.map((error, index) => (
+                          <li key={index}>{error}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="p-6 pt-0 flex gap-3">
+              <button
+                onClick={() => setShowImport(false)}
+                disabled={importing}
+                className="flex-1 py-3 rounded-xl text-gray-600 dark:text-gray-300 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                {t("routes.cancel")}
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={importing || !importFile}
+                className="flex-1 py-3 rounded-xl bg-primary-600 text-white font-bold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {importing && <Loader2 className="w-4 h-4 animate-spin" />}
+                {t("routes.import")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create / edit */}
       {showForm && (

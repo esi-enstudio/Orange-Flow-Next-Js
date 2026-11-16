@@ -183,7 +183,7 @@ export const navItems: NavItem[] = [
     color: "text-orange-500",
     children: [
       { title: "Retailer List", translationKey: "nav.retailer_list", href: "/retailers", permission: "retailers.view" },
-      { title: "Routes", translationKey: "nav.routes", href: "/retailers/routes", permissions: ["routes.view", "routes.create", "routes.edit", "routes.delete", "routes.assign", "routes.export"] },
+      { title: "Routes", translationKey: "nav.routes", href: "/retailers/routes", permissions: ["routes.view", "routes.create", "routes.edit", "routes.delete", "routes.assign", "routes.import", "routes.export"] },
       { title: "Marked Retailers", translationKey: "nav.marking_retailers", href: "/retailers/retailer-marking", permission: "retailer_markings.view" },
       { title: "Markings", translationKey: "nav.markings", href: "/retailers/markings", permission: "retailer_markings.view" },
       { title: "Assign Markings", translationKey: "nav.marking_assign", href: "/retailers/assign-marking", permission: "retailer_markings.assign" },

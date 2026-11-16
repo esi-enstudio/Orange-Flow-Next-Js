@@ -78,6 +78,7 @@
         "routes.edit",
         "routes.delete",
         "routes.assign",
+        "routes.import",
         "routes.export"
       ]
     },

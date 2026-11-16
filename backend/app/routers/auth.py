@@ -148,7 +148,12 @@ async def get_me(
     # GET /houses/accessible). A tenant admin with no assigned house gets none:
     # house access is deny-by-default.
     if is_super_admin_user(current_user) and not current_user.houses:
-        result = await db.execute(select(House).order_by(House.name))
+        # The first house becomes the UI's workspace default (``selectedHouse``),
+        # so it must never be an inactive or arbitrary house: active houses come
+        # first, then the oldest house of the company.
+        result = await db.execute(
+            select(House).order_by(House.is_active.desc(), House.id)
+        )
         current_user.houses = list(result.scalars().all())
     return current_user
 
