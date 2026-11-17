@@ -203,6 +203,12 @@
         "itopup.import"
       ]
     },
+    "live_c2c": {
+      "display_name": "Live C2C",
+      "permissions": [
+        "live_c2c.import"
+      ]
+    },
     "live_activations": {
       "display_name": "Live Activations",
       "permissions": [
@@ -658,6 +664,7 @@
         "employees.resignation_generate",
         "bts.view",
         "reports.view",
+        "live_c2c.import",
         "sim_status.view",
         "activations.view",
         "live_activations.view",
@@ -713,6 +720,7 @@
       "name": "Manager",
       "permissions": [
         "reports.view",
+        "live_c2c.import",
         "retailers.view",
         "routes.view",
         "employees.view",

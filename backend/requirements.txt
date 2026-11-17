@@ -10,6 +10,7 @@ pyngrok
 pandas
 aiohttp
 openpyxl
+pyxlsb
 beautifulsoup4
 lxml
 requests

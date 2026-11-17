@@ -3,11 +3,12 @@ import json
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func, or_, and_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, selectinload
+from starlette.concurrency import run_in_threadpool
 from datetime import datetime, date, timedelta
 from calendar import monthrange
 
@@ -25,6 +26,7 @@ from app.models.activation import Activation
 from app.models.live_activation import LiveActivation
 from app.models.house import House
 from app.models.itopup_detail import ITopUpDetail
+from app.models.live_c2c import LiveC2CRow
 from app.models.scratch_card_issue import ScratchCardIssue
 from app.models.sim_issue import SimIssue
 from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
@@ -36,6 +38,15 @@ from app.models.role import Role
 from app.utils.access_control import is_admin_user
 from app.utils.activity_logger import log_activity
 from app.utils.timezone import now_naive
+from app.services.live_c2c_service import (
+    MAX_LIVE_C2C_FILE_SIZE,
+    LiveC2CImportError,
+    SUPPORTED_LIVE_C2C_EXTENSIONS,
+    list_live_c2c_worksheet_names,
+    parse_live_c2c_workbook,
+    prepare_live_c2c_import,
+    replace_live_c2c_rows,
+)
 from app.services.whatsapp_service_client import whatsapp_service_client, WhatsAppServiceError
 from app.services.whatsapp_token import resolve_house_wa_target
 from app.services.Automation.activation_excel import export_activations_excel
@@ -499,6 +510,214 @@ async def get_live_c2c_rsos(
             "has_prev": pagination.page > 1,
         },
     }
+
+@router.get("/reports/live-c2c")
+async def get_live_c2c_rows(
+    pagination: PaginationParams = Depends(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["reports.view", "itopup.view"])),
+    house_id: int = Depends(require_house_context),
+):
+    _assert_house_access(current_user, house_id)
+    filters = (
+        LiveC2CRow.house_id == house_id,
+        LiveC2CRow.is_deleted.is_(False),
+    )
+    total = await db.scalar(select(func.count(LiveC2CRow.id)).where(*filters)) or 0
+    from_employee = aliased(Employee)
+    to_retailer = aliased(Retailer)
+    result = await db.execute(
+        select(
+            LiveC2CRow,
+            from_employee.itop_number,
+            to_retailer.itop_number,
+        )
+        .where(*filters)
+        .join(
+            from_employee,
+            and_(
+                from_employee.id == LiveC2CRow.from_msisdn,
+                from_employee.house_id == LiveC2CRow.house_id,
+            ),
+        )
+        .join(
+            to_retailer,
+            and_(
+                to_retailer.id == LiveC2CRow.to_msisdn,
+                to_retailer.house_id == LiveC2CRow.house_id,
+            ),
+        )
+        .order_by(LiveC2CRow.id)
+        .offset((pagination.page - 1) * pagination.per_page)
+        .limit(pagination.per_page)
+    )
+    rows = result.all()
+    total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": row.id,
+                "from_msisdn": from_msisdn,
+                "to_msisdn": to_msisdn,
+                "modified_on": row.modified_on,
+                "transfer_mrp": format(row.transfer_mrp, "f"),
+                "on_route": row.on_route,
+            }
+            for row, from_msisdn, to_msisdn in rows
+        ],
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": pagination.page < total_pages,
+            "has_prev": pagination.page > 1,
+        },
+    }
+
+
+async def _read_live_c2c_upload(file: UploadFile) -> tuple[str, bytes]:
+    filename = file.filename or ""
+    if not any(filename.lower().endswith(ext) for ext in SUPPORTED_LIVE_C2C_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "VALIDATION_ERROR",
+                "error_code": "live_c2c_invalid_file_type",
+                "message": "Only .xlsx and .xlsb workbooks are supported",
+            },
+        )
+
+    content = await file.read(MAX_LIVE_C2C_FILE_SIZE + 1)
+    if len(content) > MAX_LIVE_C2C_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "FILE_TOO_LARGE",
+                "error_code": "live_c2c_file_too_large",
+                "message": "The workbook must be 10 MiB or smaller",
+            },
+        )
+    return filename, content
+
+
+@router.post("/reports/live-c2c/worksheets")
+async def get_live_c2c_worksheet_names(
+    file: UploadFile = File(...),
+    current_user: User = Depends(has_permission("live_c2c.import")),
+    house_id: int = Depends(require_house_context),
+):
+    _assert_house_access(current_user, house_id)
+    filename, content = await _read_live_c2c_upload(file)
+    try:
+        names = await run_in_threadpool(
+            list_live_c2c_worksheet_names,
+            content,
+            filename,
+        )
+    except LiveC2CImportError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "LIVE_C2C_IMPORT_ERROR",
+                "error_code": error.code,
+                "message": error.code,
+                **error.context,
+            },
+        ) from error
+    return {"success": True, "data": {"sheet_names": names}}
+
+
+@router.post("/reports/live-c2c/preview")
+async def preview_live_c2c_import(
+    file: UploadFile = File(...),
+    sheet_name: str = Form(..., min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_c2c.import")),
+    house_id: int = Depends(require_house_context),
+):
+    _assert_house_access(current_user, house_id)
+    filename, content = await _read_live_c2c_upload(file)
+    try:
+        rows = await run_in_threadpool(
+            parse_live_c2c_workbook,
+            content,
+            sheet_name,
+            filename,
+        )
+        if await db.scalar(select(House.id).where(House.id == house_id)) is None:
+            raise LiveC2CImportError("live_c2c_house_not_found")
+        preview = await prepare_live_c2c_import(
+            db,
+            house_id=house_id,
+            rows=rows,
+        )
+    except LiveC2CImportError as error:
+        status_code = 404 if error.code == "live_c2c_house_not_found" else 400
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "code": "LIVE_C2C_IMPORT_ERROR",
+                "error_code": error.code,
+                "message": error.code,
+                **error.context,
+            },
+        ) from error
+    return {
+        "success": True,
+        "data": {"disabled_retailer_count": preview.disabled_retailer_count},
+    }
+
+
+@router.post("/reports/live-c2c/import")
+async def import_live_c2c_rows(
+    request: Request,
+    file: UploadFile = File(...),
+    sheet_name: str = Form(..., min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("live_c2c.import")),
+    house_id: int = Depends(require_house_context),
+):
+    _assert_house_access(current_user, house_id)
+    filename, content = await _read_live_c2c_upload(file)
+
+    try:
+        rows = await run_in_threadpool(
+            parse_live_c2c_workbook,
+            content,
+            sheet_name,
+            filename,
+        )
+        imported_count, disabled_retailer_count = await replace_live_c2c_rows(
+            db,
+            house_id=house_id,
+            user=current_user,
+            filename=filename,
+            sheet_name=sheet_name,
+            rows=rows,
+            request=request,
+        )
+    except LiveC2CImportError as error:
+        status_code = 404 if error.code == "live_c2c_house_not_found" else 400
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "code": "LIVE_C2C_IMPORT_ERROR",
+                "error_code": error.code,
+                "message": error.code,
+                **error.context,
+            },
+        ) from error
+
+    return {
+        "success": True,
+        "data": {
+            "imported_rows": imported_count,
+            "disabled_retailer_count": disabled_retailer_count,
+        },
+    }
+
 
 @router.get("/itopup-details/retailer-list")
 async def get_itopup_retailer_list(
