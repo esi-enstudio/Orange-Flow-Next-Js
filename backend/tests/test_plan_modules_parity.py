@@ -133,6 +133,11 @@ def test_leaf_catalog_has_no_base_module_leaves():
     assert not (owned & BASE_MODULES), "base module leaves must not be grantable"
 
 
+def test_live_c2c_leaf_uses_reports_api_scope():
+    assert LEAF_OWNER["/reports/live-c2c"] == "reports"
+    assert LEAF_TO_API_PREFIXES["/reports/live-c2c"] == ("/api/itopup-details",)
+
+
 def test_every_leaf_has_an_api_prefix_mapping():
     missing = [leaf for leaf in ALL_LEAF_ROUTES if not LEAF_TO_API_PREFIXES.get(leaf)]
     assert not missing, f"leaves without API prefix mapping: {missing}"

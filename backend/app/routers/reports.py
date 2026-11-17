@@ -11,7 +11,14 @@ from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime, date, timedelta
 from calendar import monthrange
 
-from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context, get_current_user
+from app.routers.deps import (
+    get_db,
+    get_current_user,
+    get_house_context,
+    has_any_permission,
+    has_permission,
+    require_house_context,
+)
 from app.schemas.pagination import PaginationParams, PaginatedResponse, PaginationMeta
 from app.models.user import User
 from app.models.activation import Activation
@@ -447,6 +454,51 @@ async def get_itopup_rso_list(
         }
         for e in employees
     ]
+
+@router.get("/itopup-details/live-c2c-rsos")
+async def get_live_c2c_rsos(
+    pagination: PaginationParams = Depends(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["reports.view", "itopup.view"])),
+    house_id: int = Depends(require_house_context),
+):
+    _assert_house_access(current_user, house_id)
+    filters = (
+        Employee.house_id == house_id,
+        Employee.employee_type == "rso",
+        Employee.status == "Active",
+    )
+    total = await db.scalar(select(func.count(Employee.id)).where(*filters)) or 0
+    result = await db.execute(
+        select(Employee)
+        .where(*filters)
+        .order_by(Employee.dms_code, Employee.id)
+        .offset((pagination.page - 1) * pagination.per_page)
+        .limit(pagination.per_page)
+    )
+    employees = result.scalars().all()
+    total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": employee.id,
+                "name": employee.employee_name,
+                "name_bn": employee.employee_name_bn,
+                "dms_code": employee.dms_code,
+                "itop_number": employee.itop_number,
+            }
+            for employee in employees
+        ],
+        "pagination": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": pagination.page < total_pages,
+            "has_prev": pagination.page > 1,
+        },
+    }
 
 @router.get("/itopup-details/retailer-list")
 async def get_itopup_retailer_list(

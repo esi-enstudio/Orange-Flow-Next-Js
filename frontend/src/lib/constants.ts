@@ -245,6 +245,7 @@ export const navItems: NavItem[] = [
       { title: "Active LSO", translationKey: "nav.report_active_lso", href: "/reports/active-lso", permission: "active_lso.view" },
       { title: "Active SSO", translationKey: "nav.report_active_sso", href: "/reports/active-sso", permission: "active_sso.view" },
 
+      { title: "Live C2C", translationKey: "nav.report_live_c2c", href: "/reports/live-c2c", permissions: ["reports.view", "itopup.view"] },
       { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permissions: ["reports.view", "live_activations.view"] },
       { title: "GA Query", translationKey: "nav.report_ga_query", href: "/reports/ga-query", permission: "ga_query.view" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permissions: ["reports.view", "scratch_card.view"] },
