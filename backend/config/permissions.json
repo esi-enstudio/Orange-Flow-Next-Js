@@ -489,6 +489,18 @@
         "ga_query.export"
       ]
     },
+    "report_builder": {
+      "display_name": "Report Builder",
+      "permissions": [
+        "report_builder.view",
+        "report_builder.create",
+        "report_builder.edit",
+        "report_builder.delete",
+        "report_builder.export",
+        "report_builder.send",
+        "report_builder.target.manage"
+      ]
+    },
     "whatsapp": {
       "display_name": "WhatsApp Gateway",
       "permissions": [
@@ -607,7 +619,12 @@
       "permissions": [
         "location.view",
         "location.export",
-        "location.history"
+        "location.history",
+        "report_builder.view",
+        "report_builder.create",
+        "report_builder.edit",
+        "report_builder.delete",
+        "report_builder.export"
       ]
     },
     {
@@ -670,6 +687,11 @@
         "ga_report_builder.send",
         "ga_query.view",
         "ga_query.export",
+        "report_builder.view",
+        "report_builder.create",
+        "report_builder.edit",
+        "report_builder.delete",
+        "report_builder.export",
         "otp.view",
         "system_logs.view",
         "subscription.view",
@@ -733,6 +755,11 @@
         "ga_report_builder.send",
         "ga_query.view",
         "ga_query.export",
+        "report_builder.view",
+        "report_builder.create",
+        "report_builder.edit",
+        "report_builder.delete",
+        "report_builder.export",
         "otp.view",
         "system_logs.view",
         "subscription.view",
@@ -752,6 +779,7 @@
       "name": "Supervisor",
       "permissions": [
         "reports.view",
+        "report_builder.view",
         "retailers.view",
         "routes.view",
         "sim_status.view",
@@ -766,6 +794,7 @@
       "name": "RSO",
       "permissions": [
         "reports.view",
+        "report_builder.view",
         "retailers.view",
         "sim_status.view",
         "reports.target_achievement",

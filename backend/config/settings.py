@@ -55,6 +55,7 @@ class Settings(BaseSettings):
 
     # Timezone
     TIME_ZONE: str = "Asia/Dhaka"
+    REPORT_EXPORT_SYNC_MAX_ROWS: int = 20000
 
     # Live Location device ingest (optional shared secret). Leave empty to let
     # the mobile macro POST without a key (internal deployments only).

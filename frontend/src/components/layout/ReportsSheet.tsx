@@ -4,92 +4,44 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
-  BarChart3,
   FileSpreadsheet,
-  Activity,
-  CreditCard,
-  Smartphone,
-  Zap,
-  Target,
-  ArrowLeftRight,
-  SlidersHorizontal,
-  Search,
   X,
   ChevronRight,
 } from "lucide-react";
+import { navItems } from "@/lib/constants";
+import type { LucideIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/i18n/useLanguage";
 import { useAuth } from "@/context/AuthContext";
 import { useEntitlements } from "@/context/EntitlementsContext";
 
-const reportItems = [
-  {
-    key: "report_activations",
-    href: "/reports/activations",
-    icon: BarChart3,
-    permissions: ["reports.view", "activations.view"],
-  },
-  {
-    key: "report_recharge",
-    href: "/reports/recharge",
-    icon: Zap,
-    permissions: ["reports.view", "recharge_dashboard.view"],
-  },
-  {
-    key: "report_transactions",
-    href: "/reports/transactions",
-    icon: ArrowLeftRight,
-    permission: "transactions.view",
-  },
-  {
-    key: "report_active_lso",
-    href: "/reports/active-lso",
-    icon: Target,
-    permission: "active_lso.view",
-  },
-  {
-    key: "report_active_sso",
-    href: "/reports/active-sso",
-    icon: Zap,
-    permission: "active_sso.view",
-  },
-  {
-    key: "report_itopup",
-    href: "/reports/itopup-details",
-    icon: FileSpreadsheet,
-    permission: "itopup.view",
-  },
-  {
-    key: "report_live_activations",
-    href: "/reports/live-activations",
-    icon: Activity,
-    permissions: ["reports.view", "live_activations.view"],
-  },
-  {
-    key: "report_scratch_card",
-    href: "/reports/scratch-card",
-    icon: CreditCard,
-    permissions: ["reports.view", "scratch_card.view"],
-  },
-  {
-    key: "report_sim_issue",
-    href: "/reports/sim-issues",
-    icon: Smartphone,
-    permissions: ["reports.view", "sim_issues.view"],
-  },
-  {
-    key: "report_ga_builder",
-    href: "/reports/ga-report-builder",
-    icon: SlidersHorizontal,
-    permission: "ga_report_builder.view",
-  },
-  {
-    key: "report_ga_query",
-    href: "/reports/ga-query",
-    icon: Search,
-    permission: "ga_query.view",
-  },
-];
+type ReportLink = {
+  title: string;
+  translationKey?: string;
+  href: string;
+  icon?: LucideIcon;
+  permission?: string;
+  permissions?: string[];
+  moduleKey?: string;
+  badge?: string;
+};
+
+const reportsGroup = navItems.find((item) => item.translationKey === "nav.reports_center");
+const reportItems: ReportLink[] = (reportsGroup?.children || []).flatMap((child) => {
+  const leaves = child.children || [child];
+  return leaves.flatMap((leaf) => leaf.href
+    ? [{
+        title: leaf.title,
+        translationKey: leaf.translationKey,
+        href: leaf.href,
+        icon: leaf.icon || child.icon,
+        permission: leaf.permission,
+        permissions: leaf.permissions,
+        moduleKey: leaf.moduleKey || child.moduleKey || reportsGroup?.moduleKey,
+        badge: leaf.badge,
+      }]
+    : []);
+});
 
 interface ReportsSheetProps {
   open: boolean;
@@ -102,13 +54,13 @@ export function ReportsSheet({ open, onClose }: ReportsSheetProps) {
   const { hasPermission } = useAuth();
   const { hasModule, hasPage } = useEntitlements();
 
-  const visibleItems = hasModule("reports") ? reportItems.filter(item => {
-    if (!hasPage(item.href)) return false;
+  const visibleItems = reportItems.filter(item => {
+    if (!hasModule(item.moduleKey || "reports") || !hasPage(item.href)) return false;
     if (item.permissions && item.permissions.length > 0) {
       return item.permissions.some(p => hasPermission(p));
     }
     return !item.permission || hasPermission(item.permission as string);
-  }) : [];
+  });
 
   return (
     <AnimatePresence>
@@ -142,8 +94,11 @@ export function ReportsSheet({ open, onClose }: ReportsSheetProps) {
             </div>
             <div className="overflow-y-auto px-4 py-3 space-y-1">
               {visibleItems.map((item) => (
+                (() => {
+                  const Icon = item.icon || FileSpreadsheet;
+                  return (
                 <Link
-                  key={item.key}
+                  key={item.href}
                   href={item.href}
                   onClick={onClose}
                   className={cn(
@@ -154,13 +109,24 @@ export function ReportsSheet({ open, onClose }: ReportsSheetProps) {
                   )}
                 >
                   <div className="flex items-center gap-3.5">
-                    <item.icon className="w-5 h-5" />
+                  <Icon className="w-5 h-5" />
                     <span className="text-sm font-medium">
-                      {t(`nav.${item.key}`)}
+                    {item.translationKey ? t(item.translationKey) : item.title}
                     </span>
                   </div>
+                {item.badge && (
+                  <span
+                    title={t(item.badge)}
+                    aria-label={t(item.badge)}
+                    className="max-w-40 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                  >
+                    {t(item.badge)}
+                  </span>
+                )}
                   <ChevronRight className="w-4 h-4 text-gray-300 dark:text-gray-600" />
                 </Link>
+                );
+                })()
               ))}
             </div>
           </motion.div>

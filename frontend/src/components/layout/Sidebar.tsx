@@ -56,13 +56,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       return true;
     };
 
-function filterChildren(children: any[]): any[] {
+function filterChildren(children: any[], parentModuleKey: string): any[] {
       return children
         .filter(child => canShow(child))
+    .filter(child => hasModule(child.moduleKey || parentModuleKey))
         .filter(child => child.href ? hasPage(child.href) : true)
         .map(child => {
           if (child.children) {
-            const filtered = filterChildren(child.children);
+        const filtered = filterChildren(child.children, child.moduleKey || parentModuleKey);
             return filtered.length > 0 ? { ...child, children: filtered } : { ...child, children: undefined };
           }
           return child;
@@ -72,20 +73,20 @@ function filterChildren(children: any[]): any[] {
     return navItems
       .map(item => ({ ...item })) // Shallow clone parent
       .filter(item => {
-        // 0. Plan module access — hide whole groups excluded by the plan
-        if (!hasModule(moduleKeyOf(item))) return false;
-
-        // 1. If it has a direct permission, check it
+        // 0. Hide entries with a direct permission the user does not have.
         if (!canShow(item)) return false;
 
-        // 2. If it has children, filter recursively
+        // A child may belong to a separate plan module while remaining nested
+        // under this navigation group (e.g. Reports → Report Builder).
         if (item.children) {
-          const visibleChildren = filterChildren(item.children);
+          const visibleChildren = filterChildren(item.children, moduleKeyOf(item));
           // If no children are visible, hide the parent
           if (visibleChildren.length === 0) return false;
 
           // Assign cloned children
           item.children = visibleChildren;
+        } else if (!hasModule(moduleKeyOf(item))) {
+          return false;
         }
 
         return true;
@@ -316,6 +317,15 @@ function filterChildren(children: any[]): any[] {
                           isChildActive ? "bg-primary-500" : "bg-gray-300 dark:bg-slate-700"
                         )} />
                         <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {child.badge && (
+                          <span
+                            title={t(child.badge)}
+                            aria-label={t(child.badge)}
+                            className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                          >
+                            {t("nav.legacy_replaced_short")}
+                          </span>
+                        )}
                         {child.href && SIDEBAR_BADGE_ROUTES[child.href] && unreadNotifications > 0 && (
                           <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
                             {unreadNotifications > 99 ? "99+" : unreadNotifications}
@@ -373,6 +383,15 @@ function filterChildren(children: any[]): any[] {
                           isSubActive ? "bg-primary-500" : "bg-gray-300 dark:bg-slate-700"
                         )} />
                         <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {sub.badge && (
+                          <span
+                            title={t(sub.badge)}
+                            aria-label={t(sub.badge)}
+                            className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                          >
+                            {t("nav.legacy_replaced_short")}
+                          </span>
+                        )}
                       </Link>
                     );
                   })}

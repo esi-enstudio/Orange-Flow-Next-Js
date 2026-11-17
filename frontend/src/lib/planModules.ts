@@ -31,16 +31,49 @@ export function moduleKeyOf(item: Pick<NavItem, "moduleKey" | "translationKey" |
   return href.replace(/^\/+/, "").split(/[/?#]/)[0] || "unknown";
 }
 
-function leafRefs(item: NavItem): { title: string; translationKey?: string; href: string; permission?: string; permissions?: string[] }[] {
-  if (item.href) return [{ title: item.title, translationKey: item.translationKey, href: item.href, permission: item.permission, permissions: item.permissions }];
-  const leaves: { title: string; translationKey?: string; href: string; permission?: string; permissions?: string[] }[] = [];
+interface NavLeafRef {
+  title: string;
+  translationKey?: string;
+  href: string;
+  permission?: string;
+  permissions?: string[];
+  moduleKey: string;
+}
+
+function leafRefs(item: NavItem): NavLeafRef[] {
+  const parentModuleKey = moduleKeyOf(item);
+  if (item.href) {
+    return [{
+      title: item.title,
+      translationKey: item.translationKey,
+      href: item.href,
+      permission: item.permission,
+      permissions: item.permissions,
+      moduleKey: parentModuleKey,
+    }];
+  }
+  const leaves: NavLeafRef[] = [];
   for (const child of item.children || []) {
     if (child.href) {
-      leaves.push({ title: child.title, translationKey: child.translationKey, href: child.href, permission: child.permission, permissions: child.permissions });
+      leaves.push({
+        title: child.title,
+        translationKey: child.translationKey,
+        href: child.href,
+        permission: child.permission,
+        permissions: child.permissions,
+        moduleKey: child.moduleKey || parentModuleKey,
+      });
     } else if (child.children) {
       for (const grand of child.children) {
         if (!grand.href) continue;
-        leaves.push({ title: grand.title, translationKey: grand.translationKey, href: grand.href, permission: grand.permission, permissions: grand.permissions });
+        leaves.push({
+          title: grand.title,
+          translationKey: grand.translationKey,
+          href: grand.href,
+          permission: grand.permission,
+          permissions: grand.permissions,
+          moduleKey: grand.moduleKey || child.moduleKey || parentModuleKey,
+        });
       }
     }
   }
@@ -52,32 +85,34 @@ export function buildPlanModuleTree(): PlanModuleGroup[] {
   const groups = new Map<string, PlanModuleGroup>();
 
   for (const item of navItems) {
-    const moduleKey = moduleKeyOf(item);
-    const leaves = leafRefs(item).map((leaf, i) => ({
-      key: `${moduleKey}-${i}-${leaf.href}`,
-      translationKey: leaf.translationKey,
-      href: leaf.href,
-      permission: leaf.permission,
-      permissions: leaf.permissions,
-    }));
+    const rootModuleKey = moduleKeyOf(item);
+    const refs = leafRefs(item);
+    const groupKeys = new Set([rootModuleKey, ...refs.map((leaf) => leaf.moduleKey)]);
 
-    // Several nav entries can belong to one module (e.g. "Live Monitor" and
-    // "System Monitoring" both live in the live_monitor module). The plan
-    // editor shows a single group per module, so merge their pages.
-    const existing = groups.get(moduleKey);
-    if (existing) {
-      existing.children.push(...leaves);
-      continue;
+    for (const moduleKey of groupKeys) {
+      const ownerLeaves = refs.filter((leaf) => leaf.moduleKey === moduleKey);
+      if (moduleKey !== rootModuleKey && ownerLeaves.length === 0) continue;
+      const firstLeaf = ownerLeaves[0];
+      let group = groups.get(moduleKey);
+      if (!group) {
+        group = {
+          moduleKey,
+          title: moduleKey === rootModuleKey ? item.title : firstLeaf?.title || item.title,
+          translationKey: moduleKey === rootModuleKey ? item.translationKey : firstLeaf?.translationKey,
+          href: moduleKey === rootModuleKey ? item.href : undefined,
+          iconKey: moduleKey === rootModuleKey ? item.translationKey : firstLeaf?.translationKey,
+          children: [],
+        };
+        groups.set(moduleKey, group);
+      }
+      group.children.push(...ownerLeaves.map((leaf, i) => ({
+        key: `${moduleKey}-${group.children.length + i}-${leaf.href}`,
+        translationKey: leaf.translationKey,
+        href: leaf.href,
+        permission: leaf.permission,
+        permissions: leaf.permissions,
+      })));
     }
-
-    groups.set(moduleKey, {
-      moduleKey,
-      title: item.title,
-      translationKey: item.translationKey,
-      href: item.href,
-      iconKey: item.translationKey,
-      children: leaves,
-    });
   }
 
   return Array.from(groups.values());

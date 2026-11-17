@@ -40,6 +40,8 @@ import {
   MapPin,
   ServerCog,
   Boxes,
+  History,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export interface NavItem {
@@ -56,18 +58,22 @@ export interface NavItem {
   children?: {
     title: string;
     translationKey?: string;
-    href: string;
+    moduleKey?: string;
+    href?: string;
     icon?: LucideIcon;
     color?: string;
     permission?: string;
     permissions?: string[];
+    badge?: string;
     children?: {
       title: string;
       translationKey?: string;
+      moduleKey?: string;
       href: string;
       icon?: LucideIcon;
       permission?: string;
       permissions?: string[];
+      badge?: string;
     }[];
   }[];
 }
@@ -232,6 +238,7 @@ export const navItems: NavItem[] = [
     icon: BarChart3,
     color: "text-primary-500",
     children: [
+      { title: "Report Builder", translationKey: "nav.report_builder", href: "/reports/builder", icon: SlidersHorizontal, moduleKey: "report_builder", permission: "report_builder.view" },
       { title: "Activations", translationKey: "nav.report_activations", href: "/reports/activations", permissions: ["reports.view", "activations.view"] },
       { title: "Recharge", translationKey: "nav.report_recharge", href: "/reports/recharge", permissions: ["reports.view", "recharge_dashboard.view"] },
       { title: "Transactions", translationKey: "nav.report_transactions", href: "/reports/transactions", permission: "transactions.view" },
@@ -239,10 +246,23 @@ export const navItems: NavItem[] = [
       { title: "Active SSO", translationKey: "nav.report_active_sso", href: "/reports/active-sso", permission: "active_sso.view" },
 
       { title: "Live Activations", translationKey: "nav.report_live_activations", href: "/reports/live-activations", permissions: ["reports.view", "live_activations.view"] },
-      { title: "GA Report Builder", translationKey: "nav.report_ga_builder", href: "/reports/ga-report-builder", permission: "ga_report_builder.view" },
       { title: "GA Query", translationKey: "nav.report_ga_query", href: "/reports/ga-query", permission: "ga_query.view" },
       { title: "Scratch Card Issues", translationKey: "nav.report_scratch_card", href: "/reports/scratch-card", permissions: ["reports.view", "scratch_card.view"] },
       { title: "SIM Issues", translationKey: "nav.report_sim_issue", href: "/reports/sim-issues", permissions: ["reports.view", "sim_issues.view"] },
+      {
+        title: "Legacy",
+        translationKey: "nav.report_legacy",
+        icon: History,
+        children: [
+          {
+            title: "GA Report Builder",
+            translationKey: "nav.report_ga_builder",
+            href: "/reports/ga-report-builder",
+            permission: "ga_report_builder.view",
+            badge: "nav.report_ga_builder_legacy_badge",
+          },
+        ],
+      },
     ]
   },
   {

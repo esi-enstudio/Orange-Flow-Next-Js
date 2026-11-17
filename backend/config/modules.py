@@ -55,6 +55,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/v1/restore-points", "administration"),
     ("/api/v1/deploy", "administration"),
     ("/api/v1/documents", "documents"),
+    ("/api/v1/report-builder", "report_builder"),
     # audit trail is a system-wide admin surface (gated by `audit.view`)
     ("/api/v1/activity-logs", "administration"),
     ("/api/rule-config", "administration"),
@@ -205,6 +206,7 @@ MODULE_LEAF_ROUTES: dict = {
         "/reports/scratch-card",
         "/reports/sim-issues",
     ),
+    "report_builder": ("/reports/builder",),
     "sim_management": ("/sim-inventory", "/sim-replacement"),
     "inventory": (
         "/inventory/receiving",
@@ -322,6 +324,7 @@ LEAF_TO_API_PREFIXES: dict = {
     "/reports/ga-query": ("/api/ga-query",),
     "/reports/scratch-card": ("/api/scratch-card",),
     "/reports/sim-issues": ("/api/sim-issues",),
+    "/reports/builder": ("/api/v1/report-builder",),
 
     # ---- inventory ----
     "/inventory/receiving": ("/api/v1/inventory/receipts",),
