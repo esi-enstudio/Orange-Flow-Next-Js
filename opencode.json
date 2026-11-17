@@ -1,6 +1,17 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["@dietrichgebert/ponytail"],
+  "skills": ["./frontend/.agents/skills"],
+  "experimental": {
+    "todo": true
+  },
+  "agents": {
+    "code-reviewer": {
+      "description": "Reviews a change for correctness, security, edge cases and missing tests, without editing files",
+      "mode": "subagent",
+      "system": "Review the code the caller names, plus the code it calls. Report findings in plain English ordered by severity, each with the concrete failure it causes. Do not edit files. Check: logic correctness, authorization/permission and house scoping, input validation at trust boundaries, data-destroying paths, missing tests, and dead or duplicated code.",
+      "permissions": [{ "action": "edit", "resource": "*", "effect": "deny" }]
+    }
+  },
   "mcp": {
     "shadcn": {
       "type": "local",
