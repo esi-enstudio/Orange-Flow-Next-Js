@@ -206,7 +206,8 @@
     "live_c2c": {
       "display_name": "Live C2C",
       "permissions": [
-        "live_c2c.import"
+        "live_c2c.import",
+        "live_c2c.export"
       ]
     },
     "live_activations": {
@@ -665,6 +666,7 @@
         "bts.view",
         "reports.view",
         "live_c2c.import",
+        "live_c2c.export",
         "sim_status.view",
         "activations.view",
         "live_activations.view",
@@ -721,6 +723,7 @@
       "permissions": [
         "reports.view",
         "live_c2c.import",
+        "live_c2c.export",
         "retailers.view",
         "routes.view",
         "employees.view",
