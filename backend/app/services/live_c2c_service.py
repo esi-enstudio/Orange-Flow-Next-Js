@@ -45,6 +45,21 @@ REQUIRED_LIVE_C2C_COLUMNS = (
     "Modified ON",
     "Transfer Mrp",
 )
+# Optional house columns identify each transaction's house. When present,
+# only rows matching the selected house are parsed.
+HOUSE_CODE_HEADERS = (
+    "House Code",
+    "Distributor Code",
+    "DD Code",
+    "DMS Code",
+    "House_Code",
+)
+HOUSE_NAME_HEADERS = (
+    "House Name",
+    "Distributor Name",
+    "House_Name",
+)
+HOUSE_GENERIC_HEADERS = ("House", "Distributor")
 SUPPORTED_LIVE_C2C_EXTENSIONS = {".xlsx", ".xlsb"}
 
 
@@ -80,6 +95,10 @@ def _normalize_header(value: Any) -> str:
     if value is None:
         return ""
     return " ".join(str(value).strip().lower().split())
+
+
+def _normalize_house_identifier(value: str | None) -> str:
+    return " ".join((value or "").split()).casefold()
 
 
 def _cell_value(cell: Any) -> Any:
@@ -178,13 +197,23 @@ def _parse_worksheet_rows(
     rows: Iterable[Sequence[Any]],
     *,
     xlsb: bool,
+    house_code: str | None = None,
+    house_name: str | None = None,
 ) -> list[dict[str, Any]]:
     required_headers = {
         _normalize_header(header): header for header in REQUIRED_LIVE_C2C_COLUMNS
     }
+    house_code_headers = {_normalize_header(header) for header in HOUSE_CODE_HEADERS}
+    house_name_headers = {_normalize_header(header) for header in HOUSE_NAME_HEADERS}
+    house_generic_headers = {
+        _normalize_header(header) for header in HOUSE_GENERIC_HEADERS
+    }
     indexed_rows = enumerate(rows, start=1)
     header_row_number = None
     column_indexes: dict[str, int] = {}
+    house_code_indexes: list[int] = []
+    house_name_indexes: list[int] = []
+    house_generic_indexes: list[int] = []
     best_headers: set[str] = set()
     duplicate_headers = False
 
@@ -208,6 +237,17 @@ def _parse_worksheet_rows(
             column_indexes = {
                 required_headers[header]: index for header, index in matches.items()
             }
+            # Also capture optional house columns from the same header row.
+            for cell in cells:
+                cell_text = _cell_text(cell)
+                normalized = _normalize_header(cell_text)
+                col_index = _cell_column_index(cell)
+                if normalized in house_code_headers:
+                    house_code_indexes.append(col_index)
+                elif normalized in house_name_headers:
+                    house_name_indexes.append(col_index)
+                elif normalized in house_generic_headers:
+                    house_generic_indexes.append(col_index)
             break
         duplicate_headers = duplicate_headers or bool(duplicates)
 
@@ -221,6 +261,15 @@ def _parse_worksheet_rows(
         ]
         raise LiveC2CImportError("live_c2c_missing_columns", missing_columns=missing)
 
+    house_columns = [
+        ("code", index) for index in house_code_indexes
+    ] + [
+        ("name", index) for index in house_name_indexes
+    ] + [
+        ("generic", index) for index in house_generic_indexes
+    ]
+    expected_code = _normalize_house_identifier(house_code)
+    expected_name = _normalize_house_identifier(house_name)
     parsed_rows: list[dict[str, Any]] = []
     for row_number, cells in indexed_rows:
         values: dict[str, str] = {}
@@ -233,6 +282,43 @@ def _parse_worksheet_rows(
             )
         if not any(values.values()):
             continue
+        if house_columns:
+            identifiers = [
+                (
+                    kind,
+                    _cell_text(cells[index] if index < len(cells) else None).strip(),
+                )
+                for kind, index in house_columns
+            ]
+            populated_identifiers = [
+                (kind, value)
+                for kind, value in identifiers
+                if value
+            ]
+            if not populated_identifiers:
+                raise LiveC2CImportError(
+                    "live_c2c_house_missing",
+                    row=row_number,
+                )
+
+            if any(
+                (
+                    kind == "code"
+                    and _normalize_house_identifier(value) != expected_code
+                )
+                or (
+                    kind == "name"
+                    and _normalize_house_identifier(value) != expected_name
+                )
+                or (
+                    kind == "generic"
+                    and _normalize_house_identifier(value)
+                    not in {expected_code, expected_name}
+                )
+                for kind, value in populated_identifiers
+            ):
+                continue
+
         if not values["From Msisdn"] or not values["To Msisdn"]:
             raise LiveC2CImportError("live_c2c_missing_msisdn", row=row_number)
         if len(values["From Msisdn"]) > 64 or len(values["To Msisdn"]) > 64:
@@ -262,6 +348,9 @@ def parse_live_c2c_workbook(
     content: bytes,
     sheet_name: str,
     filename: str,
+    *,
+    house_code: str | None = None,
+    house_name: str | None = None,
 ) -> list[dict[str, Any]]:
     extension = _workbook_extension(filename)
     if extension not in SUPPORTED_LIVE_C2C_EXTENSIONS:
@@ -274,7 +363,12 @@ def parse_live_c2c_workbook(
         try:
             if sheet_name not in workbook.sheetnames:
                 raise LiveC2CImportError("live_c2c_missing_sheet")
-            return _parse_worksheet_rows(workbook[sheet_name].iter_rows(), xlsb=False)
+            return _parse_worksheet_rows(
+                workbook[sheet_name].iter_rows(),
+                xlsb=False,
+                house_code=house_code,
+                house_name=house_name,
+            )
         finally:
             workbook.close()
 
@@ -283,7 +377,12 @@ def parse_live_c2c_workbook(
             if sheet_name not in workbook.sheets:
                 raise LiveC2CImportError("live_c2c_missing_sheet")
             with workbook.get_sheet(sheet_name) as worksheet:
-                return _parse_worksheet_rows(worksheet.rows(), xlsb=True)
+                return _parse_worksheet_rows(
+                    worksheet.rows(),
+                    xlsb=True,
+                    house_code=house_code,
+                    house_name=house_name,
+                )
     except LiveC2CImportError:
         raise
     except Exception as error:

@@ -197,17 +197,37 @@ async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house
     await db.commit()
 
     workbook = _workbook_bytes(
-        headers=["Transfer Mrp", "To Msisdn", "Modified ON", "From Msisdn"],
+        headers=[
+            "Transfer Mrp",
+            "To Msisdn",
+            "Modified ON",
+            "From Msisdn",
+            "House Code",
+        ],
         rows=[
             [
                 "25.50",
                 retailer.itop_number,
                 "2026-11-17 10:30",
                 employee.itop_number,
+                house.code,
+            ],
+            [
+                "50.00",
+                other_retailer.itop_number,
+                "2026-11-17 10:45",
+                other_employee.itop_number,
+                other_house.code,
             ]
         ],
     )
     async with _client(db, user) as client:
+        preview_response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
         response = await client.post(
             "/api/reports/live-c2c/import",
             headers={"X-House-ID": str(house.id)},
@@ -225,6 +245,10 @@ async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house
             headers={"X-House-ID": str(house.id)},
         )
 
+    assert preview_response.status_code == 200
+    preview = preview_response.json()["data"]
+    assert preview["can_import"] is True
+    assert preview["summary"]["total_rows"] == 1
     assert response.status_code == 200
     assert response.json()["data"]["imported_rows"] == 1
     assert report_response.status_code == 200
@@ -955,3 +979,222 @@ async def test_import_response_reports_skipped_duplicates(db, house):
         await db.execute(select(ActivityLog).where(ActivityLog.module == "live_c2c"))
     ).scalar_one()
     assert activity.new_values["duplicate_rows"] == 1
+
+
+async def test_preview_rejects_workbook_without_rows_for_selected_house(db, house):
+    other_house = House(code="C2C-OTHER", name="Other House", email="other@example.com")
+    db.add(other_house)
+    await db.flush()
+    user = await _user_with_permissions(
+        db,
+        house,
+        ("reports.view", "live_c2c.import"),
+    )
+    employee, retailer = await _source_entities(db, house)
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp", "House Code"],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "1000",
+                other_house.code,
+            ]
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "live_c2c_empty_sheet"
+
+
+async def test_preview_rejects_workbook_without_rows_matching_house_name(db, house):
+    user = await _user_with_permissions(
+        db,
+        house,
+        ("reports.view", "live_c2c.import"),
+    )
+    employee, retailer = await _source_entities(db, house)
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp", "House Name"],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "1000",
+                "Wrong House Name",
+            ]
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "live_c2c_empty_sheet"
+
+
+async def test_preview_accepts_workbook_with_matching_house_code(db, house):
+    user = await _user_with_permissions(
+        db,
+        house,
+        ("reports.view", "live_c2c.import"),
+    )
+    employee, retailer = await _source_entities(db, house)
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp", "House Code"],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "1000",
+                house.code,
+            ]
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["can_import"] is True
+
+
+async def test_preview_filters_rows_using_house_name_case_insensitively(db, house):
+    other_house = House(code="C2C-OTHER", name="Other House", email="other@example.com")
+    db.add(other_house)
+    await db.flush()
+    user = await _user_with_permissions(
+        db,
+        house,
+        ("reports.view", "live_c2c.import"),
+    )
+    employee, retailer = await _source_entities(db, house)
+    other_employee, other_retailer = await _source_entities(
+        db,
+        other_house,
+        suffix="2",
+    )
+    workbook = _workbook_bytes(
+        headers=[
+            "From Msisdn",
+            "To Msisdn",
+            "Modified ON",
+            "Transfer Mrp",
+            "House Name",
+        ],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "1000",
+                f" {house.name.upper()} ",
+            ],
+            [
+                other_employee.itop_number,
+                other_retailer.itop_number,
+                "2026-11-17 10:45",
+                "1500",
+                other_house.name,
+            ],
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    preview = response.json()["data"]
+    assert preview["can_import"] is True
+    assert preview["summary"]["total_rows"] == 1
+
+
+async def test_preview_rejects_data_row_without_house_identifier(db, house):
+    user = await _user_with_permissions(
+        db,
+        house,
+        ("reports.view", "live_c2c.import"),
+    )
+    employee, retailer = await _source_entities(db, house)
+    workbook = _workbook_bytes(
+        headers=[
+            "From Msisdn",
+            "To Msisdn",
+            "Modified ON",
+            "Transfer Mrp",
+            "House Code",
+        ],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "1000",
+                "",
+            ]
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "live_c2c_house_missing"
+
+
+async def test_import_rejects_workbook_without_rows_for_selected_house(db, house):
+    user = await _user_with_permissions(
+        db,
+        house,
+        ("reports.view", "live_c2c.import"),
+    )
+    employee, retailer = await _source_entities(db, house)
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp", "House Code"],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "1000",
+                "WRONG-CODE",
+            ]
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/import",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "live_c2c_empty_sheet"
+    assert await db.scalar(select(func.count(LiveC2CRow.id))) == 0

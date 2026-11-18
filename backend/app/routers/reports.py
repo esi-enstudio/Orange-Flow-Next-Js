@@ -638,14 +638,19 @@ async def preview_live_c2c_import(
     _assert_house_access(current_user, house_id)
     filename, content = await _read_live_c2c_upload(file)
     try:
+        house = await db.scalar(
+            select(House).where(House.id == house_id)
+        )
+        if house is None:
+            raise LiveC2CImportError("live_c2c_house_not_found")
         rows = await run_in_threadpool(
             parse_live_c2c_workbook,
             content,
             sheet_name,
             filename,
+            house_code=house.code,
+            house_name=house.name,
         )
-        if await db.scalar(select(House.id).where(House.id == house_id)) is None:
-            raise LiveC2CImportError("live_c2c_house_not_found")
         preview = await prepare_live_c2c_import(
             db,
             house_id=house_id,
@@ -684,11 +689,18 @@ async def import_live_c2c_rows(
     filename, content = await _read_live_c2c_upload(file)
 
     try:
+        house = await db.scalar(
+            select(House).where(House.id == house_id)
+        )
+        if house is None:
+            raise LiveC2CImportError("live_c2c_house_not_found")
         rows = await run_in_threadpool(
             parse_live_c2c_workbook,
             content,
             sheet_name,
             filename,
+            house_code=house.code,
+            house_name=house.name,
         )
         imported = await replace_live_c2c_rows(
             db,
