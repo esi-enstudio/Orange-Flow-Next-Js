@@ -60,6 +60,24 @@ logger = logging.getLogger(__name__)
 # rollout failing would otherwise lock every plan-less tenant out).
 STARTUP_FATAL_ERRORS: list[str] = []
 
+# Non-fatal startup migration problems ("<step>: <error>" per failed step). A
+# legacy column/index conflict is routine on old databases, so the boot
+# continues - but it is logged with a traceback and listed in one summary line
+# instead of vanishing into a single buried warning.
+STARTUP_MIGRATION_WARNINGS: list[str] = []
+
+
+def _startup_fatal(message: str, error: Exception | None = None) -> None:
+    """Record a boot-blocking failure; ``main.py`` exits when the list is non-empty."""
+    STARTUP_FATAL_ERRORS.append(message)
+    logger.critical("FATAL: %s", message, exc_info=error)
+
+
+def _migration_warning(name: str, error: Exception) -> None:
+    """Record a non-fatal migration problem with its full traceback."""
+    STARTUP_MIGRATION_WARNINGS.append(f"{name}: {error}")
+    logger.exception("Migration warning (%s): %s", name, error)
+
 # Stable PostgreSQL advisory-lock key for the billing rollout migration, so
 # concurrent workers serialize instead of each inserting a subscription.
 _BILLING_MIGRATION_LOCK_KEY = 7_312_604_118
@@ -103,7 +121,7 @@ async def _migrate_retailer_filter_tag_id():
             ))
             logger.info("Migration complete: retailer_filters.tag_id")
     except Exception as e:
-        logger.warning(f"Migration warning (retailer_filters.tag_id): {e}")
+        _migration_warning("retailer_filters.tag_id", e)
 
 async def _migrate_retailer_markings():
     """One-time migration of legacy filter_tags/retailer_filters into the global
@@ -149,7 +167,7 @@ async def _migrate_retailer_markings():
             ))
             logger.info("Migration complete: retailer_markings")
     except Exception as e:
-        logger.warning(f"Migration warning (retailer_markings): {e}")
+        _migration_warning("retailer_markings", e)
 
 async def _migrate_retailer_markings_hard_delete():
     """retailer_markings uses hard delete only (no soft delete).
@@ -172,7 +190,7 @@ async def _migrate_retailer_markings_hard_delete():
             ))
             logger.info("Migration complete: retailer_markings hard delete normalization")
     except Exception as e:
-        logger.warning(f"Migration warning (retailer_markings hard delete): {e}")
+        _migration_warning("retailer_markings hard delete", e)
 
 async def _migrate_retailer_marking_auto_source():
     """Auto-managed markings: add `retailer_markings.auto_source`.
@@ -210,7 +228,7 @@ async def _migrate_retailer_marking_auto_source():
                 adopted,
             )
     except Exception as e:
-        logger.warning(f"Migration warning (retailer_markings.auto_source): {e}")
+        _migration_warning("retailer_markings.auto_source", e)
 
 
 async def _migrate_retailer_marking_assignment_unique():
@@ -236,7 +254,7 @@ async def _migrate_retailer_marking_assignment_unique():
             ))
             logger.info("Migration complete: retailer_marking_assignments active-row unique index")
     except Exception as e:
-        logger.warning(f"Migration warning (retailer_marking_assignments unique): {e}")
+        _migration_warning("retailer_marking_assignments unique", e)
 
 
 async def _sync_retailer_markings_on_startup():
@@ -278,7 +296,7 @@ async def _migrate_app_settings_daily_sync():
             ))
             logger.info("Migration complete: app_settings.is_daily_sync_enabled")
     except Exception as e:
-        logger.warning(f"Migration warning (app_settings.is_daily_sync_enabled): {e}")
+        _migration_warning("app_settings.is_daily_sync_enabled", e)
 
 async def _migrate_app_settings_favicon():
     try:
@@ -294,7 +312,7 @@ async def _migrate_app_settings_favicon():
             ))
             logger.info("Migration complete: app_settings.favicon")
     except Exception as e:
-        logger.warning(f"Migration warning (app_settings.favicon): {e}")
+        _migration_warning("app_settings.favicon", e)
 
 async def _migrate_app_settings_sim_serial_length():
     try:
@@ -310,7 +328,7 @@ async def _migrate_app_settings_sim_serial_length():
             ))
             logger.info("Migration complete: app_settings.sim_serial_length")
     except Exception as e:
-        logger.warning(f"Migration warning (app_settings.sim_serial_length): {e}")
+        _migration_warning("app_settings.sim_serial_length", e)
 
 async def _migrate_app_settings_maintenance():
     """Adds maintenance mode columns (flag + grace start + message + audit)."""
@@ -333,7 +351,7 @@ async def _migrate_app_settings_maintenance():
                 await conn.execute(text(ddl))
             logger.info("Migration complete: app_settings maintenance columns")
     except Exception as e:
-        logger.warning(f"Migration warning (app_settings maintenance): {e}")
+        _migration_warning("app_settings maintenance", e)
 
 INDEX_MIGRATIONS = [
     # activations table
@@ -390,7 +408,7 @@ async def _migrate_live_activation_date_type():
             await conn.execute(text("ALTER TABLE live_activations ALTER COLUMN activation_date TYPE DATE USING activation_date::date"))
             logger.info("Migration complete: live_activations.activation_date  DATE")
     except Exception as e:
-        logger.warning(f"Migration warning (live_activations.activation_date): {e}")
+        _migration_warning("live_activations.activation_date", e)
 
 async def _migrate_bp_target_remove_soft_delete():
     try:
@@ -407,7 +425,7 @@ async def _migrate_bp_target_remove_soft_delete():
             await conn.execute(text("ALTER TABLE bp_targets DROP COLUMN IF EXISTS is_deleted"))
             logger.info("Migration complete: bp_targets soft delete removed")
     except Exception as e:
-        logger.warning(f"Migration warning (bp_targets remove soft delete): {e}")
+        _migration_warning("bp_targets remove soft delete", e)
 
 
 async def _migrate_live_c2c_drop_soft_delete():
@@ -427,7 +445,7 @@ async def _migrate_live_c2c_drop_soft_delete():
             await conn.execute(text("ALTER TABLE live_c2c DROP COLUMN IF EXISTS is_deleted"))
             logger.info("Migration complete: live_c2c soft delete removed")
     except Exception as e:
-        logger.warning(f"Migration warning (live_c2c remove soft delete): {e}")
+        _migration_warning("live_c2c remove soft delete", e)
 
 async def _migrate_employee_sr_no():
     try:
@@ -441,7 +459,7 @@ async def _migrate_employee_sr_no():
             await conn.execute(text("ALTER TABLE employees ADD COLUMN sr_no VARCHAR"))
             logger.info("Migration complete: employees.sr_no")
     except Exception as e:
-        logger.warning(f"Migration warning (employees.sr_no): {e}")
+        _migration_warning("employees.sr_no", e)
 
 async def _migrate_employee_name():
     """Add employees.employee_name (Excel Name column) and backfill it from the
@@ -468,7 +486,7 @@ async def _migrate_employee_name():
             if backfilled.rowcount:
                 logger.info(f"Migration: backfilled employee_name for {backfilled.rowcount} employee(s) from linked users")
     except Exception as e:
-        logger.warning(f"Migration warning (employees.employee_name): {e}")
+        _migration_warning("employees.employee_name", e)
 
 async def _migrate_employee_photo_url():
     """Add employees.photo_url for the profile photo uploaded from the
@@ -484,7 +502,7 @@ async def _migrate_employee_photo_url():
             await conn.execute(text("ALTER TABLE employees ADD COLUMN photo_url VARCHAR(500)"))
             logger.info("Migration complete: employees.photo_url")
     except Exception as e:
-        logger.warning(f"Migration warning (employees.photo_url): {e}")
+        _migration_warning("employees.photo_url", e)
 
 
 async def _migrate_employee_bn_fields():
@@ -510,7 +528,7 @@ async def _migrate_employee_bn_fields():
                 await conn.execute(text(f"ALTER TABLE employees ADD COLUMN {column} VARCHAR"))
                 logger.info(f"Migration complete: employees.{column}")
     except Exception as e:
-        logger.warning(f"Migration warning (employees bangla columns): {e}")
+        _migration_warning("employees bangla columns", e)
 
 
 async def _migrate_house_bn_fields():
@@ -536,7 +554,7 @@ async def _migrate_house_bn_fields():
                 await conn.execute(text(f"ALTER TABLE houses ADD COLUMN {column} VARCHAR"))
                 logger.info(f"Migration complete: houses.{column}")
     except Exception as e:
-        logger.warning(f"Migration warning (houses bangla columns): {e}")
+        _migration_warning("houses bangla columns", e)
 
 
 async def _migrate_supervisor_member_rename():
@@ -588,7 +606,7 @@ async def _migrate_supervisor_member_rename():
                 ))
             logger.info("Migration complete: supervisor_rso_assignments.member_employee_id")
     except Exception as e:
-        logger.warning(f"Migration warning (supervisor member rename): {e}")
+        _migration_warning("supervisor member rename", e)
 
 async def _migrate_supervisor_rso_pivot():
     """Seed supervisor_rso_assignments from existing User.parent_id reporting lines.
@@ -616,7 +634,7 @@ async def _migrate_supervisor_rso_pivot():
             else:
                 logger.info("Migration: supervisor_rso_assignments already synced")
     except Exception as e:
-        logger.warning(f"Migration warning (supervisor_rso_pivot): {e}")
+        _migration_warning("supervisor_rso_pivot", e)
 
 async def _migrate_lifting_soft_delete():
     try:
@@ -637,7 +655,7 @@ async def _migrate_lifting_soft_delete():
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lifting_records_is_deleted ON lifting_records (is_deleted)"))
             logger.info("Migration complete: lifting_records soft delete")
     except Exception as e:
-        logger.warning(f"Migration warning (lifting_records soft delete): {e}")
+        _migration_warning("lifting_records soft delete", e)
 
 async def _migrate_lifting_deposit_slip():
     try:
@@ -654,7 +672,7 @@ async def _migrate_lifting_deposit_slip():
             ))
             logger.info("Migration complete: lifting_records.deposit_slip")
     except Exception as e:
-        logger.warning(f"Migration warning (lifting_records deposit_slip): {e}")
+        _migration_warning("lifting_records deposit_slip", e)
 
 
 async def _migrate_lifting_pull_fields():
@@ -690,7 +708,7 @@ async def _migrate_lifting_pull_fields():
             ))
             logger.info("Migration complete: lifting_records DMS PreRF pull columns")
     except Exception as e:
-        logger.warning(f"Migration warning (lifting_records pull fields): {e}")
+        _migration_warning("lifting_records pull fields", e)
 
 async def _migrate_house_live_sync_enabled():
     """Add is_live_sync_enabled column to houses table (GA live sync toggle)."""
@@ -708,7 +726,7 @@ async def _migrate_house_live_sync_enabled():
             ))
             logger.info("Migration complete: houses.is_live_sync_enabled")
     except Exception as e:
-        logger.warning(f"Migration warning (houses.is_live_sync_enabled): {e}")
+        _migration_warning("houses.is_live_sync_enabled", e)
 
 async def _migrate_house_show_pull_button():
     """Add show_pull_button column to houses table (per-house PULL badge toggle)."""
@@ -726,7 +744,7 @@ async def _migrate_house_show_pull_button():
             ))
             logger.info("Migration complete: houses.show_pull_button")
     except Exception as e:
-        logger.warning(f"Migration warning (houses.show_pull_button): {e}")
+        _migration_warning("houses.show_pull_button", e)
 
 async def _migrate_house_letterhead():
     """Add the resignation-letterhead columns to houses (image + field layout)."""
@@ -750,7 +768,7 @@ async def _migrate_house_letterhead():
                 await conn.execute(text(f"ALTER TABLE houses ADD COLUMN {name} {ddl}"))
                 logger.info("Migration complete: houses.%s", name)
         except Exception as e:
-            logger.warning(f"Migration warning (houses.{name}): {e}")
+            _migration_warning(f"houses.{name}", e)
 
 
 async def _migrate_documents_module():
@@ -810,7 +828,7 @@ async def _migrate_house_billing_deactivation():
             ))
             logger.info("Migration complete: houses.deactivated_for_billing")
     except Exception as e:
-        logger.warning(f"Migration warning (houses.deactivated_for_billing): {e}")
+        _migration_warning("houses.deactivated_for_billing", e)
 
 async def _migrate_retailer_scratch_card_seller():
     """Add retailers.scratch_card_seller (SCRATCH_CARD_SELLER in the DMS file)."""
@@ -820,7 +838,7 @@ async def _migrate_retailer_scratch_card_seller():
                 "ALTER TABLE retailers ADD COLUMN IF NOT EXISTS scratch_card_seller VARCHAR(20)"
             ))
     except Exception as e:
-        logger.warning(f"Migration warning (retailers.scratch_card_seller): {e}")
+        _migration_warning("retailers.scratch_card_seller", e)
 
 
 async def _migrate_retailer_employee_link():
@@ -856,7 +874,7 @@ async def _migrate_retailer_employee_link():
             if fixed.rowcount:
                 logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) to their assisted-code owner")
     except Exception as e:
-        logger.warning(f"Migration warning (retailer employee link): {e}")
+        _migration_warning("retailer employee link", e)
 
     try:
         async with engine.begin() as conn:
@@ -879,7 +897,7 @@ async def _migrate_retailer_employee_link():
             if fixed.rowcount:
                 logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) to their active iTop owner")
     except Exception as e:
-        logger.warning(f"Migration warning (retailer itop re-link): {e}")
+        _migration_warning("retailer itop re-link", e)
 
     try:
         async with engine.begin() as conn:
@@ -899,7 +917,7 @@ async def _migrate_retailer_employee_link():
             if fixed.rowcount:
                 logger.info(f"Migration complete: re-linked {fixed.rowcount} retailer(s) from resigned owners to active iTop owner")
     except Exception as e:
-        logger.warning(f"Migration warning (retailer resigned-owner re-link): {e}")
+        _migration_warning("retailer resigned-owner re-link", e)
 
 async def _migrate_activation_employee_id():
     """Add employee_id to activations/live_activations (an immutable snapshot of
@@ -930,7 +948,7 @@ async def _migrate_activation_employee_id():
             if backfilled.rowcount:
                 logger.info(f"Migration complete: backfilled employee_id on {backfilled.rowcount} activation(s)")
     except Exception as e:
-        logger.warning(f"Migration warning (activations.employee_id): {e}")
+        _migration_warning("activations.employee_id", e)
 
     try:
         async with engine.begin() as conn:
@@ -953,7 +971,7 @@ async def _migrate_activation_employee_id():
             if backfilled.rowcount:
                 logger.info(f"Migration complete: backfilled employee_id on {backfilled.rowcount} live activation(s)")
     except Exception as e:
-        logger.warning(f"Migration warning (live_activations.employee_id): {e}")
+        _migration_warning("live_activations.employee_id", e)
 
 # Transaction-scoped advisory lock so simultaneous workers do not double-seed
 # the route master. Key is arbitrary but stable ("ROUT").
@@ -1067,7 +1085,7 @@ async def _migrate_retailer_routes(db_engine=None) -> dict:
                     counts["rejected"],
                 )
     except Exception as e:
-        logger.warning(f"Migration warning (retailer routes): {e}")
+        _migration_warning("retailer routes", e)
     return report
 
 
@@ -1118,7 +1136,7 @@ async def _migrate_activation_route_code() -> None:
                     backfilled.rowcount,
                 )
     except Exception as e:
-        logger.warning(f"Migration warning (activations.route_code): {e}")
+        _migration_warning("activations.route_code", e)
 
 
 async def _migrate_supervisor_team_link():
@@ -1167,7 +1185,7 @@ async def _migrate_supervisor_team_link():
             if synced.rowcount:
                 logger.info(f"Migration complete: synced parent_id for {synced.rowcount} user(s)")
     except Exception as e:
-        logger.warning(f"Migration warning (supervisor team link): {e}")
+        _migration_warning("supervisor team link", e)
 
 async def _migrate_route_master_columns():
     """Add the DMS route-list attributes to the route master.
@@ -1198,7 +1216,7 @@ async def _migrate_route_master_columns():
                 )
                 logger.info("Migration complete: routes.%s", column)
     except Exception as e:
-        logger.warning(f"Migration warning (routes master columns): {e}")
+        _migration_warning("routes master columns", e)
 
 
 async def _migrate_route_owner_link(db_engine=None) -> dict:
@@ -1306,7 +1324,7 @@ async def _migrate_route_owner_link(db_engine=None) -> dict:
                     report["reassigned"], report["unassigned"],
                 )
     except Exception as e:
-        logger.warning(f"Migration warning (route owner link): {e}")
+        _migration_warning("route owner link", e)
     return report
 
 
@@ -1360,7 +1378,7 @@ async def _migrate_target_employee_link():
                         f"Migration complete: moved {fixed.rowcount} {label} target row(s) to the active successor"
                     )
         except Exception as e:
-            logger.warning(f"Migration warning ({table} successor link): {e}")
+            _migration_warning(f"{table} successor link", e)
 
 async def _migrate_whatsapp_schedule_report_type():
     """Add report_type column to whatsapp_schedules."""
@@ -1376,7 +1394,7 @@ async def _migrate_whatsapp_schedule_report_type():
             ))
             logger.info("Migration: added whatsapp_schedules.report_type")
     except Exception as e:
-        logger.warning(f"Migration warning (whatsapp_schedules.report_type): {e}")
+        _migration_warning("whatsapp_schedules.report_type", e)
 
 async def _migrate_whatsapp_schedule_columns():
     try:
@@ -1394,7 +1412,7 @@ async def _migrate_whatsapp_schedule_columns():
             ))
             logger.info("Migration complete: whatsapp_schedules interval columns ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (whatsapp schedule columns): {e}")
+        _migration_warning("whatsapp schedule columns", e)
 
 async def _migrate_whatsapp_schedule_delivery_columns():
     """Add multi-recipient / duration / timezone columns to whatsapp_schedules."""
@@ -1422,7 +1440,7 @@ async def _migrate_whatsapp_schedule_delivery_columns():
             ))
             logger.info("Migration complete: whatsapp_schedules delivery columns ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (whatsapp schedule delivery columns): {e}")
+        _migration_warning("whatsapp schedule delivery columns", e)
 
 async def _migrate_whatsapp_schedule_time_window():
     """Add interval daily delivery-window columns to whatsapp_schedules.
@@ -1451,7 +1469,7 @@ async def _migrate_whatsapp_schedule_time_window():
             ))
             logger.info("Migration complete: whatsapp_schedules time window ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (whatsapp schedule time window): {e}")
+        _migration_warning("whatsapp schedule time window", e)
 
 async def _migrate_whatsapp_schedule_send_as():
     """Add send_as column to whatsapp_schedules (image | document | pdf)."""
@@ -1467,7 +1485,7 @@ async def _migrate_whatsapp_schedule_send_as():
             ))
             logger.info("Migration complete: whatsapp_schedules send_as ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (whatsapp schedule send_as): {e}")
+        _migration_warning("whatsapp schedule send_as", e)
 
 async def _migrate_whatsapp_schedule_orientation():
     """Add orientation column to whatsapp_schedules (portrait | landscape)."""
@@ -1483,7 +1501,7 @@ async def _migrate_whatsapp_schedule_orientation():
             ))
             logger.info("Migration complete: whatsapp_schedules orientation ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (whatsapp schedule orientation): {e}")
+        _migration_warning("whatsapp schedule orientation", e)
 
 async def _migrate_whatsapp_schedule_report_params():
     """Add report_params column to whatsapp_schedules (JSON context per report type)."""
@@ -1499,7 +1517,7 @@ async def _migrate_whatsapp_schedule_report_params():
             ))
             logger.info("Migration complete: whatsapp_schedules report_params ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (whatsapp schedule report_params): {e}")
+        _migration_warning("whatsapp schedule report_params", e)
 
 
 async def _migrate_ga_report_events_config():
@@ -1515,7 +1533,7 @@ async def _migrate_ga_report_events_config():
             await conn.execute(text("ALTER TABLE ga_report_events ADD COLUMN config JSON"))
             logger.info("Migration complete: ga_report_events.config")
     except Exception as e:
-        logger.warning(f"Migration warning (ga_report_events.config): {e}")
+        _migration_warning("ga_report_events.config", e)
 
 async def _migrate_house_whatsapp_columns():
     """Add WhatsApp gateway columns to houses table."""
@@ -1542,7 +1560,7 @@ async def _migrate_house_whatsapp_columns():
                 logger.info(f"Migration: added houses.{col_name}")
             logger.info("Migration complete: houses WhatsApp columns")
     except Exception as e:
-        logger.warning(f"Migration warning (houses WhatsApp columns): {e}")
+        _migration_warning("houses WhatsApp columns", e)
 
 async def _migrate_telegram_columns():
     """Add Telegram columns to houses and whatsapp_schedules tables."""
@@ -1571,7 +1589,7 @@ async def _migrate_telegram_columns():
                 ))
                 logger.info("Migration: added whatsapp_schedules.channel")
     except Exception as e:
-        logger.warning(f"Migration warning (telegram columns): {e}")
+        _migration_warning("telegram columns", e)
 
 async def _migrate_subscription_billing():
     """Add subscription/billing columns to legacy subscription tables, idempotently."""
@@ -1673,7 +1691,7 @@ async def _migrate_subscription_billing():
                 logger.info("Migration: backfilled house_subscriptions periods/status")
             logger.info("Migration complete: subscription billing columns ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (subscription billing columns): {e}")
+        _migration_warning("subscription billing columns", e)
 
 
 async def _migrate_subscription_package_live_uniqueness():
@@ -1709,7 +1727,7 @@ async def _migrate_subscription_package_live_uniqueness():
             ))
             logger.info("Migration complete: plan slug/tier uniqueness scoped to live rows")
     except Exception as e:
-        logger.warning(f"Migration warning (subscription package uniqueness): {e}")
+        _migration_warning("subscription package uniqueness", e)
 
 
 async def _migrate_billing_tables_extra():
@@ -1754,7 +1772,7 @@ async def _migrate_billing_tables_extra():
                     logger.info(f"Migration: added {tbl}.{col_name}")
             logger.info("Migration complete: billing tables extra columns ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (billing tables extra columns): {e}")
+        _migration_warning("billing tables extra columns", e)
 
 
 async def _migrate_global_payment_methods():
@@ -1849,7 +1867,7 @@ async def _migrate_payment_transaction_reference():
             ))
             logger.info("Migration complete: payment transaction reference guard")
     except Exception as e:
-        logger.warning(f"Migration warning (payment transaction reference guard): {e}")
+        _migration_warning("payment transaction reference guard", e)
 
 
 async def _migrate_receipt_batch_numbers():
@@ -1873,7 +1891,7 @@ async def _migrate_receipt_batch_numbers():
             if updated > 0:
                 logger.info("Migration complete: backfilled %d receipt batch number(s)", updated)
     except Exception as e:
-        logger.warning(f"Migration warning (receipt batch numbers): {e}")
+        _migration_warning("receipt batch numbers", e)
 
 
 async def _migrate_remove_payment_gateway_artifacts():
@@ -1912,7 +1930,7 @@ async def _migrate_remove_payment_gateway_artifacts():
                     logger.debug("Skipping (%s): %s", stmt, exc)
         logger.info("Migration complete: online payment gateway artifacts removed")
     except Exception as e:
-        logger.warning(f"Migration warning (remove payment gateway artifacts): {e}")
+        _migration_warning("remove payment gateway artifacts", e)
 
 
 async def _migrate_drop_bp_retailer_codes():
@@ -1942,7 +1960,7 @@ async def _migrate_drop_bp_retailer_codes():
                     logger.debug("Skipping (%s): %s", stmt, exc)
         logger.info("Migration complete: obsolete bp_retailer_codes module removed")
     except Exception as e:
-        logger.warning(f"Migration warning (drop bp_retailer_codes): {e}")
+        _migration_warning("drop bp_retailer_codes", e)
 
 
 _STOCK_SALES_PLAN_KEYS = frozenset({"stock_sales", "/stock", "/sales"})
@@ -2036,7 +2054,7 @@ async def _migrate_drop_stock_sales_module():
             await _mark_module_migration(conn, migration_key)
         logger.info("Migration complete: Stock & Sales module removed")
     except Exception as e:
-        logger.warning(f"Migration warning (drop Stock & Sales module): {e}")
+        _migration_warning("drop Stock & Sales module", e)
 
 
 async def _migrate_bts_own_plan_module():
@@ -2081,7 +2099,7 @@ async def _migrate_bts_own_plan_module():
                     "plan(s) that already had 'data_import'"
                 )
     except Exception as e:
-        logger.warning(f"Migration warning (bts standalone plan module): {e}")
+        _migration_warning("bts standalone plan module", e)
 
 
 # Legacy grant keys remapped onto the new `commission` module.
@@ -2153,7 +2171,7 @@ async def _migrate_commission_own_plan_module():
                     f"for {updated} plan(s)"
                 )
     except Exception as e:
-        logger.warning(f"Migration warning (commission standalone plan module): {e}")
+        _migration_warning("commission standalone plan module", e)
 
 
 async def _migrate_seed_rule_contexts():
@@ -2191,7 +2209,7 @@ async def _drop_legacy_ga_section_config_table():
             await conn.execute(text("DROP TABLE IF EXISTS ga_section_configs CASCADE"))
             logger.info("Removed legacy table: ga_section_configs")
     except Exception as e:
-        logger.warning(f"Migration warning (drop ga_section_configs): {e}")
+        _migration_warning("drop ga_section_configs", e)
 
 
 async def _migrate_rule_apply_to():
@@ -2221,7 +2239,7 @@ async def _migrate_rule_apply_to():
                 "SET apply_to = 'all' WHERE apply_to IS NULL OR apply_to = ''"
             ))
     except Exception as e:
-        logger.warning(f"Migration warning (rule apply_to): {e}")
+        _migration_warning("rule apply_to", e)
 
 
 async def _migrate_rule_column_key():
@@ -2256,7 +2274,7 @@ async def _migrate_rule_column_key():
                 "WHERE is_deleted = false AND is_active = true"
             ))
     except Exception as e:
-        logger.warning(f"Migration warning (rule column_key): {e}")
+        _migration_warning("rule column_key", e)
 
 
 async def _migrate_rule_included_employee_user_id_fk():
@@ -2280,7 +2298,7 @@ async def _migrate_rule_included_employee_user_id_fk():
                 ))
                 logger.info("Migration: dropped rule_included_employee_ids user_id FK")
     except Exception as e:
-        logger.warning(f"Migration warning (rule_included_employee_ids user_id FK): {e}")
+        _migration_warning("rule_included_employee_ids user_id FK", e)
 
 
 async def _migrate_rule_included_employee_to_emp_id():
@@ -2380,7 +2398,7 @@ async def _migrate_rule_included_employee_to_emp_id():
                     ))
                     logger.info("Migration: created rule_included_employee_ids unique constraint")
     except Exception as e:
-        logger.warning(f"Migration warning (rule_included_employee_ids employee_id): {e}")
+        _migration_warning("rule_included_employee_ids employee_id", e)
 
 
 async def _migrate_location_telemetry_columns():
@@ -2411,7 +2429,7 @@ async def _migrate_location_telemetry_columns():
                 ))
             logger.info("Migration complete: location telemetry/altitude columns")
     except Exception as e:
-        logger.warning(f"Migration warning (location telemetry columns): {e}")
+        _migration_warning("location telemetry columns", e)
 
 
 async def _migrate_inventory_indexes():
@@ -2449,7 +2467,7 @@ async def _migrate_inventory_indexes():
                     logger.debug("Skipping (%s): %s", stmt, exc)
         logger.info("Migration complete: inventory indexes ensured")
     except Exception as e:
-        logger.warning(f"Migration warning (inventory indexes): {e}")
+        _migration_warning("inventory indexes", e)
 
 
 _INVENTORY_COST_TABLES = (
@@ -2483,7 +2501,7 @@ async def _migrate_drop_inventory_cost_columns():
                     logger.debug("Skipping (%s): %s", stmt, exc)
         logger.info("Migration complete: inventory unit_cost/face_value columns removed")
     except Exception as e:
-        logger.warning(f"Migration warning (drop inventory cost columns): {e}")
+        _migration_warning("drop inventory cost columns", e)
 
 
 async def _migrate_subscriptions_off_deleted_plans(db_engine=None) -> dict:
@@ -2578,7 +2596,7 @@ async def _migrate_subscriptions_off_deleted_plans(db_engine=None) -> dict:
                 item["plan_name"],
             )
     except Exception as e:
-        logger.warning(f"Migration warning (subscriptions on deleted plans): {e}")
+        _migration_warning("subscriptions on deleted plans", e)
     return report
 
 
@@ -2866,7 +2884,7 @@ async def _migrate_billing_fail_closed(db_engine=None) -> dict:
             STARTUP_FATAL_ERRORS.append(message)
             logger.critical("FATAL: %s", message, exc_info=True)
         else:
-            logger.warning(f"Migration warning (billing fail-closed rollout): {exc}")
+            _migration_warning("billing fail-closed rollout", exc)
         return report
 
 
@@ -2977,30 +2995,45 @@ async def init_db():
             logger.exception("Could not reconcile interrupted database backups")
     except Exception as e:
         error_msg = str(e).lower()
-        if "already exists" in error_msg:
-            logger.warning(f"Some DB objects already exist (normal on restart). Dropping conflicting constraint and retrying...")
+        if "already exists" not in error_msg:
+            _startup_fatal(f"database initialisation failed: {e}", e)
+        else:
+            logger.warning(
+                "Some DB objects already exist (normal on restart). "
+                "Dropping conflicting constraint and retrying..."
+            )
             await _drop_conflicting_constraints()
             try:
                 async with engine.begin() as conn:
                     await conn.run_sync(Base.metadata.create_all)
-            except Exception as e2:
-                error_msg2 = str(e2).lower()
-                if "already exists" in error_msg2 and "ix_sales_house_date" in error_msg2:
+            except Exception as retry_error:
+                retry_msg = str(retry_error).lower()
+                if "ix_sales_house_date" in retry_msg:
                     logger.warning("Dropping conflicting sales index and retrying...")
                     try:
                         async with engine.begin() as conn:
-                            await conn.execute(text("DROP INDEX IF EXISTS ix_sales_house_date"))
-                    except Exception:
-                        pass
-                    async with engine.begin() as conn:
-                        await conn.run_sync(Base.metadata.create_all)
-                elif "already exists" in error_msg2:
-                    logger.warning(f"Still have conflicts: {e2}. Attempting to continue...")
-                    # Try to continue anyway
+                            await conn.execute(
+                                text("DROP INDEX IF EXISTS ix_sales_house_date")
+                            )
+                        async with engine.begin() as conn:
+                            await conn.run_sync(Base.metadata.create_all)
+                    except Exception as final_error:
+                        _startup_fatal(
+                            f"database initialisation failed: {final_error}",
+                            final_error,
+                        )
                 else:
-                    raise
-        else:
-            logger.warning(f"Table sync error (non-critical): {e}")
+                    _startup_fatal(
+                        f"database initialisation failed: {retry_error}",
+                        retry_error,
+                    )
+
+    if STARTUP_MIGRATION_WARNINGS:
+        logger.warning(
+            "Startup finished with %d migration warning(s): %s",
+            len(STARTUP_MIGRATION_WARNINGS),
+            "; ".join(STARTUP_MIGRATION_WARNINGS),
+        )
 
 async def _drop_conflicting_constraints():
     try:
