@@ -2,7 +2,7 @@
 
 import axios from "axios";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
@@ -19,6 +19,7 @@ import type {
   LiveC2CEntityIssue,
   LiveC2CMatchReport,
 } from "@/lib/live-c2c-diagnostics";
+import { exportLiveC2CMismatches } from "@/lib/export-live-c2c-mismatches";
 import { initialLiveC2CHouseId } from "@/lib/live-c2c-house-selection";
 
 interface AccessibleHouse {
@@ -105,6 +106,8 @@ export default function LiveC2CReportPage() {
     duplicates: number;
   } | null>(null);
   const [matchReport, setMatchReport] = useState<LiveC2CMatchReport | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const canExportMismatches = hasPermission("live_c2c.export");
   const [refreshKey, setRefreshKey] = useState(0);
   const selectedHouse = houses.find((house) => house.id === selectedHouseId) ?? null;
   const processing = readingWorkbook || previewing || importing;
@@ -260,6 +263,25 @@ export default function LiveC2CReportPage() {
       setUploadError(getImportErrorCode(error));
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleExportMismatches = async () => {
+    if (!matchReport || matchReport.issues.length === 0) return;
+
+    setExporting(true);
+    setUploadError(null);
+    try {
+      await exportLiveC2CMismatches({
+        issues: matchReport.issues,
+        houseName: selectedHouse?.name ?? null,
+        houseCode: selectedHouse?.code ?? null,
+        t,
+      });
+    } catch {
+      setUploadError("export_failed");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -479,6 +501,21 @@ export default function LiveC2CReportPage() {
               <h2 className="text-base font-semibold text-red-800 dark:text-red-200">
                 {t("live_c2c.diagnostics.title")}
               </h2>
+              {canExportMismatches && matchReport.issues.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleExportMismatches}
+                  disabled={exporting}
+                  aria-label={t("live_c2c.diagnostics.export")}
+                  title={t("live_c2c.diagnostics.export")}
+                  className="ml-auto inline-flex size-11 min-h-11 min-w-11 items-center justify-center rounded-xl border border-red-200 bg-white text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer dark:border-red-500/40 dark:bg-slate-900 dark:text-red-200 dark:hover:bg-slate-800"
+                >
+                  <Download aria-hidden="true" className="size-4" />
+                  <span className="sr-only">
+                    {t(exporting ? "live_c2c.diagnostics.exporting" : "live_c2c.diagnostics.export")}
+                  </span>
+                </button>
+              )}
             </div>
             <p className="mt-1 text-sm text-red-700 dark:text-red-200">
               {t("live_c2c.diagnostics.blocked")}
