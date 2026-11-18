@@ -1,6 +1,0 @@
-# Orange Flow project map
-
-- Full-stack telecom operations platform for multiple distribution houses. Main runtime: Next.js frontend -> FastAPI API -> PostgreSQL; Redis/background integrations and WhatsApp gateway also exist.
-- Source map: frontend app/routes and UI in `frontend/src`; API/models/services in `backend/app`; API startup/router registration in `backend/main.py`; deployment via root `docker-compose.yml`. Read applicable `AGENTS.md` files before edits.
-- Tenant security is foundational: business data is house-scoped; use authenticated house context and enforce isolation in backend queries. Permissions and plan entitlements are separate gates; never rely only on hidden frontend controls.
-- Follow `mem:frontend/core` for frontend structure and UI/i18n requirements; `mem:backend/core` for API, tenant, permission, billing and test-map details. Toolchains/commands: `mem:tech_stack`, `mem:suggested_commands`; shared coding and completion rules: `mem:conventions`, `mem:task_completion`.

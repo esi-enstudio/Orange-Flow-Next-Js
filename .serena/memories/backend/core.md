@@ -1,8 +1,0 @@
-# Backend module
-
-- FastAPI app is assembled in `backend/main.py`; endpoints are grouped in `backend/app/routers`, ORM models in `backend/app/models`, business logic in `backend/app/services`, shared helpers in `backend/app/utils`, middleware in `backend/app/middleware`. DB/startup migration registration lives in `backend/app/services/db_service.py`.
-- Stack: Python 3.11, async SQLAlchemy/PostgreSQL. Follow existing async session/query patterns, Pydantic schemas, HTTP error conventions, and BST helpers (`backend/app/utils/timezone.py`).
-- Security invariants: enforce authentication and required permissions on endpoints; scope tenant data through house context (`app/routers/deps.py`) and accessible-house filters. Never trust body `house_id`. Tenant roles are not platform-wide admins.
-- Subscription/plan enforcement is deny-by-default middleware (`app/middleware/plan_module_guard.py`) plus route-level defenses. New API paths must be mapped/exempted in `backend/config/modules.py` (`PATH_TO_MODULE`); leaf grants also need their own API-prefix mapping. Keep parity/coverage tests green.
-- Data-mutating flows should honor soft delete and audit conventions. Startup self-healing migrations are idempotent and must remain registered in `init_db()`.
-- Tests live in `backend/tests`; run focused tests from `backend/`. Plan module parity is an exception and must run from repo root. See `mem:suggested_commands` and `mem:task_completion`.
