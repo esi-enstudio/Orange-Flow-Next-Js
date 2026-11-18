@@ -529,7 +529,7 @@ export default function LiveC2CReportPage() {
               ].map(([key, value]) => (
                 <div
                   key={key}
-                  className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"
+                  className="rounded-xl bg-white px-2 py-1 dark:bg-slate-900"
                 >
                   <dt className="text-xs text-gray-500 dark:text-gray-400">
                     {t(`live_c2c.diagnostics.${key}`)}
@@ -592,7 +592,7 @@ export default function LiveC2CReportPage() {
                           <th
                             key={column}
                             scope="col"
-                            className="whitespace-nowrap border border-gray-200 px-3 py-2 font-semibold dark:border-slate-700"
+                            className="whitespace-nowrap border border-gray-200 px-2 py-1 font-semibold dark:border-slate-700"
                           >
                             {t(`live_c2c.diagnostics.columns.${column}`)}
                           </th>
@@ -605,22 +605,22 @@ export default function LiveC2CReportPage() {
                           key={`${issue.side}-${issue.value}`}
                           className="even:bg-gray-50 dark:even:bg-slate-800/50"
                         >
-                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 font-mono dark:border-slate-700">
+                          <td className="whitespace-nowrap border border-gray-200 px-2 py-1 font-mono dark:border-slate-700">
                             {issue.value}
                           </td>
-                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                          <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
                             {t(`live_c2c.diagnostics.side_${issue.side}`)}
                           </td>
-                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                          <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
                             {t(`live_c2c.diagnostics.status_${issue.status}`)}
                           </td>
-                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                          <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
                             {issue.row_count}
                           </td>
-                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                          <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
                             {issue.excel_rows.join(", ")}
                           </td>
-                          <td className="border border-gray-200 px-3 py-2 dark:border-slate-700">
+                          <td className="border border-gray-200 px-2 py-1 dark:border-slate-700">
                             {issue.candidates.length > 0
                               ? issue.candidates
                                   .map((candidate) => candidateLabel(issue.side, candidate))
