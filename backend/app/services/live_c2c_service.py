@@ -1,10 +1,10 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import PurePath
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from fastapi import Request
 from openpyxl import load_workbook
@@ -95,6 +95,15 @@ class LiveC2CImportCheck:
     can_import: bool
 
 
+@dataclass
+class _LiveC2CRsoTotals:
+    c2c_today_route: Decimal = field(default_factory=lambda: Decimal("0"))
+    c2c_other_route: Decimal = field(default_factory=lambda: Decimal("0"))
+    today_route_trans: int = 0
+    other_route_trans: int = 0
+    transaction_times: list[time] = field(default_factory=list)
+
+
 def _normalize_header(value: Any) -> str:
     if value is None:
         return ""
@@ -146,7 +155,7 @@ def _cell_text(cell: Any) -> str:
     return text
 
 
-def _modified_on_text(cell: Any, *, xlsb: bool) -> str:
+def _modified_on_text(cell: Any, *, xlsb: bool, row_number: int) -> str:
     value = _cell_value(cell)
     if value is None:
         return ""
@@ -180,8 +189,11 @@ def _modified_on_text(cell: Any, *, xlsb: bool) -> str:
     except ValueError:
         try:
             return time.fromisoformat(text).isoformat()
-        except ValueError:
-            return text
+        except ValueError as error:
+            raise LiveC2CImportError(
+                "live_c2c_invalid_timestamp",
+                row=row_number,
+            ) from error
 
 
 def _parse_transfer_mrp(cell: Any, row_number: int) -> Decimal:
@@ -323,7 +335,7 @@ def _parse_worksheet_rows(
             column_index = column_indexes[header]
             cell = cells[column_index] if column_index < len(cells) else None
             values[header] = (
-                _modified_on_text(cell, xlsb=xlsb)
+                _modified_on_text(cell, xlsb=xlsb, row_number=row_number)
                 if header == "Modified ON"
                 else _cell_text(cell)
             )
@@ -870,6 +882,99 @@ async def prepare_live_c2c_import(
         truncated=truncated,
         can_import=can_import,
     )
+
+
+def build_live_c2c_productivity_report(
+    *,
+    house_code: str,
+    employees: Sequence[Employee],
+    targets: Mapping[int, tuple[float, float]],
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    totals_by_employee = {
+        employee.id: _LiveC2CRsoTotals()
+        for employee in employees
+    }
+
+    for row in rows:
+        employee_id = row["from_msisdn"]
+        totals = totals_by_employee.get(employee_id)
+        if totals is None:
+            raise LiveC2CImportError("live_c2c_employee_not_found")
+
+        amount = row["transfer_mrp"]
+        if not isinstance(amount, Decimal):
+            amount = Decimal(str(amount))
+
+        if row["on_route"] == "Y":
+            totals.c2c_today_route += amount
+            totals.today_route_trans += 1
+        else:
+            totals.c2c_other_route += amount
+            totals.other_route_trans += 1
+
+        modified_on = row.get("modified_on")
+        if modified_on:
+            try:
+                transaction_time = time.fromisoformat(modified_on).replace(tzinfo=None)
+            except ValueError:
+                transaction_time = None
+            if transaction_time is not None:
+                totals.transaction_times.append(transaction_time)
+
+    report: list[dict[str, Any]] = []
+    for employee in employees:
+        totals = totals_by_employee[employee.id]
+        c2c_target, trans_target = targets.get(employee.id, (0.0, 0.0))
+        total_c2c = totals.c2c_today_route + totals.c2c_other_route
+        total_trans = totals.today_route_trans + totals.other_route_trans
+        decimal_c2c_target = Decimal(str(c2c_target))
+        decimal_trans_target = Decimal(str(trans_target))
+        transaction_times = totals.transaction_times
+        start_time = min(transaction_times) if transaction_times else None
+        end_time = max(transaction_times) if transaction_times else None
+        serving_hours = None
+        if start_time is not None and end_time is not None:
+            serving_hours = round(
+                (end_time.hour * 3600 + end_time.minute * 60 + end_time.second
+                 - start_time.hour * 3600 - start_time.minute * 60 - start_time.second)
+                / 3600,
+                2,
+            )
+
+        report.append(
+            {
+                "employee_id": employee.id,
+                "house_code": house_code,
+                "dms_code": employee.dms_code,
+                "rso_name": employee.employee_name or employee.dms_code or "",
+                "rso_itop_number": employee.itop_number,
+                "productivity_c2c_tgt": float(decimal_c2c_target),
+                "c2c_today_route": float(totals.c2c_today_route),
+                "c2c_other_route": float(totals.c2c_other_route),
+                "total_c2c": float(total_c2c),
+                "c2c_achievement_pct": (
+                    round(float(total_c2c / decimal_c2c_target * 100), 2)
+                    if decimal_c2c_target > 0
+                    else 0.0
+                ),
+                "c2c_remaining": float(decimal_c2c_target - total_c2c),
+                "productivity_trans_tgt": float(decimal_trans_target),
+                "today_route_trans": totals.today_route_trans,
+                "other_route_trans": totals.other_route_trans,
+                "trans_achievement_pct": (
+                    round(float(Decimal(total_trans) / decimal_trans_target * 100), 2)
+                    if decimal_trans_target > 0
+                    else 0.0
+                ),
+                "trans_remaining": float(decimal_trans_target - total_trans),
+                "start_time": start_time.isoformat(timespec="seconds") if start_time else None,
+                "end_time": end_time.isoformat(timespec="seconds") if end_time else None,
+                "serving_hours": serving_hours,
+            }
+        )
+
+    return report
 
 
 async def replace_live_c2c_rows(

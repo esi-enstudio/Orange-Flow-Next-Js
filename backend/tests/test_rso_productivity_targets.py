@@ -3,6 +3,8 @@ from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import select
 
@@ -10,6 +12,8 @@ from conftest import TestSession
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.rso_target import RSOTarget
+from app.models.user import User
+from app.routers.deps import get_current_user, get_db
 from app.routers import targets
 from app.schemas.rso_target import RSOTargetCreate, RSOTargetUpdate
 from app.services.Automation import target_excel
@@ -117,6 +121,52 @@ async def test_rso_target_create_and_update_persist_productivity_values(db):
     )
     assert updated.productivity_c2c_tgt == pytest.approx(3.25)
     assert updated.productivity_trans_tgt == pytest.approx(4.5)
+
+
+@pytest.mark.asyncio
+async def test_rso_target_list_serializes_records_with_employee_user(db):
+    house, rso = await _make_house_and_rso(db)
+    rso.user = User(
+        username="rso-login",
+        hashed_password="x",
+        name="RSO Login",
+    )
+    await db.commit()
+    target = await targets.create_rso_target(
+        RSOTargetCreate(employee_id=rso.id, target_date="2026-11-01"),
+        db,
+        current_user=None,
+        house_id=None,
+    )
+    current_user = SimpleNamespace(
+        houses=[house],
+        roles=[
+            SimpleNamespace(
+                name="Admin",
+                permissions=[SimpleNamespace(name="targets.view")],
+            )
+        ],
+    )
+    app = FastAPI()
+    app.include_router(targets.router)
+
+    async def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = lambda: current_user
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/rso-targets")
+        detail_response = await client.get(f"/api/rso-targets/{target.id}")
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["employee"]["user"]["name"] == "RSO Login"
+    assert detail_response.status_code == 200
+    assert detail_response.json()["employee"]["user"]["name"] == "RSO Login"
 
 
 @pytest.mark.asyncio

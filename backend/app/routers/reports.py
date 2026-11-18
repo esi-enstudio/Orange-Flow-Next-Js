@@ -31,7 +31,9 @@ from app.models.scratch_card_issue import ScratchCardIssue
 from app.models.sim_issue import SimIssue
 from app.models.retailer_marking import RetailerMarking, RetailerMarkingAssignment
 from app.models.retailer import Retailer
+from app.models.route import RetailerRoute, Route
 from app.models.employee import Employee
+from app.models.rso_target import RSOTarget
 from app.models.active_lso_config import ActiveLsoConfig
 from app.models.active_sso_config import ActiveSsoConfig
 from app.models.role import Role
@@ -42,6 +44,7 @@ from app.services.live_c2c_service import (
     MAX_LIVE_C2C_FILE_SIZE,
     LiveC2CImportError,
     SUPPORTED_LIVE_C2C_EXTENSIONS,
+    build_live_c2c_productivity_report,
     list_live_c2c_worksheet_names,
     live_c2c_check_payload,
     parse_live_c2c_workbook,
@@ -550,6 +553,28 @@ async def get_live_c2c_rows(
         .limit(pagination.per_page)
     )
     rows = result.all()
+    retailer_ids = {row.to_msisdn for row, _, _ in rows}
+    on_route_today_ids: set[int] = set()
+    if retailer_ids:
+        route_result = await db.execute(
+            select(RetailerRoute.retailer_id, Route.visit_days)
+            .join(Route, Route.id == RetailerRoute.route_id)
+            .join(Retailer, Retailer.id == RetailerRoute.retailer_id)
+            .where(
+                RetailerRoute.retailer_id.in_(retailer_ids),
+                RetailerRoute.status == "active",
+                Retailer.house_id == house_id,
+                Route.house_id == house_id,
+                Route.is_active.is_(True),
+                Route.is_deleted.is_(False),
+            )
+        )
+        today = now_naive().strftime("%A").lower()
+        on_route_today_ids = {
+            retailer_id
+            for retailer_id, visit_days in route_result.all()
+            if today in {str(day).lower() for day in (visit_days or [])}
+        }
     total_pages = max(1, (total + pagination.per_page - 1) // pagination.per_page)
     return {
         "success": True,
@@ -560,7 +585,7 @@ async def get_live_c2c_rows(
                 "to_msisdn": to_msisdn,
                 "modified_on": row.modified_on,
                 "transfer_mrp": format(row.transfer_mrp, "f"),
-                "on_route": row.on_route,
+                "on_route": "Y" if row.to_msisdn in on_route_today_ids else "N",
             }
             for row, from_msisdn, to_msisdn in rows
         ],
@@ -663,6 +688,39 @@ async def preview_live_c2c_import(
             rows=rows,
             accessible_house_ids=accessible_house_ids,
         )
+        report = []
+        if preview.can_import:
+            today = now_naive().date()
+            target_date = date(today.year, today.month, 1)
+            rso_result = await db.execute(
+                select(Employee)
+                .where(
+                    Employee.house_id == house_id,
+                    Employee.employee_type == "rso",
+                    Employee.status == "Active",
+                )
+                .order_by(Employee.dms_code, Employee.id)
+            )
+            rsos = rso_result.scalars().all()
+            target_result = await db.execute(
+                select(RSOTarget).where(
+                    RSOTarget.house_id == house_id,
+                    RSOTarget.target_date == target_date,
+                )
+            )
+            targets = {
+                target.employee_id: (
+                    target.productivity_c2c_tgt,
+                    target.productivity_trans_tgt,
+                )
+                for target in target_result.scalars().all()
+            }
+            report = build_live_c2c_productivity_report(
+                house_code=house.code,
+                employees=rsos,
+                targets=targets,
+                rows=preview.rows,
+            )
     except LiveC2CImportError as error:
         status_code = 404 if error.code == "live_c2c_house_not_found" else 400
         raise HTTPException(
@@ -679,6 +737,7 @@ async def preview_live_c2c_import(
         "data": {
             **live_c2c_check_payload(preview),
             "disabled_retailer_count": preview.disabled_retailer_count,
+            "report": report,
         },
     }
 

@@ -27,6 +27,44 @@ from app.services.Automation.target_excel import (
 
 router = APIRouter(prefix="/api", tags=["targets"])
 
+
+def _rso_target_payload(record: RSOTarget) -> dict:
+    payload = {column.name: getattr(record, column.name) for column in RSOTarget.__table__.columns}
+    payload["house"] = (
+        {
+            "id": record.house.id,
+            "name": record.house.name,
+            "code": record.house.code,
+        }
+        if record.house
+        else None
+    )
+    payload["employee"] = (
+        {
+            "user": {"name": record.employee.user.name}
+            if record.employee.user
+            else None,
+            "employee_name": record.employee.employee_name,
+            "dms_code": record.employee.dms_code,
+            "itop_number": record.employee.itop_number,
+        }
+        if record.employee
+        else None
+    )
+    payload["supervisor"] = (
+        {
+            "user": {"name": record.supervisor.user.name}
+            if record.supervisor.user
+            else None,
+            "employee_name": record.supervisor.employee_name,
+            "pool_number": record.supervisor.pool_number,
+        }
+        if record.supervisor
+        else None
+    )
+    return payload
+
+
 @router.get("/house-targets")
 async def get_house_targets(
     search: Optional[str] = None,
@@ -394,7 +432,7 @@ async def get_rso_targets(
     total_pages = max(1, (total_count + pagination.per_page - 1) // pagination.per_page)
     return {
         "success": True,
-        "data": records,
+        "data": [_rso_target_payload(record) for record in records],
         "pagination": {
             "page": pagination.page,
             "per_page": pagination.per_page,
@@ -440,7 +478,7 @@ async def get_rso_target(
     record = result.unique().scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="RSO target not found")
-    return record
+    return _rso_target_payload(record)
 
 @router.post("/rso-targets", status_code=201)
 async def create_rso_target(

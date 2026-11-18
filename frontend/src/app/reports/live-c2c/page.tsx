@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { ChevronDown, Download } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
-import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -29,28 +28,26 @@ interface AccessibleHouse {
   code: string;
 }
 
-interface LiveC2CRow {
-  id: number;
-  from_msisdn: string;
-  to_msisdn: string;
-  modified_on: string | null;
-  transfer_mrp: string;
-  on_route: "Y" | "N";
-}
-
-interface LiveC2CPagination {
-  page: number;
-  per_page: number;
-  total: number;
-  total_pages: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
-
-interface LiveC2CListResponse {
-  success: boolean;
-  data: LiveC2CRow[];
-  pagination: LiveC2CPagination;
+interface LiveC2CProductivityRow {
+  employee_id: number;
+  house_code: string;
+  dms_code: string | null;
+  rso_name: string;
+  rso_itop_number: string | null;
+  productivity_c2c_tgt: number;
+  c2c_today_route: number;
+  c2c_other_route: number;
+  total_c2c: number;
+  c2c_achievement_pct: number;
+  c2c_remaining: number;
+  productivity_trans_tgt: number;
+  today_route_trans: number;
+  other_route_trans: number;
+  trans_achievement_pct: number;
+  trans_remaining: number;
+  start_time: string | null;
+  end_time: string | null;
+  serving_hours: number | null;
 }
 
 interface ApiErrorBody {
@@ -60,7 +57,111 @@ interface ApiErrorBody {
   };
 }
 
-const ROWS_PER_PAGE = 50;
+const REPORT_COLUMNS = [
+  "serial_number",
+  "house_code",
+  "dms_code",
+  "rso_name",
+  "rso_itop_number",
+  "productivity_c2c_tgt",
+  "c2c_today_route",
+  "c2c_other_route",
+  "total_c2c",
+  "c2c_achievement_pct",
+  "c2c_remaining",
+  "productivity_trans_tgt",
+  "today_route_trans",
+  "other_route_trans",
+  "trans_achievement_pct",
+  "trans_remaining",
+  "start_time",
+  "end_time",
+  "serving_hours",
+] as const;
+
+type ReportColumn = (typeof REPORT_COLUMNS)[number];
+
+function isProductivityReportRow(value: unknown): value is LiveC2CProductivityRow {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  const numericFields = [
+    "employee_id",
+    "productivity_c2c_tgt",
+    "c2c_today_route",
+    "c2c_other_route",
+    "total_c2c",
+    "c2c_achievement_pct",
+    "c2c_remaining",
+    "productivity_trans_tgt",
+    "today_route_trans",
+    "other_route_trans",
+    "trans_achievement_pct",
+    "trans_remaining",
+  ];
+  return (
+    numericFields.every(
+      (field) => typeof row[field] === "number" && Number.isFinite(row[field]),
+    )
+    && typeof row.house_code === "string"
+    && (typeof row.dms_code === "string" || row.dms_code === null)
+    && typeof row.rso_name === "string"
+    && (typeof row.rso_itop_number === "string" || row.rso_itop_number === null)
+    && (typeof row.start_time === "string" || row.start_time === null)
+    && (typeof row.end_time === "string" || row.end_time === null)
+    && (
+      row.serving_hours === null
+      || (typeof row.serving_hours === "number" && Number.isFinite(row.serving_hours))
+    )
+  );
+}
+
+function reportCellText(
+  column: ReportColumn,
+  row: LiveC2CProductivityRow,
+  index: number,
+  formatNumber: (value: number) => string,
+): string {
+  switch (column) {
+    case "serial_number":
+      return formatNumber(index + 1);
+    case "house_code":
+      return row.house_code || "—";
+    case "dms_code":
+      return row.dms_code || "—";
+    case "rso_name":
+      return row.rso_name || "—";
+    case "rso_itop_number":
+      return row.rso_itop_number || "—";
+    case "productivity_c2c_tgt":
+      return formatNumber(row.productivity_c2c_tgt);
+    case "c2c_today_route":
+      return formatNumber(row.c2c_today_route);
+    case "c2c_other_route":
+      return formatNumber(row.c2c_other_route);
+    case "total_c2c":
+      return formatNumber(row.total_c2c);
+    case "c2c_achievement_pct":
+      return `${formatNumber(row.c2c_achievement_pct)}%`;
+    case "c2c_remaining":
+      return formatNumber(row.c2c_remaining);
+    case "productivity_trans_tgt":
+      return formatNumber(row.productivity_trans_tgt);
+    case "today_route_trans":
+      return formatNumber(row.today_route_trans);
+    case "other_route_trans":
+      return formatNumber(row.other_route_trans);
+    case "trans_achievement_pct":
+      return `${formatNumber(row.trans_achievement_pct)}%`;
+    case "trans_remaining":
+      return formatNumber(row.trans_remaining);
+    case "start_time":
+      return row.start_time ?? "—";
+    case "end_time":
+      return row.end_time ?? "—";
+    case "serving_hours":
+      return row.serving_hours === null ? "—" : formatNumber(row.serving_hours);
+  }
+}
 
 function getImportErrorCode(error: unknown): string {
   if (!axios.isAxiosError<ApiErrorBody>(error)) return "upload_failed";
@@ -81,7 +182,7 @@ function candidateLabel(
 
 export default function LiveC2CReportPage() {
   const { hasPermission, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const canView = hasPermission("reports.view") || hasPermission("itopup.view");
   const canImport = hasPermission("live_c2c.import");
   const [houses, setHouses] = useState<AccessibleHouse[]>([]);
@@ -92,27 +193,21 @@ export default function LiveC2CReportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null);
-  const [rows, setRows] = useState<LiveC2CRow[]>([]);
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
-  const [pagination, setPagination] = useState<LiveC2CPagination | null>(null);
-  const [page, setPage] = useState(1);
-  const [listLoading, setListLoading] = useState(false);
-  const [listError, setListError] = useState(false);
+  const [reportRows, setReportRows] = useState<LiveC2CProductivityRow[] | null>(null);
   const [readingWorkbook, setReadingWorkbook] = useState(false);
   const [previewing, setPreviewing] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [importResult, setImportResult] = useState<{
-    imported: number;
-    duplicates: number;
-  } | null>(null);
   const [matchReport, setMatchReport] = useState<LiveC2CMatchReport | null>(null);
-  const [disabledRetailerConfirmCount, setDisabledRetailerConfirmCount] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
   const canExportMismatches = hasPermission("live_c2c.export");
-  const [refreshKey, setRefreshKey] = useState(0);
   const selectedHouse = houses.find((house) => house.id === selectedHouseId) ?? null;
-  const processing = readingWorkbook || previewing || importing;
+  const processing = readingWorkbook || previewing;
+  const showReportArea = reportRows !== null || previewing || matchReport === null;
+  const formatNumber = (value: number) =>
+    new Intl.NumberFormat(language === "bn" ? "bn-BD" : "en-US", {
+      maximumFractionDigits: 2,
+    }).format(value);
 
   useEffect(() => {
     if (authLoading || !canView) return;
@@ -134,37 +229,6 @@ export default function LiveC2CReportPage() {
     return () => controller.abort();
   }, [authLoading, canView]);
 
-  useEffect(() => {
-    if (!selectedHouseId) {
-      setRows([]);
-      setPagination(null);
-      setListLoading(false);
-      setListError(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    setListLoading(true);
-    setListError(false);
-    setExpandedRowId(null);
-    setRows([]);
-    setPagination(null);
-    apiClient.get<LiveC2CListResponse>("/reports/live-c2c", {
-      params: { page, per_page: ROWS_PER_PAGE },
-      headers: { "X-House-ID": String(selectedHouseId) },
-      signal: controller.signal,
-    }).then(({ data }) => {
-      setRows(data.data);
-      setPagination(data.pagination);
-    }).catch(() => {
-      if (!controller.signal.aborted) setListError(true);
-    }).finally(() => {
-      if (!controller.signal.aborted) setListLoading(false);
-    });
-
-    return () => controller.abort();
-  }, [page, refreshKey, selectedHouseId]);
-
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -172,8 +236,8 @@ export default function LiveC2CReportPage() {
     if (!file) return;
 
     setUploadError(null);
-    setImportResult(null);
     setMatchReport(null);
+    setReportRows(null);
     setSelectedFile(null);
     setSheetNames([]);
     setSelectedSheetName(null);
@@ -222,50 +286,13 @@ export default function LiveC2CReportPage() {
     if (nextHouseId === selectedHouseId) return;
 
     setSelectedHouseId(nextHouseId);
-    setPage(1);
     setExpandedRowId(null);
     setSelectedFile(null);
     setSheetNames([]);
     setSelectedSheetName(null);
     setUploadError(null);
-    setImportResult(null);
     setMatchReport(null);
-  };
-
-  const handleImport = async () => {
-    if (!selectedHouseId || !selectedFile || !selectedSheetName) {
-      setUploadError(!selectedHouseId ? "house_required" : "sheet_required");
-      return;
-    }
-
-    setImporting(true);
-    setUploadError(null);
-    setImportResult(null);
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-    formData.append("sheet_name", selectedSheetName);
-
-    try {
-      const { data } = await apiClient.post<{
-        data: { imported_rows: number; duplicate_rows?: number };
-      }>("/reports/live-c2c/import", formData, {
-        headers: { "X-House-ID": String(selectedHouseId) },
-      });
-      setImportResult({
-        imported: data.data.imported_rows,
-        duplicates: data.data.duplicate_rows ?? 0,
-      });
-      setMatchReport(null);
-      setSelectedFile(null);
-      setSheetNames([]);
-      setSelectedSheetName(null);
-      setPage(1);
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setUploadError(getImportErrorCode(error));
-    } finally {
-      setImporting(false);
-    }
+    setReportRows(null);
   };
 
   const handleExportMismatches = async () => {
@@ -287,7 +314,7 @@ export default function LiveC2CReportPage() {
     }
   };
 
-  const handlePreviewAndConfirm = async () => {
+  const handleGenerateReport = async () => {
     if (!selectedHouseId || !selectedFile || !selectedSheetName) {
       setUploadError(!selectedHouseId ? "house_required" : "sheet_required");
       return;
@@ -295,35 +322,32 @@ export default function LiveC2CReportPage() {
 
     setPreviewing(true);
     setUploadError(null);
-    setDisabledRetailerConfirmCount(null);
+    setMatchReport(null);
+    setReportRows(null);
     const formData = new FormData();
     formData.append("file", selectedFile);
     formData.append("sheet_name", selectedSheetName);
 
     try {
-      const { data } = await apiClient.post<{ data: LiveC2CMatchReport }>(
+      const { data } = await apiClient.post<{
+        data: LiveC2CMatchReport & { report: unknown };
+      }>(
         "/reports/live-c2c/preview",
         formData,
         { headers: { "X-House-ID": String(selectedHouseId) } },
       );
       const report = data.data;
-      const disabledCount = report.disabled_retailer_count;
       if (
         !Array.isArray(report.issues)
         || typeof report.summary?.total_rows !== "number"
-        || !Number.isSafeInteger(disabledCount)
-        || disabledCount < 0
+        || !Array.isArray(report.report)
+        || !report.report.every(isProductivityReportRow)
       ) {
         setUploadError("upload_failed");
         return;
       }
       setMatchReport(report);
-      if (!report.can_import) return;
-      if (disabledCount > 0) {
-        setDisabledRetailerConfirmCount(disabledCount);
-      } else {
-        void handleImport();
-      }
+      if (report.can_import) setReportRows(report.report);
     } catch (error) {
       setUploadError(getImportErrorCode(error));
     } finally {
@@ -334,7 +358,7 @@ export default function LiveC2CReportPage() {
   if (!authLoading && !canView) return <AccessDenied />;
 
   return (
-    <main className="mx-auto min-h-screen max-w-[1600px] min-w-0 p-4 pb-8 sm:p-6">
+    <main className="mx-auto min-h-screen max-w-[1600px] min-w-0 p-2 pb-8 sm:p-6">
       <header className="flex items-center gap-2.5">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
           {t("live_c2c.title")}
@@ -343,7 +367,7 @@ export default function LiveC2CReportPage() {
       </header>
 
       <section className="mt-5 min-w-0 space-y-4">
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-end">
           {housesLoading ? (
             <div
               role="status"
@@ -406,7 +430,7 @@ export default function LiveC2CReportPage() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={processing || housesLoading || housesError || !selectedHouseId}
-                className="inline-flex h-11 min-w-11 items-center justify-center rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+                className="inline-flex h-11 w-full min-w-11 items-center justify-center rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:w-auto"
               >
                 {t(readingWorkbook ? "live_c2c.processing" : "live_c2c.upload_button")}
               </button>
@@ -435,7 +459,7 @@ export default function LiveC2CReportPage() {
                 searchPlaceholder={t("live_c2c.search_sheets")}
                 emptyMessage={t("live_c2c.no_sheets")}
                 noResultsMessage={t("live_c2c.no_matching_sheets")}
-                disabled={importing}
+                disabled={processing}
                 required
                 single
                 showSelectAll={false}
@@ -447,16 +471,14 @@ export default function LiveC2CReportPage() {
             </p>
             <button
               type="button"
-              onClick={handlePreviewAndConfirm}
+              onClick={handleGenerateReport}
               disabled={processing || !selectedSheetName}
               className="inline-flex h-11 min-w-11 items-center justify-center rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:ml-auto"
             >
               {t(
                 previewing
-                  ? "live_c2c.checking"
-                  : importing
-                    ? "live_c2c.saving"
-                    : "live_c2c.save_button",
+                  ? "live_c2c.generating"
+                  : "live_c2c.generate_report",
               )}
             </button>
           </div>
@@ -470,25 +492,12 @@ export default function LiveC2CReportPage() {
             {t(`live_c2c.errors.${uploadError}`)}
           </p>
         )}
-        {importResult !== null && (
-          <p
-            role="status"
-            className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300"
-          >
-            {importResult.duplicates > 0
-              ? t("live_c2c.duplicates.imported_with_duplicates", {
-                  count: importResult.imported,
-                  duplicates: importResult.duplicates,
-                })
-              : t("live_c2c.import_success", { count: importResult.imported })}
-          </p>
-        )}
         {matchReport && matchReport.can_import && matchReport.summary.duplicate_rows > 0 && (
           <p
             role="status"
             className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
           >
-            {t("live_c2c.duplicates.will_skip", {
+            {t("live_c2c.duplicates.excluded_from_report", {
               count: matchReport.summary.duplicate_rows,
             })}
           </p>
@@ -669,12 +678,25 @@ export default function LiveC2CReportPage() {
             )}
           </section>
         )}
+        {reportRows !== null && matchReport?.can_import && (
+          <p
+            role="status"
+            className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300"
+          >
+            {t("live_c2c.report_generated", {
+              rows: matchReport.summary.importable_rows,
+              rsos: reportRows.length,
+            })}
+          </p>
+        )}
+
+        {showReportArea && (
         <div
           role="region"
           aria-label={t("live_c2c.title")}
           className="space-y-2 lg:hidden"
         >
-          {listLoading ? (
+          {previewing ? (
             Array.from({ length: 5 }, (_, index) => (
               <div
                 key={`mobile-skeleton-${index}`}
@@ -682,40 +704,37 @@ export default function LiveC2CReportPage() {
                 className="h-16 animate-pulse rounded-xl border border-gray-200 bg-gray-100 dark:border-slate-700 dark:bg-slate-800"
               />
             ))
-          ) : rows.length === 0 ? (
-            <p
-              role={listError ? "alert" : "status"}
-              className={`rounded-xl border px-3 py-4 text-center text-sm ${
-                listError
-                  ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
-                  : "border-gray-200 bg-white text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-400"
-              }`}
-            >
-              {t(listError ? "live_c2c.list_error" : "live_c2c.empty_state")}
+          ) : reportRows === null ? (
+            matchReport ? null : (
+              <p className="rounded-xl border border-gray-200 bg-white px-3 py-4 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-400">
+                {t("live_c2c.report_prompt")}
+              </p>
+            )
+          ) : reportRows.length === 0 ? (
+            <p role="status" className="rounded-xl border border-gray-200 bg-white px-3 py-4 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-400">
+              {t("live_c2c.no_active_rsos")}
             </p>
           ) : (
-            rows.map((row) => {
-              const isExpanded = expandedRowId === row.id;
+            reportRows.map((row, index) => {
+              const isExpanded = expandedRowId === row.employee_id;
               return (
                 <article
-                  key={row.id}
+                  key={row.employee_id}
                   className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900"
                 >
                   <button
                     type="button"
                     aria-expanded={isExpanded}
                     aria-label={t(isExpanded ? "live_c2c.hide_details" : "live_c2c.show_details")}
-                    onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
+                    onClick={() => setExpandedRowId(isExpanded ? null : row.employee_id)}
                     className="flex min-h-11 w-full items-center justify-between gap-3 p-3 text-left cursor-pointer"
                   >
                     <span className="min-w-0">
-                      <span className="flex items-center gap-2 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
-                        <span className="truncate">{row.from_msisdn}</span>
-                        <span aria-hidden="true" className="text-gray-400">→</span>
-                        <span className="truncate">{row.to_msisdn}</span>
+                      <span className="block truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {formatNumber(index + 1)}. {row.rso_name}
                       </span>
-                      <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
-                        {t("live_c2c.columns.on_route")}: {row.on_route}
+                      <span className="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">
+                        {row.dms_code ?? "—"} · {row.rso_itop_number ?? "—"}
                       </span>
                     </span>
                     <ChevronDown
@@ -727,23 +746,17 @@ export default function LiveC2CReportPage() {
                     </span>
                   </button>
                   {isExpanded && (
-                    <dl className="grid grid-cols-2 gap-3 border-t border-gray-200 px-3 py-3 text-sm dark:border-slate-700">
-                      <div>
-                        <dt className="text-xs text-gray-500 dark:text-gray-400">
-                          {t("live_c2c.columns.modified_on")}
-                        </dt>
-                        <dd className="mt-1 break-words text-gray-900 dark:text-gray-100">
-                          {row.modified_on ?? "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500 dark:text-gray-400">
-                          {t("live_c2c.columns.transfer_mrp")}
-                        </dt>
-                        <dd className="mt-1 break-words text-gray-900 dark:text-gray-100">
-                          {row.transfer_mrp}
-                        </dd>
-                      </div>
+                    <dl className="grid grid-cols-1 gap-3 border-t border-gray-200 px-3 py-3 text-sm sm:grid-cols-2 dark:border-slate-700">
+                      {REPORT_COLUMNS.slice(1).map((column) => (
+                        <div key={column} className="min-w-0">
+                          <dt className="text-xs text-gray-500 dark:text-gray-400">
+                            {t(`live_c2c.report_columns.${column}`)}
+                          </dt>
+                          <dd className="mt-1 break-words text-gray-900 dark:text-gray-100">
+                            {reportCellText(column, row, index, formatNumber)}
+                          </dd>
+                        </div>
+                      ))}
                     </dl>
                   )}
                 </article>
@@ -751,133 +764,68 @@ export default function LiveC2CReportPage() {
             })
           )}
         </div>
+        )}
 
+        {showReportArea && (
         <div
           role="region"
           aria-label={t("live_c2c.title")}
           tabIndex={0}
           className="hidden max-w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-700 lg:block"
         >
-          <table className="w-full min-w-[720px] border-collapse bg-white text-left text-sm text-gray-800 dark:bg-slate-900 dark:text-gray-100">
+          <table className="w-full min-w-[2100px] border-collapse bg-white text-left text-sm text-gray-800 dark:bg-slate-900 dark:text-gray-100">
             <thead className="bg-gray-50 dark:bg-slate-800">
               <tr>
-                {["from_msisdn", "to_msisdn", "on_route", "modified_on", "transfer_mrp"].map((column) => (
+                {REPORT_COLUMNS.map((column) => (
                   <th
                     key={column}
                     scope="col"
-                    className="whitespace-nowrap border border-gray-200 px-3 py-2 font-semibold dark:border-slate-700"
+                    className="whitespace-nowrap border border-gray-200 px-2 py-2 font-semibold dark:border-slate-700"
                   >
-                    {t(`live_c2c.columns.${column}`)}
+                    {t(`live_c2c.report_columns.${column}`)}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {listLoading ? (
+              {previewing ? (
                 Array.from({ length: 5 }, (_, rowIndex) => (
                   <tr key={`skeleton-${rowIndex}`} aria-hidden="true">
-                    {Array.from({ length: 5 }, (_, columnIndex) => (
-                      <td key={columnIndex} className="border border-gray-200 px-2 py-1 dark:border-slate-700">
+                    {REPORT_COLUMNS.map((column) => (
+                      <td key={column} className="border border-gray-200 px-2 py-1 dark:border-slate-700">
                         <div className="h-4 w-4/5 animate-pulse rounded bg-gray-100 dark:bg-slate-800" />
                       </td>
                     ))}
                   </tr>
                 ))
-              ) : rows.length === 0 ? (
+              ) : reportRows === null ? (
                 <tr>
-                  <td
-                    colSpan={5}
-                    role={listError ? "alert" : undefined}
-                    className={`border border-gray-200 px-2 py-1 text-center dark:border-slate-700 ${
-                      listError
-                        ? "text-red-700 dark:text-red-300"
-                        : "text-gray-500 dark:text-gray-400"
-                    }`}
-                  >
-                    {t(listError ? "live_c2c.list_error" : "live_c2c.empty_state")}
+                  <td colSpan={REPORT_COLUMNS.length} className="border border-gray-200 px-2 py-1 text-center text-gray-500 dark:border-slate-700 dark:text-gray-400">
+                    {matchReport ? "" : t("live_c2c.report_prompt")}
+                  </td>
+                </tr>
+              ) : reportRows.length === 0 ? (
+                <tr>
+                  <td colSpan={REPORT_COLUMNS.length} className="border border-gray-200 px-2 py-1 text-center text-gray-500 dark:border-slate-700 dark:text-gray-400">
+                    {t("live_c2c.no_active_rsos")}
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
-                  <tr key={row.id} className="even:bg-gray-50 dark:even:bg-slate-800/50">
-                    <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
-                      {row.from_msisdn}
-                    </td>
-                    <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
-                      {row.to_msisdn}
-                    </td>
-                    <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
-                      {row.on_route}
-                    </td>
-                    <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
-                      {row.modified_on ?? "—"}
-                    </td>
-                    <td className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
-                      {row.transfer_mrp}
-                    </td>
+                reportRows.map((row, index) => (
+                  <tr key={row.employee_id} className="even:bg-gray-50 dark:even:bg-slate-800/50">
+                    {REPORT_COLUMNS.map((column) => (
+                      <td key={column} className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
+                        {reportCellText(column, row, index, formatNumber)}
+                      </td>
+                    ))}
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
-
-        {pagination && pagination.total > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              {t("live_c2c.row_count", { count: pagination.total })}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                disabled={!pagination.has_prev || listLoading}
-                className="min-h-11 rounded-xl border border-gray-200 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800"
-              >
-                {t("live_c2c.previous")}
-              </button>
-              <span className="text-sm text-gray-600 dark:text-gray-300">
-                {t("live_c2c.page_count", {
-                  page: pagination.page,
-                  pages: pagination.total_pages,
-                })}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPage((current) => current + 1)}
-                disabled={!pagination.has_next || listLoading}
-                className="min-h-11 rounded-xl border border-gray-200 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800"
-              >
-                {t("live_c2c.next")}
-              </button>
-            </div>
-          </div>
         )}
       </section>
-      <ConfirmationModal
-        isOpen={disabledRetailerConfirmCount !== null && disabledRetailerConfirmCount > 0}
-        onClose={() => setDisabledRetailerConfirmCount(null)}
-        onConfirm={() => {
-          setDisabledRetailerConfirmCount(null);
-          void handleImport();
-        }}
-        title={t("live_c2c.disabled_retailer_title")}
-        message={t("live_c2c.disabled_retailer_summary", {
-          count: disabledRetailerConfirmCount ?? 0,
-        })}
-        confirmText={t("live_c2c.disabled_retailer_replace_confirm")}
-        loading={importing}
-        type="warning"
-      >
-        <div className="mt-4 w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left dark:border-amber-500/30 dark:bg-amber-500/10">
-          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-            {t("live_c2c.disabled_retailer_replace_title")}
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-amber-800 dark:text-amber-200/90">
-            {t("live_c2c.disabled_retailer_replace_message")}
-          </p>
-        </div>
-      </ConfirmationModal>
     </main>
   );
 }

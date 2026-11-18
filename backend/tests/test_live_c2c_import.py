@@ -1,8 +1,9 @@
-from datetime import datetime, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from io import BytesIO
 
 import httpx
+import pytest
 from conftest import make_house
 from fastapi import FastAPI
 from openpyxl import Workbook
@@ -13,6 +14,7 @@ from app.models.activity_log import ActivityLog
 from app.models.employee import Employee
 from app.models.house import House
 from app.models.live_c2c import LiveC2CRow
+from app.models.rso_target import RSOTarget
 from app.models.role import Permission, Role
 from app.models.retailer import Retailer
 from app.models.route import RetailerRoute, Route
@@ -111,6 +113,23 @@ def test_xlsx_parser_stores_only_modified_on_time():
     )
 
     assert [row["modified_on"] for row in rows] == ["14:25:30", "09:08:07"]
+
+
+def test_xlsx_parser_rejects_invalid_modified_on_with_row_number():
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[["01700000001", "01800000001", "not a time", "10"]],
+    )
+
+    with pytest.raises(live_c2c_service.LiveC2CImportError) as error:
+        live_c2c_service.parse_live_c2c_workbook(
+            workbook,
+            "C2C Data",
+            "live-c2c.xlsx",
+        )
+
+    assert error.value.code == "live_c2c_invalid_timestamp"
+    assert error.value.context == {"row": 3}
 
 
 def test_xlsx_parser_handles_empty_cells_between_columns():
@@ -327,6 +346,54 @@ async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house
     activity = (await db.execute(select(ActivityLog).where(ActivityLog.module == "live_c2c"))).scalar_one()
     assert activity.action == "import"
     assert activity.new_values["imported_rows"] == 1
+
+
+async def test_live_c2c_rows_recalculate_on_route_for_today(db, house, monkeypatch):
+    user = await _user_with_permissions(db, house, ("reports.view",))
+    employee, retailer = await _source_entities(db, house)
+    route = Route(
+        house_id=house.id,
+        code=f"{house.code}_ROUTE0001",
+        visit_days=["wednesday"],
+        is_active=True,
+        is_deleted=False,
+    )
+    db.add(route)
+    await db.flush()
+    db.add_all(
+        [
+            RetailerRoute(
+                retailer_id=retailer.id,
+                route_id=route.id,
+                status="active",
+                is_primary=True,
+            ),
+            LiveC2CRow(
+                house_id=house.id,
+                from_msisdn=employee.id,
+                to_msisdn=retailer.id,
+                modified_on="10:30:00",
+                transfer_mrp=10,
+                on_route="N",
+                source_filename="live-c2c.xlsx",
+                source_sheet="C2C",
+                created_by=user.id,
+            ),
+        ]
+    )
+    await db.commit()
+    monkeypatch.setattr(reports, "now_naive", lambda: datetime(2026, 11, 18, 12))
+
+    async with _client(db, user) as client:
+        response = await client.get(
+            "/api/reports/live-c2c",
+            headers={"X-House-ID": str(house.id)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["on_route"] == "Y"
+    saved_row = (await db.execute(select(LiveC2CRow))).scalar_one()
+    assert saved_row.on_route == "N"
 
 
 async def test_invalid_selected_sheet_does_not_replace_existing_rows(db, house):
@@ -768,6 +835,127 @@ async def test_preview_returns_issues_with_http_200(db, house):
     ]
     assert data["summary"]["issue_count"] == 1
     assert data["disabled_retailer_count"] == 0
+
+
+async def test_preview_generates_upload_based_productivity_report_without_saving_rows(
+    db, house
+):
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    employee, route_retailer = await _source_entities(db, house, suffix="1")
+    employee.employee_name = "Amina RSO"
+    other_employee, other_retailer = await _source_entities(db, house, suffix="2")
+    other_employee.employee_name = "Babul RSO"
+    today = now_naive().date()
+    db.add(
+        RSOTarget(
+            house_id=house.id,
+            employee_id=employee.id,
+            target_date=date(today.year, today.month, 1),
+            productivity_c2c_tgt=100,
+            productivity_trans_tgt=4,
+        )
+    )
+    route = Route(
+        house_id=house.id,
+        code=f"REPORT-{house.id}",
+        visit_days=[today.strftime("%A").lower()],
+        is_active=True,
+    )
+    db.add(route)
+    await db.flush()
+    db.add(
+        RetailerRoute(
+            retailer_id=route_retailer.id,
+            route_id=route.id,
+            status="active",
+            is_primary=True,
+        )
+    )
+    db.add(
+        LiveC2CRow(
+            house_id=house.id,
+            from_msisdn=other_employee.id,
+            to_msisdn=other_retailer.id,
+            modified_on="08:00:00",
+            transfer_mrp=999,
+            on_route="N",
+            source_filename="saved.xlsx",
+            source_sheet="Saved",
+            created_by=user.id,
+        )
+    )
+    await db.commit()
+
+    route_time = datetime.combine(today, time(9, 15))
+    other_route_time = datetime.combine(today, time(10, 45))
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[
+            [employee.itop_number, route_retailer.itop_number, route_time, "100"],
+            [employee.itop_number, other_retailer.itop_number, other_route_time, "50"],
+            [employee.itop_number, route_retailer.itop_number, route_time, "100"],
+        ],
+    )
+
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["can_import"] is True
+    assert data["summary"]["duplicate_rows"] == 1
+    assert await db.scalar(select(func.count(LiveC2CRow.id))) == 1
+    assert data["report"] == [
+        {
+            "employee_id": employee.id,
+            "house_code": house.code,
+            "dms_code": employee.dms_code,
+            "rso_name": "Amina RSO",
+            "rso_itop_number": employee.itop_number,
+            "productivity_c2c_tgt": 100.0,
+            "c2c_today_route": 100.0,
+            "c2c_other_route": 50.0,
+            "total_c2c": 150.0,
+            "c2c_achievement_pct": 150.0,
+            "c2c_remaining": -50.0,
+            "productivity_trans_tgt": 4.0,
+            "today_route_trans": 1,
+            "other_route_trans": 1,
+            "trans_achievement_pct": 50.0,
+            "trans_remaining": 2.0,
+            "start_time": "09:15:00",
+            "end_time": "10:45:00",
+            "serving_hours": 1.5,
+        },
+        {
+            "employee_id": other_employee.id,
+            "house_code": house.code,
+            "dms_code": other_employee.dms_code,
+            "rso_name": "Babul RSO",
+            "rso_itop_number": other_employee.itop_number,
+            "productivity_c2c_tgt": 0.0,
+            "c2c_today_route": 0.0,
+            "c2c_other_route": 0.0,
+            "total_c2c": 0.0,
+            "c2c_achievement_pct": 0.0,
+            "c2c_remaining": 0.0,
+            "productivity_trans_tgt": 0.0,
+            "today_route_trans": 0,
+            "other_route_trans": 0,
+            "trans_achievement_pct": 0.0,
+            "trans_remaining": 0.0,
+            "start_time": None,
+            "end_time": None,
+            "serving_hours": None,
+        },
+    ]
 
 
 async def test_preview_flags_workbook_when_no_numbers_match_selected_house(db, house):
