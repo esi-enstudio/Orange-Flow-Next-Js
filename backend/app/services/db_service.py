@@ -409,6 +409,26 @@ async def _migrate_bp_target_remove_soft_delete():
     except Exception as e:
         logger.warning(f"Migration warning (bp_targets remove soft delete): {e}")
 
+
+async def _migrate_live_c2c_drop_soft_delete():
+    """Live C2C is a replace-all snapshot table, so row-level soft delete has no
+    meaning (see docs/agents/database.md -> Soft Delete Exemptions)."""
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='live_c2c' AND column_name='is_deleted'"
+            ))
+            if not result.scalar():
+                return
+            logger.info("Migrating live_c2c: removing soft delete columns...")
+            await conn.execute(text("DROP INDEX IF EXISTS ix_live_c2c_is_deleted"))
+            await conn.execute(text("ALTER TABLE live_c2c DROP COLUMN IF EXISTS deleted_by"))
+            await conn.execute(text("ALTER TABLE live_c2c DROP COLUMN IF EXISTS deleted_at"))
+            await conn.execute(text("ALTER TABLE live_c2c DROP COLUMN IF EXISTS is_deleted"))
+            logger.info("Migration complete: live_c2c soft delete removed")
+    except Exception as e:
+        logger.warning(f"Migration warning (live_c2c remove soft delete): {e}")
+
 async def _migrate_employee_sr_no():
     try:
         async with engine.begin() as conn:
@@ -2901,6 +2921,7 @@ async def init_db():
         await _migrate_app_settings_maintenance()
         await _migrate_live_activation_date_type()
         await _migrate_bp_target_remove_soft_delete()
+        await _migrate_live_c2c_drop_soft_delete()
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_deposit_slip()
         await _migrate_lifting_pull_fields()

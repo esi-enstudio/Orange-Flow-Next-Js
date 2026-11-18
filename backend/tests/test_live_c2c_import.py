@@ -240,10 +240,10 @@ async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house
     assert report_rows[0]["on_route"] == "N"
 
     saved_rows = (await db.execute(select(LiveC2CRow).order_by(LiveC2CRow.id))).scalars().all()
-    assert old_row.is_deleted is True
-    assert other_house_row.is_deleted is False
-    assert len([row for row in saved_rows if row.house_id == house.id and not row.is_deleted]) == 1
-    assert len([row for row in saved_rows if row.house_id == other_house.id and not row.is_deleted]) == 1
+    assert [(row.house_id, row.source_filename) for row in saved_rows] == [
+        (other_house.id, "other.xlsx"),
+        (house.id, "live-c2c.xlsx"),
+    ]
     activity = (await db.execute(select(ActivityLog).where(ActivityLog.module == "live_c2c"))).scalar_one()
     assert activity.action == "import"
     assert activity.new_values["imported_rows"] == 1
@@ -284,7 +284,7 @@ async def test_invalid_selected_sheet_does_not_replace_existing_rows(db, house):
     assert response.status_code == 400
     assert response.json()["detail"]["error_code"] == "live_c2c_missing_columns"
     await db.refresh(existing)
-    assert existing.is_deleted is False
+    assert existing.id is not None
 
 
 async def test_empty_selected_sheet_does_not_replace_existing_rows(db, house):
@@ -321,7 +321,7 @@ async def test_empty_selected_sheet_does_not_replace_existing_rows(db, house):
     assert response.status_code == 400
     assert response.json()["detail"]["error_code"] == "live_c2c_empty_sheet"
     await db.refresh(existing)
-    assert existing.is_deleted is False
+    assert existing.id is not None
 
 
 async def test_preview_counts_disabled_retailers_and_imports_entity_ids(db, house):
@@ -731,3 +731,73 @@ async def test_import_blocks_on_mismatch_and_keeps_existing_rows(db, house):
     assert detail["diagnostics"]["issues"][0]["value"] == "01799999999"
     remaining = (await db.execute(select(LiveC2CRow))).scalars().all()
     assert [row.id for row in remaining] == [existing.id]
+
+
+def test_live_c2c_model_has_no_soft_delete_columns():
+    assert {"is_deleted", "deleted_at", "deleted_by"}.isdisjoint(
+        LiveC2CRow.__table__.columns.keys()
+    )
+
+
+async def test_import_hard_deletes_only_the_selected_house_rows(db, house):
+    other = await make_house(db, code="H777", name="Other", email="o2@example.com")
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    employee, retailer = await _source_entities(db, house)
+    other_employee, other_retailer = await _source_entities(db, other, suffix="7")
+    db.add_all(
+        [
+            LiveC2CRow(
+                house_id=house.id,
+                from_msisdn=employee.id,
+                to_msisdn=retailer.id,
+                modified_on=None,
+                transfer_mrp=10,
+                on_route="N",
+                source_filename="old.xlsx",
+                source_sheet="Old",
+                created_by=user.id,
+            ),
+            LiveC2CRow(
+                house_id=other.id,
+                from_msisdn=other_employee.id,
+                to_msisdn=other_retailer.id,
+                modified_on=None,
+                transfer_mrp=12,
+                on_route="N",
+                source_filename="other.xlsx",
+                source_sheet="Old",
+                created_by=user.id,
+            ),
+        ]
+    )
+    await db.commit()
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[[employee.itop_number, retailer.itop_number, "2026-11-17 10:30", "25.50"]],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/import",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={
+                "file": (
+                    "live-c2c.xlsx",
+                    workbook,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        listing = await client.get(
+            "/api/reports/live-c2c", headers={"X-House-ID": str(house.id)}
+        )
+
+    assert response.status_code == 200
+    saved = (await db.execute(select(LiveC2CRow).order_by(LiveC2CRow.id))).scalars().all()
+    assert [(row.house_id, row.source_filename) for row in saved] == [
+        (other.id, "other.xlsx"),
+        (house.id, "live-c2c.xlsx"),
+    ]
+    assert listing.json()["pagination"]["total"] == 1

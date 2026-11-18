@@ -9,7 +9,7 @@ from typing import Any, Iterable, Sequence
 from fastapi import Request
 from openpyxl import load_workbook
 from pyxlsb import convert_date, open_workbook
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
@@ -591,26 +591,9 @@ async def replace_live_c2c_rows(
                 diagnostics=live_c2c_check_payload(prepared),
             )
         previous_count = await db.scalar(
-            select(func.count(LiveC2CRow.id)).where(
-                LiveC2CRow.house_id == house_id,
-                LiveC2CRow.is_deleted.is_(False),
-            )
+            select(func.count(LiveC2CRow.id)).where(LiveC2CRow.house_id == house_id)
         ) or 0
-        timestamp = now_naive()
-        await db.execute(
-            update(LiveC2CRow)
-            .where(
-                LiveC2CRow.house_id == house_id,
-                LiveC2CRow.is_deleted.is_(False),
-            )
-            .values(
-                is_deleted=True,
-                deleted_at=timestamp,
-                deleted_by=user.id,
-                updated_by=user.id,
-                updated_at=timestamp,
-            )
-        )
+        await db.execute(delete(LiveC2CRow).where(LiveC2CRow.house_id == house_id))
 
         source_filename = _safe_filename(filename)
         insert_values = [

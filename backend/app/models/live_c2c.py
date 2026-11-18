@@ -1,5 +1,4 @@
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -28,10 +27,6 @@ class LiveC2CRow(Base):
     transfer_mrp = Column(Numeric(18, 2), nullable=False)
     source_filename = Column(String(255), nullable=False)
     source_sheet = Column(String(255), nullable=False)
-
-    is_deleted = Column(Boolean, nullable=False, default=False, index=True)
-    deleted_at = Column(DateTime, nullable=True)
-    deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())

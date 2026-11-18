@@ -520,10 +520,7 @@ async def get_live_c2c_rows(
     house_id: int = Depends(require_house_context),
 ):
     _assert_house_access(current_user, house_id)
-    filters = (
-        LiveC2CRow.house_id == house_id,
-        LiveC2CRow.is_deleted.is_(False),
-    )
+    filters = (LiveC2CRow.house_id == house_id,)
     total = await db.scalar(select(func.count(LiveC2CRow.id)).where(*filters)) or 0
     from_employee = aliased(Employee)
     to_retailer = aliased(Retailer)
