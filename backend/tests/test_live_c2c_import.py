@@ -647,3 +647,87 @@ async def test_preview_check_lists_candidates_for_ambiguous_to_number(db, house)
         "itop_number",
         "enabled",
     }
+
+
+async def test_preview_returns_issues_with_http_200(db, house):
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    _, retailer = await _source_entities(db, house)
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[["01799999999", retailer.itop_number, "2026-11-17 10:30", "25.50"]],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={
+                "file": (
+                    "live-c2c.xlsx",
+                    workbook,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["can_import"] is False
+    assert data["issues"] == [
+        {
+            "side": "from",
+            "value": "01799999999",
+            "status": "not_found",
+            "row_count": 1,
+            "excel_rows": [3],
+            "candidates": [],
+        }
+    ]
+    assert data["summary"]["issue_count"] == 1
+    assert data["disabled_retailer_count"] == 0
+
+
+async def test_import_blocks_on_mismatch_and_keeps_existing_rows(db, house):
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    employee, retailer = await _source_entities(db, house)
+    existing = LiveC2CRow(
+        house_id=house.id,
+        from_msisdn=employee.id,
+        to_msisdn=retailer.id,
+        modified_on=None,
+        transfer_mrp=10,
+        on_route="N",
+        source_filename="existing.xlsx",
+        source_sheet="C2C",
+        created_by=user.id,
+    )
+    db.add(existing)
+    await db.commit()
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[["01799999999", retailer.itop_number, "2026-11-17 10:30", "25.50"]],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/import",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={
+                "file": (
+                    "live-c2c.xlsx",
+                    workbook,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error_code"] == "live_c2c_entity_mismatch"
+    assert detail["diagnostics"]["issues"][0]["value"] == "01799999999"
+    remaining = (await db.execute(select(LiveC2CRow))).scalars().all()
+    assert [row.id for row in remaining] == [existing.id]

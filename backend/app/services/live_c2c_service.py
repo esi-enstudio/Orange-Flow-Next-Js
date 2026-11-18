@@ -354,6 +354,27 @@ def _build_issue(
     )
 
 
+def live_c2c_check_payload(check: LiveC2CImportCheck) -> dict[str, Any]:
+    """Serialize a check result for API responses (preview body / error detail)."""
+    return {
+        "can_import": check.can_import,
+        "summary": dict(check.summary),
+        "issues": [
+            {
+                "side": issue.side,
+                "value": issue.value,
+                "status": issue.status,
+                "row_count": issue.row_count,
+                "excel_rows": list(issue.excel_rows),
+                "candidates": list(issue.candidates),
+            }
+            for issue in check.issues
+        ],
+        "duplicate_excel_rows": list(check.duplicate_excel_rows),
+        "truncated": check.truncated,
+    }
+
+
 async def prepare_live_c2c_import(
     db: AsyncSession,
     *,
@@ -552,7 +573,7 @@ async def replace_live_c2c_rows(
     sheet_name: str,
     rows: list[dict[str, Any]],
     request: Request,
-) -> tuple[int, int]:
+) -> LiveC2CImportCheck:
     try:
         house = await db.scalar(
             select(House.id).where(House.id == house_id).with_for_update()
@@ -564,6 +585,11 @@ async def replace_live_c2c_rows(
             house_id=house_id,
             rows=rows,
         )
+        if not prepared.can_import:
+            raise LiveC2CImportError(
+                "live_c2c_entity_mismatch",
+                diagnostics=live_c2c_check_payload(prepared),
+            )
         previous_count = await db.scalar(
             select(func.count(LiveC2CRow.id)).where(
                 LiveC2CRow.house_id == house_id,
@@ -618,7 +644,7 @@ async def replace_live_c2c_rows(
             commit=False,
         )
         await db.commit()
-        return len(prepared.rows), prepared.disabled_retailer_count
+        return prepared
     except Exception:
         await db.rollback()
         raise

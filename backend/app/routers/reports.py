@@ -43,6 +43,7 @@ from app.services.live_c2c_service import (
     LiveC2CImportError,
     SUPPORTED_LIVE_C2C_EXTENSIONS,
     list_live_c2c_worksheet_names,
+    live_c2c_check_payload,
     parse_live_c2c_workbook,
     prepare_live_c2c_import,
     replace_live_c2c_rows,
@@ -666,7 +667,10 @@ async def preview_live_c2c_import(
         ) from error
     return {
         "success": True,
-        "data": {"disabled_retailer_count": preview.disabled_retailer_count},
+        "data": {
+            **live_c2c_check_payload(preview),
+            "disabled_retailer_count": preview.disabled_retailer_count,
+        },
     }
 
 
@@ -689,7 +693,7 @@ async def import_live_c2c_rows(
             sheet_name,
             filename,
         )
-        imported_count, disabled_retailer_count = await replace_live_c2c_rows(
+        imported = await replace_live_c2c_rows(
             db,
             house_id=house_id,
             user=current_user,
@@ -713,8 +717,8 @@ async def import_live_c2c_rows(
     return {
         "success": True,
         "data": {
-            "imported_rows": imported_count,
-            "disabled_retailer_count": disabled_retailer_count,
+            "imported_rows": len(imported.rows),
+            "disabled_retailer_count": imported.disabled_retailer_count,
         },
     }
 
