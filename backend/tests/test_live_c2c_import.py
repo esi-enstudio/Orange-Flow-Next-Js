@@ -1,3 +1,4 @@
+from decimal import Decimal
 from io import BytesIO
 
 import httpx
@@ -5,7 +6,7 @@ from conftest import make_house
 from fastapi import FastAPI
 from openpyxl import Workbook
 from pyxlsb.worksheet import Cell
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.activity_log import ActivityLog
 from app.models.employee import Employee
@@ -18,6 +19,7 @@ from app.models.user import User
 from app.routers import reports
 from app.routers.deps import get_current_user, get_db
 from app.services import live_c2c_service
+from app.utils.timezone import now_naive
 
 
 def test_xlsb_sheet_listing_and_parser(monkeypatch):
@@ -801,3 +803,44 @@ async def test_import_hard_deletes_only_the_selected_house_rows(db, house):
         (house.id, "live-c2c.xlsx"),
     ]
     assert listing.json()["pagination"]["total"] == 1
+
+
+def test_copy_columns_cover_every_required_model_column():
+    required = {
+        column.name
+        for column in LiveC2CRow.__table__.columns
+        if not column.nullable
+        and not column.primary_key
+        and column.default is None
+        and column.server_default is None
+    }
+    assert required <= set(live_c2c_service.COPY_COLUMNS)
+    assert set(live_c2c_service.COPY_COLUMNS) <= set(
+        LiveC2CRow.__table__.columns.keys()
+    )
+
+
+async def test_bulk_insert_writes_every_row(db, house):
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    employee, retailer = await _source_entities(db, house)
+    rows = [
+        {
+            "house_id": house.id,
+            "from_msisdn": employee.id,
+            "to_msisdn": retailer.id,
+            "modified_on": None,
+            "transfer_mrp": Decimal("1.00"),
+            "on_route": "N",
+            "source_filename": "bulk.xlsx",
+            "source_sheet": "C2C",
+            "created_by": user.id,
+            "created_at": now_naive(),
+        }
+        for _ in range(5000)
+    ]
+
+    await live_c2c_service._bulk_insert_live_c2c_rows(db, rows)
+
+    assert await db.scalar(select(func.count(LiveC2CRow.id))) == 5000

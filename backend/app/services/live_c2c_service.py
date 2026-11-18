@@ -24,9 +24,21 @@ from app.utils.timezone import now_naive
 MAX_LIVE_C2C_FILE_SIZE = 10 * 1024 * 1024
 MAX_HEADER_SCAN_ROWS = 50
 DB_LOOKUP_BATCH_SIZE = 1000
-DB_INSERT_BATCH_SIZE = 1000
+DB_INSERT_BATCH_SIZE = 5000
 MAX_DIAGNOSTIC_VALUES = 200
 MAX_DIAGNOSTIC_ROWS = 20
+COPY_COLUMNS = (
+    "house_id",
+    "from_msisdn",
+    "to_msisdn",
+    "modified_on",
+    "on_route",
+    "transfer_mrp",
+    "source_filename",
+    "source_sheet",
+    "created_by",
+    "created_at",
+)
 REQUIRED_LIVE_C2C_COLUMNS = (
     "From Msisdn",
     "To Msisdn",
@@ -354,6 +366,45 @@ def _build_issue(
     )
 
 
+async def _raw_pg_connection(db: AsyncSession):
+    """The raw asyncpg connection when the session runs on PostgreSQL.
+
+    Same helper shape as ``app/services/inventory_service.py``: a Live C2C
+    import writes thousands of rows, and one ``COPY`` beats thousands of
+    ``INSERT`` statements inside the same transaction.
+    """
+    connection = await db.connection()
+    if connection.dialect.name != "postgresql":
+        return None
+    return (await connection.get_raw_connection()).driver_connection
+
+
+async def _bulk_insert_live_c2c_rows(
+    db: AsyncSession,
+    rows: Sequence[dict[str, Any]],
+) -> None:
+    if not rows:
+        return
+    pg = await _raw_pg_connection(db)
+    if pg is not None:
+        await pg.copy_records_to_table(
+            "live_c2c",
+            records=[tuple(row[column] for column in COPY_COLUMNS) for row in rows],
+            columns=list(COPY_COLUMNS),
+        )
+        return
+    for batch in _chunks_by_size(rows, DB_INSERT_BATCH_SIZE):
+        await db.execute(insert(LiveC2CRow), list(batch))
+
+
+def _chunks_by_size(
+    values: Sequence[Any],
+    size: int,
+) -> Iterable[Sequence[Any]]:
+    for start in range(0, len(values), size):
+        yield values[start : start + size]
+
+
 def live_c2c_check_payload(check: LiveC2CImportCheck) -> dict[str, Any]:
     """Serialize a check result for API responses (preview body / error detail)."""
     return {
@@ -601,13 +652,13 @@ async def replace_live_c2c_rows(
                 **row,
                 "house_id": house_id,
                 "created_by": user.id,
+                "created_at": now_naive(),
                 "source_filename": source_filename,
                 "source_sheet": sheet_name,
             }
             for row in prepared.rows
         ]
-        for batch in _chunks(insert_values):
-            await db.execute(insert(LiveC2CRow), batch)
+        await _bulk_insert_live_c2c_rows(db, insert_values)
 
         await log_activity(
             db=db,
