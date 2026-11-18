@@ -771,7 +771,103 @@ git commit -m "feat(live-c2c): export mismatched numbers as xlsx"
 
 ---
 
-### Task 10: Full verification
+### Task 10: `init_db()` failures stop being silent
+
+**Files:**
+- Modify: `backend/app/services/db_service.py` (`STARTUP_MIGRATION_WARNINGS`, `_migration_warning`, `_startup_fatal`, `init_db` outer handler, every `logger.warning(f"Migration warning (...)")` call site)
+- Create: `backend/tests/test_startup_failures.py`
+
+**Interfaces:**
+- Produces:
+  ```python
+  STARTUP_MIGRATION_WARNINGS: list[str]          # "<step name>: <error>" per failed _migrate_*
+  def _migration_warning(name: str, error: Exception) -> None   # logger.exception + record
+  def _startup_fatal(message: str, error: Exception) -> None    # logger.critical + STARTUP_FATAL_ERRORS
+  ```
+  `main.py` already refuses to start when `STARTUP_FATAL_ERRORS` is non-empty — no change there.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+import logging
+
+from app.services import db_service
+
+
+def test_migration_warning_is_recorded_and_logged_with_traceback(caplog):
+    db_service.STARTUP_MIGRATION_WARNINGS.clear()
+    with caplog.at_level(logging.ERROR, logger="app.services.db_service"):
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError as error:
+            db_service._migration_warning("retailer_filters.tag_id", error)
+
+    assert db_service.STARTUP_MIGRATION_WARNINGS == ["retailer_filters.tag_id: boom"]
+    assert caplog.records[0].levelno == logging.ERROR
+    assert caplog.records[0].exc_info is not None
+
+
+async def test_init_db_marks_a_schema_failure_as_fatal(monkeypatch):
+    db_service.STARTUP_FATAL_ERRORS.clear()
+
+    class FailingEngine:
+        def begin(self):
+            raise RuntimeError("permission denied for schema public")
+
+    monkeypatch.setattr(db_service, "engine", FailingEngine())
+    await db_service.init_db()
+
+    assert any(
+        "permission denied for schema public" in message
+        for message in db_service.STARTUP_FATAL_ERRORS
+    )
+
+
+def test_no_migration_step_still_logs_a_bare_warning():
+    from pathlib import Path
+
+    source = Path(db_service.__file__).read_text(encoding="utf-8")
+    assert 'logger.warning(f"Migration warning' not in source
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+Run: `cd backend && python -m pytest -q tests/test_startup_failures.py`
+Expected: FAIL — `_migration_warning` / `STARTUP_MIGRATION_WARNINGS` missing, and `init_db` swallows the schema error.
+
+- [ ] **Step 3: Implement**
+
+- Add `STARTUP_MIGRATION_WARNINGS`, `_migration_warning` and `_startup_fatal` next to
+  `STARTUP_FATAL_ERRORS`.
+- Replace every `logger.warning(f"Migration warning ({name}): {e}")` with
+  `_migration_warning("{name}", e)` (about 67 call sites; keep the same step names —
+  `grep -c 'Migration warning' app/services/db_service.py` before and after to prove
+  none were missed).
+- `init_db`: the `except` block no longer ends in
+  `logger.warning("Table sync error (non-critical)")`. The `already exists` recovery
+  path stays, but if its retry raises anything other than the known
+  `ix_sales_house_date` conflict, call `_startup_fatal(...)` instead of `raise`/pass.
+  Every other exception calls `_startup_fatal(f"database initialisation failed:
+  {e}", e)` — no re-raise, so `main()` can inspect `STARTUP_FATAL_ERRORS` and exit.
+- After the `try/except`, log one summary line when
+  `STARTUP_MIGRATION_WARNINGS` is non-empty:
+  `"Startup finished with %d migration warning(s): %s"`.
+
+- [ ] **Step 4: Run the new file plus the whole suite**
+
+Run: `cd backend && python -m pytest -q tests/test_startup_failures.py` then `cd backend && python -m pytest -q`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/db_service.py backend/tests/test_startup_failures.py
+git commit -m "fix(startup): never swallow init_db failures silently"
+```
+
+---
+
+### Task 11: Full verification
 
 - [ ] **Step 1: Backend**
 

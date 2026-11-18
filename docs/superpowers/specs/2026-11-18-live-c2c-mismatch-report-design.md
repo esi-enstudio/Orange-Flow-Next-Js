@@ -200,15 +200,28 @@ parsing errors that still use that shape.
   **both** `en` and `bn`; `live_c2c.errors.live_c2c_entity_mismatch` stays as the
   generic fallback.
 
+### Backend — startup failures are never silent
+
+`init_db()` currently ends with `logger.warning("Table sync error (non-critical): …")`
+and keeps serving, which is how a missing table can stay missing forever.
+
+- Table/schema failures (`create_all`, the `already exists` recovery retry, any
+  unexpected exception) call `_startup_fatal()`: `logger.critical(..., exc_info=True)`
+  plus an entry in `STARTUP_FATAL_ERRORS`. `main()` already exits the process when
+  that list is non-empty, so a half-migrated database never takes traffic.
+- Every `_migrate_*` failure switches from `logger.warning(f"Migration warning …")`
+  to `_migration_warning(name, error)`: `logger.exception` (full traceback) plus an
+  entry in `STARTUP_MIGRATION_WARNINGS`; they stay non-fatal because legacy
+  column/index conflicts are routine on old databases.
+- After the chain, one summary line lists every recorded warning step, so a deploy
+  log shows what was skipped instead of one buried warning.
+
 ## Non-goals
 
 - No partial import, no row editing in the UI, no persistence of the report.
 - No change to the matching rules or the replace-all semantics.
 - No new backend route, module, nav item, or nav permission.
 - No alembic revision; the schema change is a boot-time `_migrate_*` step.
-- The `init_db()` loud-failure hardening (chosen approach: schema failures fatal,
-  legacy migration warnings traced) is a separate plan and is not part of this
-  one.
 
 ## Verification
 
@@ -232,6 +245,9 @@ Backend (`cd backend && python -m pytest -q`), tests in
 - `live_c2c` model/metadata has no soft-delete columns
 - `sync_permissions_from_config` adds a missing permission from the config and
   reports it, and is idempotent on a second run
+- a failing `init_db()` schema step lands in `STARTUP_FATAL_ERRORS` instead of a
+  quiet warning, and a `_migrate_*` failure is logged with a traceback and listed
+  in the startup summary
 
 Frontend (`npm run lint`, `npx tsc --noEmit`) plus a visual check at 375, 768 and
 1280 px with a workbook containing a matched, an unmatched and an ambiguous
