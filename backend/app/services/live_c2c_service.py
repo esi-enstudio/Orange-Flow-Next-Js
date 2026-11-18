@@ -25,6 +25,8 @@ MAX_LIVE_C2C_FILE_SIZE = 10 * 1024 * 1024
 MAX_HEADER_SCAN_ROWS = 50
 DB_LOOKUP_BATCH_SIZE = 1000
 DB_INSERT_BATCH_SIZE = 1000
+MAX_DIAGNOSTIC_VALUES = 200
+MAX_DIAGNOSTIC_ROWS = 20
 REQUIRED_LIVE_C2C_COLUMNS = (
     "From Msisdn",
     "To Msisdn",
@@ -42,9 +44,24 @@ class LiveC2CImportError(ValueError):
 
 
 @dataclass(frozen=True)
-class PreparedLiveC2CImport:
+class LiveC2CEntityIssue:
+    side: str
+    value: str
+    status: str
+    row_count: int
+    excel_rows: list[int]
+    candidates: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class LiveC2CImportCheck:
     rows: list[dict[str, Any]]
+    issues: list[LiveC2CEntityIssue]
+    summary: dict[str, int]
+    duplicate_excel_rows: list[int]
     disabled_retailer_count: int
+    truncated: bool
+    can_import: bool
 
 
 def _normalize_header(value: Any) -> str:
@@ -267,32 +284,48 @@ def _number_candidates(number: str) -> tuple[str, ...]:
     return (number,)
 
 
-def _matching_employee_ids(
-    matches: dict[str, set[int]],
+def _matching_employee_records(
+    matches: dict[str, list[dict[str, Any]]],
     number: str,
-) -> set[int]:
+) -> list[dict[str, Any]]:
     exact_matches = matches.get(number)
     if exact_matches:
         return exact_matches
-    return {
-        employee_id
-        for candidate in _number_candidates(number)[1:]
-        for employee_id in matches.get(candidate, set())
-    }
+    records: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for candidate in _number_candidates(number)[1:]:
+        for record in matches.get(candidate, []):
+            if record["id"] in seen:
+                continue
+            seen.add(record["id"])
+            records.append(record)
+    return records
 
 
 def _matching_retailer_records(
-    matches: dict[str, list[tuple[int, str | None]]],
+    matches: dict[str, list[dict[str, Any]]],
     number: str,
-) -> list[tuple[int, str | None]]:
+) -> list[dict[str, Any]]:
     exact_matches = matches.get(number)
     if exact_matches:
         return exact_matches
-    return [
-        retailer
-        for candidate in _number_candidates(number)[1:]
-        for retailer in matches.get(candidate, [])
-    ]
+    records: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for candidate in _number_candidates(number)[1:]:
+        for record in matches.get(candidate, []):
+            if record["id"] in seen:
+                continue
+            seen.add(record["id"])
+            records.append(record)
+    return records
+
+
+def _value_row_numbers(rows: list[dict[str, Any]], key: str) -> dict[str, list[int]]:
+    """Group workbook row numbers per distinct value, in workbook order."""
+    grouped: dict[str, list[int]] = {}
+    for row in rows:
+        grouped.setdefault(row[key], []).append(row["_row_number"])
+    return grouped
 
 
 def _chunks(values: Sequence[Any]) -> Iterable[Sequence[Any]]:
@@ -304,127 +337,209 @@ def _is_disabled(value: str | None) -> bool:
     return (value or "").strip().lower() in {"n", "no"}
 
 
+def _build_issue(
+    *,
+    side: str,
+    value: str,
+    row_numbers: list[int],
+    candidates: list[dict[str, Any]],
+) -> LiveC2CEntityIssue:
+    return LiveC2CEntityIssue(
+        side=side,
+        value=value,
+        status="not_found" if not candidates else "ambiguous",
+        row_count=len(row_numbers),
+        excel_rows=row_numbers[:MAX_DIAGNOSTIC_ROWS],
+        candidates=candidates,
+    )
+
+
 async def prepare_live_c2c_import(
     db: AsyncSession,
     *,
     house_id: int,
     rows: list[dict[str, Any]],
-) -> PreparedLiveC2CImport:
+) -> LiveC2CImportCheck:
+    from_values = _value_row_numbers(rows, "from_number")
+    to_values = _value_row_numbers(rows, "to_number")
     from_numbers = sorted(
         {
             candidate
-            for row in rows
-            for candidate in _number_candidates(row["from_number"])
+            for number in from_values
+            for candidate in _number_candidates(number)
         }
     )
     to_numbers = sorted(
         {
             candidate
-            for row in rows
-            for candidate in _number_candidates(row["to_number"])
+            for number in to_values
+            for candidate in _number_candidates(number)
         }
     )
 
-    employee_matches: dict[str, set[int]] = {}
+    employee_matches: dict[str, list[dict[str, Any]]] = {}
     for number_batch in _chunks(from_numbers):
         result = await db.execute(
-            select(Employee.itop_number, Employee.id).where(
+            select(
+                Employee.itop_number,
+                Employee.id,
+                Employee.employee_name,
+                Employee.employee_name_bn,
+                Employee.dms_code,
+            ).where(
                 Employee.house_id == house_id,
                 Employee.employee_type == "rso",
                 Employee.status == "Active",
                 Employee.itop_number.in_(number_batch),
             )
         )
-        for number, employee_id in result.all():
-            employee_matches.setdefault(number, set()).add(employee_id)
+        for number, employee_id, name, name_bn, dms_code in result.all():
+            employee_matches.setdefault(number, []).append(
+                {
+                    "id": employee_id,
+                    "name": name,
+                    "name_bn": name_bn,
+                    "dms_code": dms_code,
+                    "itop_number": number,
+                }
+            )
 
-    retailer_matches: dict[str, list[tuple[int, str | None]]] = {}
+    retailer_matches: dict[str, list[dict[str, Any]]] = {}
     for number_batch in _chunks(to_numbers):
         result = await db.execute(
-            select(Retailer.itop_number, Retailer.id, Retailer.enabled).where(
+            select(
+                Retailer.itop_number,
+                Retailer.id,
+                Retailer.name,
+                Retailer.retailer_code,
+                Retailer.enabled,
+            ).where(
                 Retailer.house_id == house_id,
                 Retailer.itop_number.in_(number_batch),
             )
         )
-        for number, retailer_id, enabled in result.all():
-            retailer_matches.setdefault(number, []).append((retailer_id, enabled))
-
-    resolved_ids: list[tuple[int, int, str | None]] = []
-    for row in rows:
-        employee_ids = _matching_employee_ids(employee_matches, row["from_number"])
-        if not employee_ids:
-            raise LiveC2CImportError(
-                "live_c2c_employee_not_found",
-                row=row["_row_number"],
-            )
-        if len(employee_ids) > 1:
-            raise LiveC2CImportError(
-                "live_c2c_employee_ambiguous",
-                row=row["_row_number"],
+        for number, retailer_id, name, retailer_code, enabled in result.all():
+            retailer_matches.setdefault(number, []).append(
+                {
+                    "id": retailer_id,
+                    "name": name,
+                    "retailer_code": retailer_code,
+                    "itop_number": number,
+                    "enabled": enabled,
+                }
             )
 
-        retailers = {
-            retailer_id: enabled
-            for retailer_id, enabled in _matching_retailer_records(
-                retailer_matches,
-                row["to_number"],
-            )
-        }
-        if not retailers:
-            raise LiveC2CImportError(
-                "live_c2c_retailer_not_found",
-                row=row["_row_number"],
-            )
-        if len(retailers) > 1:
-            raise LiveC2CImportError(
-                "live_c2c_retailer_ambiguous",
-                row=row["_row_number"],
-            )
+    from_resolved: dict[str, int] = {}
+    to_resolved: dict[str, int] = {}
+    disabled_retailer_ids: set[int] = set()
+    from_issues: list[LiveC2CEntityIssue] = []
+    to_issues: list[LiveC2CEntityIssue] = []
 
-        retailer_id, enabled = next(iter(retailers.items()))
-        resolved_ids.append((next(iter(employee_ids)), retailer_id, enabled))
-
-    retailer_ids = sorted({retailer_id for _, retailer_id, _ in resolved_ids})
-    route_today_ids: set[int] = set()
-    today = now_naive().strftime("%A").lower()
-    for retailer_id_batch in _chunks(retailer_ids):
-        result = await db.execute(
-            select(RetailerRoute.retailer_id, Route.visit_days)
-            .join(Route, Route.id == RetailerRoute.route_id)
-            .join(Retailer, Retailer.id == RetailerRoute.retailer_id)
-            .where(
-                RetailerRoute.retailer_id.in_(retailer_id_batch),
-                RetailerRoute.status == "active",
-                Retailer.house_id == house_id,
-                Route.house_id == house_id,
-                Route.is_active.is_(True),
-                Route.is_deleted.is_(False),
+    for number, row_numbers in from_values.items():
+        candidates = _matching_employee_records(employee_matches, number)
+        if len(candidates) == 1:
+            from_resolved[number] = candidates[0]["id"]
+            continue
+        from_issues.append(
+            _build_issue(
+                side="from",
+                value=number,
+                row_numbers=row_numbers,
+                candidates=candidates,
             )
         )
-        for retailer_id, visit_days in result.all():
-            if today in {str(day).lower() for day in (visit_days or [])}:
-                route_today_ids.add(retailer_id)
 
-    prepared_rows = [
-        {
-            "from_msisdn": employee_id,
-            "to_msisdn": retailer_id,
-            "modified_on": row["modified_on"],
-            "transfer_mrp": row["transfer_mrp"],
-            "on_route": "Y" if retailer_id in route_today_ids else "N",
-        }
-        for row, (employee_id, retailer_id, _) in zip(rows, resolved_ids, strict=True)
-    ]
-    disabled_retailer_count = len(
-        {
-            retailer_id
-            for _, retailer_id, enabled in resolved_ids
-            if _is_disabled(enabled)
-        }
+    for number, row_numbers in to_values.items():
+        candidates = _matching_retailer_records(retailer_matches, number)
+        if len(candidates) == 1:
+            to_resolved[number] = candidates[0]["id"]
+            if _is_disabled(candidates[0]["enabled"]):
+                disabled_retailer_ids.add(candidates[0]["id"])
+            continue
+        to_issues.append(
+            _build_issue(
+                side="to",
+                value=number,
+                row_numbers=row_numbers,
+                candidates=candidates,
+            )
+        )
+
+    # Workbook order: the first row using a value decides where it is listed.
+    from_issues.sort(key=lambda issue: issue.excel_rows[0])
+    to_issues.sort(key=lambda issue: issue.excel_rows[0])
+
+    issue_count = len(from_issues) + len(to_issues)
+    truncated = (
+        len(from_issues) > MAX_DIAGNOSTIC_VALUES
+        or len(to_issues) > MAX_DIAGNOSTIC_VALUES
     )
-    return PreparedLiveC2CImport(
+    issues = (
+        from_issues[:MAX_DIAGNOSTIC_VALUES] + to_issues[:MAX_DIAGNOSTIC_VALUES]
+    )
+    affected_rows = sum(
+        1
+        for row in rows
+        if row["from_number"] not in from_resolved
+        or row["to_number"] not in to_resolved
+    )
+
+    can_import = issue_count == 0
+    prepared_rows: list[dict[str, Any]] = []
+    if can_import:
+        retailer_ids = sorted(set(to_resolved.values()))
+        route_today_ids: set[int] = set()
+        today = now_naive().strftime("%A").lower()
+        for retailer_id_batch in _chunks(retailer_ids):
+            result = await db.execute(
+                select(RetailerRoute.retailer_id, Route.visit_days)
+                .join(Route, Route.id == RetailerRoute.route_id)
+                .join(Retailer, Retailer.id == RetailerRoute.retailer_id)
+                .where(
+                    RetailerRoute.retailer_id.in_(retailer_id_batch),
+                    RetailerRoute.status == "active",
+                    Retailer.house_id == house_id,
+                    Route.house_id == house_id,
+                    Route.is_active.is_(True),
+                    Route.is_deleted.is_(False),
+                )
+            )
+            for retailer_id, visit_days in result.all():
+                if today in {str(day).lower() for day in (visit_days or [])}:
+                    route_today_ids.add(retailer_id)
+
+        prepared_rows = [
+            {
+                "from_msisdn": from_resolved[row["from_number"]],
+                "to_msisdn": to_resolved[row["to_number"]],
+                "modified_on": row["modified_on"],
+                "transfer_mrp": row["transfer_mrp"],
+                "on_route": "Y" if to_resolved[row["to_number"]] in route_today_ids else "N",
+            }
+            for row in rows
+        ]
+
+    disabled_retailer_count = len(disabled_retailer_ids)
+
+    return LiveC2CImportCheck(
         rows=prepared_rows,
+        issues=issues,
+        summary={
+            "total_rows": len(rows),
+            "importable_rows": sum(
+                1
+                for row in rows
+                if row["from_number"] in from_resolved
+                and row["to_number"] in to_resolved
+            ),
+            "issue_count": issue_count,
+            "affected_rows": affected_rows,
+            "duplicate_rows": 0,
+        },
+        duplicate_excel_rows=[],
         disabled_retailer_count=disabled_retailer_count,
+        truncated=truncated,
+        can_import=can_import,
     )
 
 

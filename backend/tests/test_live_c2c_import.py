@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import httpx
+from conftest import make_house
 from fastapi import FastAPI
 from openpyxl import Workbook
 from pyxlsb.worksheet import Cell
@@ -450,3 +451,199 @@ async def test_import_requires_live_c2c_import_permission(db, house):
         )
 
     assert response.status_code == 403
+
+
+async def test_preview_check_lists_only_unmatched_from_numbers(db, house):
+    await _user_with_permissions(db, house, ("reports.view", "live_c2c.import"))
+    employee, retailer = await _source_entities(db, house)
+    rows = [
+        {
+            "_row_number": 3,
+            "from_number": employee.itop_number,
+            "to_number": retailer.itop_number,
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        },
+        {
+            "_row_number": 4,
+            "from_number": "01799999999",
+            "to_number": retailer.itop_number,
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        },
+        {
+            "_row_number": 5,
+            "from_number": "01799999999",
+            "to_number": retailer.itop_number,
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        },
+    ]
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db, house_id=house.id, rows=rows
+    )
+
+    assert check.can_import is False
+    assert [(issue.side, issue.value, issue.status) for issue in check.issues] == [
+        ("from", "01799999999", "not_found")
+    ]
+    assert check.issues[0].row_count == 2
+    assert check.issues[0].excel_rows == [4, 5]
+    assert check.issues[0].candidates == []
+    assert check.summary == {
+        "total_rows": 3,
+        "importable_rows": 1,
+        "issue_count": 1,
+        "affected_rows": 2,
+        "duplicate_rows": 0,
+    }
+    assert check.rows == []
+
+
+async def test_preview_check_is_clean_when_every_row_matches(db, house):
+    employee, retailer = await _source_entities(db, house)
+    rows = [
+        {
+            "_row_number": 3,
+            "from_number": employee.itop_number,
+            "to_number": retailer.itop_number,
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        }
+    ]
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db, house_id=house.id, rows=rows
+    )
+
+    assert check.can_import is True
+    assert check.issues == []
+    assert check.truncated is False
+    assert check.duplicate_excel_rows == []
+    assert check.rows[0]["from_msisdn"] == employee.id
+    assert check.rows[0]["to_msisdn"] == retailer.id
+
+
+async def test_preview_check_lists_candidates_for_ambiguous_from_number(db, house):
+    first, retailer = await _source_entities(db, house)
+    second = Employee(
+        house_id=house.id,
+        employee_type="rso",
+        status="Active",
+        itop_number=first.itop_number,
+        dms_code="RSO-DUP-1",
+    )
+    db.add(second)
+    await db.flush()
+    rows = [
+        {
+            "_row_number": 3,
+            "from_number": first.itop_number,
+            "to_number": retailer.itop_number,
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        }
+    ]
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db, house_id=house.id, rows=rows
+    )
+
+    issue = check.issues[0]
+    assert (issue.side, issue.status) == ("from", "ambiguous")
+    assert {candidate["dms_code"] for candidate in issue.candidates} == {
+        first.dms_code,
+        "RSO-DUP-1",
+    }
+    assert set(issue.candidates[0]) == {
+        "id",
+        "name",
+        "name_bn",
+        "dms_code",
+        "itop_number",
+    }
+
+
+async def test_preview_check_ignores_other_house_entities(db, house):
+    other = await make_house(db, code="H999", name="Other", email="o@example.com")
+    other_employee, _ = await _source_entities(db, other, suffix="9")
+    _, retailer = await _source_entities(db, house)
+    rows = [
+        {
+            "_row_number": 3,
+            "from_number": other_employee.itop_number,
+            "to_number": retailer.itop_number,
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        }
+    ]
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db, house_id=house.id, rows=rows
+    )
+
+    assert check.can_import is False
+    assert check.issues[0].side == "from"
+    assert check.issues[0].status == "not_found"
+    assert check.issues[0].candidates == []
+
+
+async def test_preview_check_lists_unmatched_to_numbers(db, house):
+    employee, _ = await _source_entities(db, house)
+    rows = [
+        {
+            "_row_number": 3,
+            "from_number": employee.itop_number,
+            "to_number": "01899999999",
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        }
+    ]
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db, house_id=house.id, rows=rows
+    )
+
+    assert check.can_import is False
+    issue = check.issues[0]
+    assert (issue.side, issue.value, issue.status) == ("to", "01899999999", "not_found")
+    assert issue.candidates == []
+
+
+async def test_preview_check_lists_candidates_for_ambiguous_to_number(db, house):
+    employee, retailer = await _source_entities(db, house)
+    db.add(
+        Retailer(
+            house_id=house.id,
+            retailer_code=f"RET-DUP-{house.id}",
+            name="Duplicate Retailer",
+            enabled="Yes",
+            itop_number=retailer.itop_number,
+        )
+    )
+    await db.flush()
+    rows = [
+        {
+            "_row_number": 3,
+            "from_number": employee.itop_number,
+            "to_number": retailer.itop_number,
+            "modified_on": "x",
+            "transfer_mrp": 10,
+        }
+    ]
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db, house_id=house.id, rows=rows
+    )
+
+    issue = check.issues[0]
+    assert (issue.side, issue.status) == ("to", "ambiguous")
+    assert len(issue.candidates) == 2
+    assert set(issue.candidates[0]) == {
+        "id",
+        "name",
+        "retailer_code",
+        "itop_number",
+        "enabled",
+    }
