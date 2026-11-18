@@ -1,5 +1,7 @@
+import importlib.util
 import json
 import logging
+from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import func, or_, select, text
 from config.settings import DATABASE_URL
@@ -446,6 +448,73 @@ async def _migrate_live_c2c_drop_soft_delete():
             logger.info("Migration complete: live_c2c soft delete removed")
     except Exception as e:
         _migration_warning("live_c2c remove soft delete", e)
+
+
+def _apply_live_c2c_entity_ids_migration(connection):
+    from alembic.operations import Operations
+    from alembic.runtime.migration import MigrationContext
+
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "c2c1d2e3f4a5_store_live_c2c_entity_ids.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "live_c2c_entity_ids_migration",
+        migration_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load migration at {migration_path}")
+
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    context = MigrationContext.configure(connection)
+    with Operations.context(context):
+        migration.upgrade()
+
+
+async def _migrate_live_c2c_entity_ids():
+    """Apply the existing Alembic conversion when startup finds the legacy schema."""
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text(
+                """
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'live_c2c'
+                """
+            ))
+            columns = {row.column_name: row.data_type for row in result}
+            if not columns:
+                return
+
+            if (
+                columns.get("from_msisdn") == "integer"
+                and columns.get("to_msisdn") == "integer"
+                and "on_route" in columns
+            ):
+                return
+
+            is_legacy_schema = (
+                columns.get("from_msisdn") == "character varying"
+                and columns.get("to_msisdn") == "character varying"
+                and "on_route" not in columns
+                and "from_employee_id" not in columns
+                and "to_retailer_id" not in columns
+            )
+            if not is_legacy_schema:
+                raise RuntimeError(
+                    "live_c2c has a partially migrated or unsupported schema"
+                )
+
+            logger.info("Migrating live_c2c MSISDN values to entity IDs...")
+            await conn.run_sync(_apply_live_c2c_entity_ids_migration)
+            logger.info("Migration complete: live_c2c entity IDs and route status")
+    except Exception as error:
+        _startup_fatal("live_c2c entity ID migration failed", error)
+
 
 async def _migrate_employee_sr_no():
     try:
@@ -2939,6 +3008,7 @@ async def init_db():
         await _migrate_app_settings_maintenance()
         await _migrate_live_activation_date_type()
         await _migrate_bp_target_remove_soft_delete()
+        await _migrate_live_c2c_entity_ids()
         await _migrate_live_c2c_drop_soft_delete()
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_deposit_slip()

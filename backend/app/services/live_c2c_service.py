@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import PurePath
@@ -8,6 +8,7 @@ from typing import Any, Iterable, Sequence
 
 from fastapi import Request
 from openpyxl import load_workbook
+from openpyxl.utils.datetime import from_excel
 from pyxlsb import convert_date, open_workbook
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,6 +88,8 @@ class LiveC2CImportCheck:
     summary: dict[str, int]
     duplicate_excel_rows: list[int]
     disabled_retailer_count: int
+    house_mismatch: bool
+    matching_house: dict[str, str] | None
     truncated: bool
     can_import: bool
 
@@ -112,17 +115,10 @@ def _cell_column_index(cell: Any) -> int:
     return column - 1 if column is not None else cell.c
 
 
-def _cell_text(cell: Any, *, xlsb_date: bool = False) -> str:
+def _cell_text(cell: Any) -> str:
     value = _cell_value(cell)
     if value is None:
         return ""
-    if (
-        xlsb_date
-        and not isinstance(value, bool)
-        and isinstance(value, (int, float))
-        and 0 <= value <= 2958465
-    ):
-        value = convert_date(value)
     if isinstance(value, datetime):
         return value.isoformat(sep=" ")
     if isinstance(value, date):
@@ -134,6 +130,44 @@ def _cell_text(cell: Any, *, xlsb_date: bool = False) -> str:
     if isinstance(value, int) and re.fullmatch(r"0+", number_format):
         text = text.zfill(len(number_format))
     return text
+
+
+def _modified_on_text(cell: Any, *, xlsb: bool) -> str:
+    value = _cell_value(cell)
+    if value is None:
+        return ""
+    if (
+        xlsb
+        and not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and 0 <= value <= 2958465
+    ):
+        value = convert_date(value)
+    elif (
+        not xlsb
+        and not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and getattr(cell, "is_date", False)
+    ):
+        value = from_excel(value)
+
+    if isinstance(value, datetime):
+        return value.time().isoformat()
+    if isinstance(value, time):
+        return value.isoformat()
+    if isinstance(value, date):
+        return ""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).time().isoformat()
+    except ValueError:
+        try:
+            return time.fromisoformat(text).isoformat()
+        except ValueError:
+            return text
 
 
 def _parse_transfer_mrp(cell: Any, row_number: int) -> Decimal:
@@ -239,15 +273,13 @@ def _parse_worksheet_rows(
             }
             # Also capture optional house columns from the same header row.
             for cell in cells:
-                cell_text = _cell_text(cell)
-                normalized = _normalize_header(cell_text)
-                col_index = _cell_column_index(cell)
+                normalized = _normalize_header(_cell_text(cell))
                 if normalized in house_code_headers:
-                    house_code_indexes.append(col_index)
+                    house_code_indexes.append(_cell_column_index(cell))
                 elif normalized in house_name_headers:
-                    house_name_indexes.append(col_index)
+                    house_name_indexes.append(_cell_column_index(cell))
                 elif normalized in house_generic_headers:
-                    house_generic_indexes.append(col_index)
+                    house_generic_indexes.append(_cell_column_index(cell))
             break
         duplicate_headers = duplicate_headers or bool(duplicates)
 
@@ -276,9 +308,10 @@ def _parse_worksheet_rows(
         for header in REQUIRED_LIVE_C2C_COLUMNS:
             column_index = column_indexes[header]
             cell = cells[column_index] if column_index < len(cells) else None
-            values[header] = _cell_text(
-                cell,
-                xlsb_date=xlsb and header == "Modified ON",
+            values[header] = (
+                _modified_on_text(cell, xlsb=xlsb)
+                if header == "Modified ON"
+                else _cell_text(cell)
             )
         if not any(values.values()):
             continue
@@ -444,6 +477,73 @@ def _chunks(values: Sequence[Any]) -> Iterable[Sequence[Any]]:
         yield values[start : start + DB_LOOKUP_BATCH_SIZE]
 
 
+async def _find_accessible_matching_house(
+    db: AsyncSession,
+    *,
+    house_ids: Sequence[int],
+    selected_house_id: int,
+    from_values: dict[str, list[int]],
+    to_values: dict[str, list[int]],
+    from_numbers: Sequence[str],
+    to_numbers: Sequence[str],
+) -> dict[str, str] | None:
+    other_house_ids = set(house_ids) - {selected_house_id}
+    if not other_house_ids:
+        return None
+
+    employees_by_house: dict[int, set[str]] = {}
+    for number_batch in _chunks(from_numbers):
+        result = await db.execute(
+            select(Employee.house_id, Employee.itop_number).where(
+                Employee.house_id.in_(other_house_ids),
+                Employee.employee_type == "rso",
+                Employee.status == "Active",
+                Employee.itop_number.in_(number_batch),
+            )
+        )
+        for house_id, number in result.all():
+            employees_by_house.setdefault(house_id, set()).add(number)
+
+    retailers_by_house: dict[int, set[str]] = {}
+    for number_batch in _chunks(to_numbers):
+        result = await db.execute(
+            select(Retailer.house_id, Retailer.itop_number).where(
+                Retailer.house_id.in_(other_house_ids),
+                Retailer.itop_number.in_(number_batch),
+            )
+        )
+        for house_id, number in result.all():
+            retailers_by_house.setdefault(house_id, set()).add(number)
+
+    def all_numbers_match(
+        values: dict[str, list[int]],
+        matches_by_house: dict[int, set[str]],
+        house_id: int,
+    ) -> bool:
+        matched_numbers = matches_by_house.get(house_id, set())
+        return all(
+            any(candidate in matched_numbers for candidate in _number_candidates(number))
+            for number in values
+        )
+
+    matching_house_ids = [
+        house_id
+        for house_id in other_house_ids
+        if all_numbers_match(from_values, employees_by_house, house_id)
+        and all_numbers_match(to_values, retailers_by_house, house_id)
+    ]
+    if len(matching_house_ids) != 1:
+        return None
+
+    result = await db.execute(
+        select(House.name, House.code).where(House.id == matching_house_ids[0])
+    )
+    house = result.one_or_none()
+    if house is None:
+        return None
+    return {"name": house.name, "code": house.code}
+
+
 def _is_disabled(value: str | None) -> bool:
     return (value or "").strip().lower() in {"n", "no"}
 
@@ -521,6 +621,8 @@ def live_c2c_check_payload(check: LiveC2CImportCheck) -> dict[str, Any]:
             for issue in check.issues
         ],
         "duplicate_excel_rows": list(check.duplicate_excel_rows),
+        "house_mismatch": check.house_mismatch,
+        "matching_house": check.matching_house,
         "truncated": check.truncated,
     }
 
@@ -530,6 +632,7 @@ async def prepare_live_c2c_import(
     *,
     house_id: int,
     rows: list[dict[str, Any]],
+    accessible_house_ids: Sequence[int] = (),
 ) -> LiveC2CImportCheck:
     from_values = _value_row_numbers(rows, "from_number")
     to_values = _value_row_numbers(rows, "to_number")
@@ -654,6 +757,29 @@ async def prepare_live_c2c_import(
         if row["from_number"] not in from_resolved
         or row["to_number"] not in to_resolved
     )
+    house_mismatch = (
+        bool(from_values)
+        and bool(to_values)
+        and not from_resolved
+        and not to_resolved
+        and bool(from_issues)
+        and bool(to_issues)
+        and all(
+            issue.status == "not_found"
+            for issue in (*from_issues, *to_issues)
+        )
+    )
+    matching_house = None
+    if house_mismatch:
+        matching_house = await _find_accessible_matching_house(
+            db,
+            house_ids=accessible_house_ids,
+            selected_house_id=house_id,
+            from_values=from_values,
+            to_values=to_values,
+            from_numbers=from_numbers,
+            to_numbers=to_numbers,
+        )
 
     can_import = issue_count == 0
     prepared_rows: list[dict[str, Any]] = []
@@ -725,6 +851,8 @@ async def prepare_live_c2c_import(
         },
         duplicate_excel_rows=duplicate_row_numbers[:MAX_DIAGNOSTIC_ROWS],
         disabled_retailer_count=disabled_retailer_count,
+        house_mismatch=house_mismatch,
+        matching_house=matching_house,
         truncated=truncated,
         can_import=can_import,
     )

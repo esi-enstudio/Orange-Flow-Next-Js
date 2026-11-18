@@ -1,3 +1,4 @@
+from datetime import datetime, time
 from decimal import Decimal
 from io import BytesIO
 
@@ -45,6 +46,12 @@ def test_xlsb_sheet_listing_and_parser(monkeypatch):
                         Cell(1, 2, 45200),
                         Cell(1, 3, 25.5),
                     ],
+                    [
+                        Cell(2, 0, "01700000002"),
+                        Cell(2, 1, "01800000002"),
+                        Cell(2, 2, 0.5),
+                        Cell(2, 3, 15),
+                    ],
                 ]
             )
 
@@ -78,10 +85,57 @@ def test_xlsb_sheet_listing_and_parser(monkeypatch):
     )
     assert rows[0]["from_number"] == "01700000001"
     assert rows[0]["to_number"] == "01800000001"
-    assert rows[0]["modified_on"] == live_c2c_service.convert_date(45200).isoformat(
-        sep=" "
-    )
+    assert rows[0]["modified_on"] == "00:00:00"
+    assert rows[1]["modified_on"] == "12:00:00"
     assert rows[0]["transfer_mrp"] == 25.5
+
+
+def test_xlsx_parser_stores_only_modified_on_time():
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[
+            [
+                "01700000001",
+                "01800000001",
+                datetime(2026, 11, 18, 14, 25, 30),
+                "10",
+            ],
+            ["01700000002", "01800000002", time(9, 8, 7), "12"],
+        ],
+    )
+
+    rows = live_c2c_service.parse_live_c2c_workbook(
+        workbook,
+        "C2C Data",
+        "live-c2c.xlsx",
+    )
+
+    assert [row["modified_on"] for row in rows] == ["14:25:30", "09:08:07"]
+
+
+def test_xlsx_parser_handles_empty_cells_between_columns():
+    workbook = _workbook_bytes(
+        headers=[
+            "From Msisdn",
+            "To Msisdn",
+            "Modified ON",
+            "Transfer Mrp",
+            None,
+            "Other",
+        ],
+        rows=[["01700000001", "01800000001", "2026-11-17", "25.5", None, "value"]],
+    )
+
+    rows = live_c2c_service.parse_live_c2c_workbook(
+        workbook,
+        "C2C Data",
+        "live-c2c.xlsx",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["from_number"] == "01700000001"
+    assert rows[0]["to_number"] == "01800000001"
+    assert rows[0]["transfer_mrp"] == Decimal("25.5")
 
 
 async def _source_entities(db, house, *, suffix="1", enabled="Yes"):
@@ -260,7 +314,7 @@ async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house
     } == {
         "from_msisdn": employee.itop_number,
         "to_msisdn": retailer.itop_number,
-        "modified_on": "2026-11-17 10:30",
+        "modified_on": "10:30:00",
         "transfer_mrp": "25.50",
     }
     assert report_rows[0]["on_route"] == "N"
@@ -701,6 +755,7 @@ async def test_preview_returns_issues_with_http_200(db, house):
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["can_import"] is False
+    assert data["house_mismatch"] is False
     assert data["issues"] == [
         {
             "side": "from",
@@ -713,6 +768,101 @@ async def test_preview_returns_issues_with_http_200(db, house):
     ]
     assert data["summary"]["issue_count"] == 1
     assert data["disabled_retailer_count"] == 0
+
+
+async def test_preview_flags_workbook_when_no_numbers_match_selected_house(db, house):
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[["01999999999", "01888888888", "2026-11-17 10:30", "25.50"]],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["can_import"] is False
+    assert data["house_mismatch"] is True
+    assert data["matching_house"] is None
+    assert {issue["status"] for issue in data["issues"]} == {"not_found"}
+
+
+async def test_preview_identifies_matching_accessible_house(db, house):
+    other_house = House(code="C2C-OTHER", name="Other House", email="other@example.com")
+    db.add(other_house)
+    await db.flush()
+    employee, retailer = await _source_entities(db, other_house, suffix="2")
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    user.houses.append(other_house)
+    await db.commit()
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "25.50",
+            ]
+        ],
+    )
+
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["house_mismatch"] is True
+    assert data["matching_house"] == {
+        "name": other_house.name,
+        "code": other_house.code,
+    }
+
+
+async def test_preview_does_not_identify_inaccessible_matching_house(db, house):
+    other_house = House(code="C2C-OTHER", name="Other House", email="other@example.com")
+    db.add(other_house)
+    await db.flush()
+    employee, retailer = await _source_entities(db, other_house, suffix="2")
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "25.50",
+            ]
+        ],
+    )
+
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["matching_house"] is None
 
 
 async def test_import_blocks_on_mismatch_and_keeps_existing_rows(db, house):

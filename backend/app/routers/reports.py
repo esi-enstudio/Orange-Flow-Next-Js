@@ -643,6 +643,12 @@ async def preview_live_c2c_import(
         )
         if house is None:
             raise LiveC2CImportError("live_c2c_house_not_found")
+        from app.routers.houses import _sees_all_houses
+
+        if _sees_all_houses(current_user):
+            accessible_house_ids = list((await db.scalars(select(House.id))).all())
+        else:
+            accessible_house_ids = [accessible.id for accessible in current_user.houses]
         rows = await run_in_threadpool(
             parse_live_c2c_workbook,
             content,
@@ -655,6 +661,7 @@ async def preview_live_c2c_import(
             db,
             house_id=house_id,
             rows=rows,
+            accessible_house_ids=accessible_house_ids,
         )
     except LiveC2CImportError as error:
         status_code = 404 if error.code == "live_c2c_house_not_found" else 400

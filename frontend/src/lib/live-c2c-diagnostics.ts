@@ -35,6 +35,8 @@ export interface LiveC2CMatchReport {
   summary: LiveC2CMatchSummary;
   issues: LiveC2CEntityIssue[];
   duplicate_excel_rows: number[];
+  house_mismatch: boolean;
+  matching_house: { name: string; code: string } | null;
   truncated: boolean;
   disabled_retailer_count: number;
 }

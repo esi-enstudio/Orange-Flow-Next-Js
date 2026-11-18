@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { ChevronDown, Download } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
@@ -106,6 +107,7 @@ export default function LiveC2CReportPage() {
     duplicates: number;
   } | null>(null);
   const [matchReport, setMatchReport] = useState<LiveC2CMatchReport | null>(null);
+  const [disabledRetailerConfirmCount, setDisabledRetailerConfirmCount] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
   const canExportMismatches = hasPermission("live_c2c.export");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -293,6 +295,7 @@ export default function LiveC2CReportPage() {
 
     setPreviewing(true);
     setUploadError(null);
+    setDisabledRetailerConfirmCount(null);
     const formData = new FormData();
     formData.append("file", selectedFile);
     formData.append("sheet_name", selectedSheetName);
@@ -316,10 +319,10 @@ export default function LiveC2CReportPage() {
       }
       setMatchReport(report);
       if (!report.can_import) return;
-      if (window.confirm(t("live_c2c.disabled_retailer_confirmation", {
-        count: disabledCount,
-      }))) {
-        await handleImport();
+      if (disabledCount > 0) {
+        setDisabledRetailerConfirmCount(disabledCount);
+      } else {
+        void handleImport();
       }
     } catch (error) {
       setUploadError(getImportErrorCode(error));
@@ -490,7 +493,31 @@ export default function LiveC2CReportPage() {
             })}
           </p>
         )}
-        {matchReport && !matchReport.can_import && (
+        {matchReport?.house_mismatch && (
+          <section
+            role="alert"
+            className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10"
+          >
+            <h2 className="text-base font-semibold text-amber-900 dark:text-amber-200">
+              {t("live_c2c.house_mismatch.title")}
+            </h2>
+            <p className="mt-1 text-sm text-amber-800 dark:text-amber-100">
+              {matchReport.matching_house
+                ? t("live_c2c.house_mismatch.matched_house_message", {
+                    matched_house: `${matchReport.matching_house.name} (${matchReport.matching_house.code})`,
+                    selected_house: selectedHouse
+                      ? `${selectedHouse.name} (${selectedHouse.code})`
+                      : "",
+                  })
+                : t("live_c2c.house_mismatch.message", {
+                    house: selectedHouse
+                      ? `${selectedHouse.name} (${selectedHouse.code})`
+                      : "",
+                  })}
+            </p>
+          </section>
+        )}
+        {matchReport && !matchReport.can_import && !matchReport.house_mismatch && (
           <section
             role="region"
             aria-live="polite"
@@ -827,6 +854,30 @@ export default function LiveC2CReportPage() {
           </div>
         )}
       </section>
+      <ConfirmationModal
+        isOpen={disabledRetailerConfirmCount !== null && disabledRetailerConfirmCount > 0}
+        onClose={() => setDisabledRetailerConfirmCount(null)}
+        onConfirm={() => {
+          setDisabledRetailerConfirmCount(null);
+          void handleImport();
+        }}
+        title={t("live_c2c.disabled_retailer_title")}
+        message={t("live_c2c.disabled_retailer_summary", {
+          count: disabledRetailerConfirmCount ?? 0,
+        })}
+        confirmText={t("live_c2c.disabled_retailer_replace_confirm")}
+        loading={importing}
+        type="warning"
+      >
+        <div className="mt-4 w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left dark:border-amber-500/30 dark:bg-amber-500/10">
+          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+            {t("live_c2c.disabled_retailer_replace_title")}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-800 dark:text-amber-200/90">
+            {t("live_c2c.disabled_retailer_replace_message")}
+          </p>
+        </div>
+      </ConfirmationModal>
     </main>
   );
 }
