@@ -2952,6 +2952,16 @@ async def init_db():
         await _migrate_subscriptions_off_deleted_plans()
         await _migrate_bts_own_plan_module()
         await _migrate_commission_own_plan_module()
+        try:
+            # permissions.json is the source of truth: a deploy that adds a
+            # permission key must not need a manual /admin/sync-permissions.
+            from app.services.permission_sync import sync_permissions_from_config
+
+            async with async_session() as session:
+                await sync_permissions_from_config(session)
+                await session.commit()
+        except Exception:
+            logger.exception("Could not sync permissions from config")
         await _sync_retailer_markings_on_startup()
         try:
             # A backup task never survives a process restart. Fail any row
