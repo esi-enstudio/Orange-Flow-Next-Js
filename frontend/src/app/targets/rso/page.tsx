@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLanguage } from "@/i18n/useLanguage";
+import { AnimatePresence, motion } from "framer-motion";
 import { Search, Upload, Download, ChevronLeft, ChevronRight, ChevronUp, Loader2, Crosshair, X, CheckCircle2, FileDown, Plus, Edit2, Trash2, Check, AlertCircle, ChevronDown, Filter, SlidersHorizontal } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
@@ -9,6 +10,7 @@ import Cookies from "js-cookie";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import { formatYMD } from "@/components/date-picker/format";
 
 interface RSOOption {
   id: number;
@@ -43,6 +45,8 @@ interface RSOTargetRecord {
   ev_secondary: number;
   sc_secondary: number;
   total_recharge: number;
+  productivity_c2c_tgt: number;
+  productivity_trans_tgt: number;
   ga: number;
   sso: number;
   lso: number;
@@ -72,7 +76,7 @@ interface RSOTargetRecord {
 type ErrDict = Record<string, string>;
 
 export default function RSOTargetsPage() {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<RSOTargetRecord[]>([]);
   const [search, setSearch] = useState("");
@@ -88,6 +92,8 @@ export default function RSOTargetsPage() {
   const perPage = 5;
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ house_id: 0, market_type: "", target_date: "" });
+  const [draftFilters, setDraftFilters] = useState({ house_id: 0, market_type: "", target_date: "" });
+  const activeFilterCount = [filters.house_id, filters.market_type, filters.target_date].filter(Boolean).length;
   const [filterHouses, setFilterHouses] = useState<House[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -110,6 +116,8 @@ export default function RSOTargetsPage() {
     ev_secondary: "",
     sc_secondary: "",
     total_recharge: "",
+    productivity_c2c_tgt: "0",
+    productivity_trans_tgt: "0",
     ga: "",
     sso: "",
     lso: "",
@@ -200,7 +208,8 @@ export default function RSOTargetsPage() {
     const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     setFormData({
       house_id: 0, employee_id: 0, supervisor_id: 0, target_date: defaultMonth, ev_secondary: "", sc_secondary: "",
-      total_recharge: "", ga: "", sso: "", lso: "", bso: "", ddso: "", dsso: "", dso: "", dlso: "",
+      total_recharge: "", productivity_c2c_tgt: "0", productivity_trans_tgt: "0",
+      ga: "", sso: "", lso: "", bso: "", ddso: "", dsso: "", dso: "", dlso: "",
       service_route: "", market_type: "", thana_name: "", extra_targets: [],
     });
     setFormError("");
@@ -227,6 +236,8 @@ export default function RSOTargetsPage() {
       ev_secondary: String(item.ev_secondary || ""),
       sc_secondary: String(item.sc_secondary || ""),
       total_recharge: String(item.total_recharge || ""),
+      productivity_c2c_tgt: String(item.productivity_c2c_tgt ?? 0),
+      productivity_trans_tgt: String(item.productivity_trans_tgt ?? 0),
       ga: String(item.ga || ""),
       sso: String(item.sso || ""),
       lso: String(item.lso || ""),
@@ -273,6 +284,8 @@ export default function RSOTargetsPage() {
         ev_secondary: parseFloat(formData.ev_secondary) || 0,
         sc_secondary: parseFloat(formData.sc_secondary) || 0,
         total_recharge: parseFloat(formData.total_recharge) || 0,
+        productivity_c2c_tgt: parseFloat(formData.productivity_c2c_tgt) || 0,
+        productivity_trans_tgt: parseFloat(formData.productivity_trans_tgt) || 0,
         ga: parseInt(formData.ga) || 0,
         sso: parseInt(formData.sso) || 0,
         lso: parseInt(formData.lso) || 0,
@@ -429,7 +442,7 @@ export default function RSOTargetsPage() {
   const canEdit = hasPermission("targets.edit");
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-0 space-y-3 sm:p-6 sm:space-y-6">
       <style>{`
         @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-100%); opacity: 0; } }
@@ -439,13 +452,13 @@ export default function RSOTargetsPage() {
 
       {showSummary && summaryData && (
         <div className="fixed top-0 left-0 right-0 z-[9999] pointer-events-none">
-          <div className={`mx-auto max-w-md mt-4 pointer-events-auto ${showSummary ? 'animate-slide-down' : ''}`}>
+          <div className={`mx-auto mt-2 max-w-md px-2 pointer-events-auto sm:mt-4 ${showSummary ? 'animate-slide-down' : ''}`}>
             <div className={`rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border p-5 ${
               summaryType === "success"
                 ? "bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700"
                 : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800"
             }`}>
-              <div className="flex items-start gap-4">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:gap-4">
                 <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
                   summaryType === "success"
                     ? "bg-emerald-100 dark:bg-emerald-500/20"
@@ -468,7 +481,7 @@ export default function RSOTargetsPage() {
                     </div>
                   )}
                 </div>
-                <button onClick={() => setShowSummary(false)} className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                <button onClick={() => setShowSummary(false)} className="flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -477,7 +490,7 @@ export default function RSOTargetsPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-rose-100 dark:bg-rose-500/20 rounded-xl">
             <Crosshair className="w-5 h-5 text-rose-600" />
@@ -487,21 +500,21 @@ export default function RSOTargetsPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400">{t('rso_targets.description')}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
           {canEdit && (
             <button onClick={openAddModal}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none">
+              className="flex min-h-11 w-full items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 dark:shadow-none sm:w-auto">
               <Plus className="w-4 h-4" /> {t('rso_targets.add_new')}
             </button>
           )}
           <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx,.xls" />
-          <div className="relative" ref={menuRef}>
+          <div className="relative w-full sm:w-auto" ref={menuRef}>
             <button onClick={() => setMenuOpen(!menuOpen)}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+              className="flex min-h-11 w-full items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer sm:w-auto">
               <Download className="w-4 h-4" /> Actions <ChevronDown className={`w-3.5 h-3.5 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="absolute right-0 mt-2 w-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-700 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 sm:w-52">
                 <button onClick={() => { fileInputRef.current?.click(); setMenuOpen(false); }} disabled={importing}
                   className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
                   <Upload className="w-4 h-4 text-rose-500" /> Import Excel
@@ -532,8 +545,8 @@ export default function RSOTargetsPage() {
       </div>
 
       {importProgress && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-2">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm p-3 sm:p-5">
+          <div className="mb-2 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-rose-600" />
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Import Progress</span>
@@ -548,64 +561,135 @@ export default function RSOTargetsPage() {
       )}
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-md">
+        <div className="border-b border-gray-100 p-2 dark:border-slate-800 sm:p-4">
+          <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="relative w-full sm:max-w-md sm:flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input type="text" placeholder={t('rso_targets.search_placeholder')} value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1); }}
-                className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
+                className="min-h-11 w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none dark:text-gray-100" />
             </div>
-            <button onClick={() => setFilterOpen(!filterOpen)}
-              className={`p-2 rounded-xl border transition-colors ${
-                filterOpen
-                  ? "bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-500/10 dark:border-rose-800"
-                  : "bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800"
-              }`}
-              title="Filters"
+            <button
+              type="button"
+              onClick={() => { setDraftFilters(filters); setFilterOpen(true); }}
+              aria-label={t("rso_targets.filter_open")}
+              title={t("rso_targets.filter_open")}
+              className="relative inline-flex h-11 w-11 shrink-0 self-start items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-400 dark:hover:bg-slate-800 cursor-pointer sm:self-auto"
             >
               <SlidersHorizontal className="w-4 h-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-600 px-1 text-[10px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
           </div>
         </div>
 
-        {filterOpen && (
-          <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30">
-            <div className="flex items-end gap-4 flex-wrap">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-400 uppercase block">House</label>
-                <select value={filters.house_id} onChange={e => { setFilters(f => ({...f, house_id: parseInt(e.target.value)})); setPage(1); }}
-                  className="py-1.5 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs dark:text-gray-200 outline-none focus:border-rose-500/30 transition-all">
-                  <option value={0} className="dark:bg-slate-800">All Houses</option>
-                  {filterHouses.map(h => (
-                    <option key={h.id} value={h.id} className="dark:bg-slate-800">{h.name} ({h.code})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-400 uppercase block">Market Type</label>
-                <select value={filters.market_type} onChange={e => { setFilters(f => ({...f, market_type: e.target.value})); setPage(1); }}
-                  className="py-1.5 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs dark:text-gray-200 outline-none focus:border-rose-500/30 transition-all">
-                  <option value="" className="dark:bg-slate-800">All</option>
-                  <option value="Main House" className="dark:bg-slate-800">Main House</option>
-                  <option value="OSDO" className="dark:bg-slate-800">OSDO</option>
-                  <option value="Residential RSO" className="dark:bg-slate-800">Residential RSO</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-400 uppercase block">Target Month</label>
-                <input type="month" value={filters.target_date} onChange={e => { setFilters(f => ({...f, target_date: e.target.value})); setPage(1); }}
-                  className="py-1.5 px-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-xs dark:text-gray-200 outline-none focus:border-rose-500/30 transition-all" />
-              </div>
-              {(filters.house_id || filters.market_type || filters.target_date) && (
-                <button onClick={() => { setFilters({ house_id: 0, market_type: "", target_date: "" }); setPage(1); }}
-                  className="py-1.5 px-3 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        <AnimatePresence>
+          {filterOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setFilterOpen(false)}
+                aria-hidden="true"
+                className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm"
+              />
+              <motion.aside
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("rso_targets.filter_title")}
+                className="fixed inset-y-0 right-0 z-[101] flex w-full flex-col bg-white shadow-2xl dark:bg-slate-900 sm:max-w-md"
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-slate-800">
+                  <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                    {t("rso_targets.filter_title")}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setFilterOpen(false)}
+                    aria-label={t("common.close")}
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-gray-300 cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                  <div className="space-y-1.5">
+                    <label htmlFor="rso-filter-house" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {t("rso_targets.filter_house")}
+                    </label>
+                    <select
+                      id="rso-filter-house"
+                      value={draftFilters.house_id}
+                      onChange={(e) => setDraftFilters((current) => ({ ...current, house_id: Number(e.target.value) || 0 }))}
+                      className="h-11 w-full cursor-pointer rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-100"
+                    >
+                      <option value={0}>{t("rso_targets.filter_all_houses")}</option>
+                      {filterHouses.map((house) => (
+                        <option key={house.id} value={house.id}>{house.name} ({house.code})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="rso-filter-market-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {t("rso_targets.filter_market_type")}
+                    </label>
+                    <select
+                      id="rso-filter-market-type"
+                      value={draftFilters.market_type}
+                      onChange={(e) => setDraftFilters((current) => ({ ...current, market_type: e.target.value }))}
+                      className="h-11 w-full cursor-pointer rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-100"
+                    >
+                      <option value="">{t("rso_targets.filter_all_market_types")}</option>
+                      <option value="Main House">{t("rso_targets.filter_market_main_house")}</option>
+                      <option value="OSDO">{t("rso_targets.filter_market_osdo")}</option>
+                      <option value="Residential RSO">{t("rso_targets.filter_market_residential_rso")}</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="rso-filter-target-month" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {t("rso_targets.filter_target_month")}
+                    </label>
+                    <input
+                      id="rso-filter-target-month"
+                      type="month"
+                      value={draftFilters.target_date}
+                      onChange={(e) => setDraftFilters((current) => ({ ...current, target_date: e.target.value }))}
+                      className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 border-t border-gray-100 p-3 dark:border-slate-800 sm:flex-row sm:gap-3 sm:p-5">
+                  <button
+                    type="button"
+                    onClick={() => setDraftFilters({ house_id: 0, market_type: "", target_date: "" })}
+                    className="h-11 w-full cursor-pointer rounded-xl border border-gray-200 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:text-gray-300 dark:hover:bg-slate-800 sm:flex-1"
+                  >
+                    {t("rso_targets.filter_clear")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setFilters(draftFilters); setPage(1); setFilterOpen(false); }}
+                    className="h-11 w-full cursor-pointer rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 sm:flex-1"
+                  >
+                    {t("rso_targets.filter_apply")}
+                  </button>
+                </div>
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
 
         <div className="overflow-x-auto scrollbar-custom">
           <table className="w-full text-sm whitespace-nowrap">
@@ -617,6 +701,8 @@ export default function RSOTargetsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_ev_secondary')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_sc_secondary')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_recharge')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_productivity_c2c_tgt')}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_productivity_trans_tgt')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_ga')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_dsso')}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t('rso_targets.table_dso')}</th>
@@ -630,7 +716,7 @@ export default function RSOTargetsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    {Array.from({ length: canEdit ? 13 : 12 }).map((__, j) => (
+                    {Array.from({ length: canEdit ? 15 : 14 }).map((__, j) => (
                       <td key={j} className="px-4 py-4">
                         <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded-md" />
                       </td>
@@ -638,7 +724,7 @@ export default function RSOTargetsPage() {
                   </tr>
                 ))
               ) : data.length === 0 ? (
-                <tr><td colSpan={canEdit ? 13 : 12} className="text-center py-12 text-gray-400">{t('rso_targets.no_data')}</td></tr>
+                <tr><td colSpan={canEdit ? 15 : 14} className="text-center py-12 text-gray-400">{t('rso_targets.no_data')}</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3">
@@ -662,19 +748,21 @@ export default function RSOTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.ev_secondary}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sc_secondary}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_recharge}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.productivity_c2c_tgt}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.productivity_trans_tgt}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.ga}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dsso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.dlso}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.service_route || "-"}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString() : "-"}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{formatYMD(r.target_date, "en")}</td>
                   {canEdit && (
                     <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        <button onClick={() => openEditModal(r)} className="p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all" title="Edit">
+                      <div className="flex flex-col items-end gap-1 sm:flex-row sm:justify-end">
+                        <button onClick={() => openEditModal(r)} className="flex min-h-11 min-w-11 items-center justify-center p-2 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl text-gray-400 hover:text-primary-600 transition-all cursor-pointer" title="Edit">
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDeleteClick(r.id)} className="p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all" title="Delete">
+                        <button onClick={() => handleDeleteClick(r.id)} className="flex min-h-11 min-w-11 items-center justify-center p-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl text-gray-400 hover:text-red-600 transition-all cursor-pointer" title="Delete">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -686,17 +774,17 @@ export default function RSOTargetsPage() {
           </table>
         </div>
         {totalRecords > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-slate-800">
+          <div className="flex flex-col items-stretch gap-2 border-t border-gray-100 px-2 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:px-4">
             <span className="text-xs text-gray-400">
               {t('rso_targets.showing_results', { start: (page - 1) * perPage + 1, end: Math.min(page * perPage, totalRecords), total: totalRecords })}
             </span>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
+                className="flex min-h-11 w-full items-center justify-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-not-allowed sm:w-auto">
                 <ChevronLeft className="w-3.5 h-3.5" /> Prev
               </button>
               <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors">
+                className="flex min-h-11 w-full items-center justify-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-not-allowed sm:w-auto">
                 Next <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -707,7 +795,7 @@ export default function RSOTargetsPage() {
       {isFormModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white dark:bg-slate-900 w-full max-w-3xl h-full md:h-auto md:max-h-[90vh] md:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-50 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-50 p-2 dark:border-slate-800 sm:p-6">
               <div>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
                   {editingItem ? t('rso_targets.modal_edit_title') : t('rso_targets.modal_create_title')}
@@ -715,12 +803,12 @@ export default function RSOTargetsPage() {
                 <p className="text-xs text-gray-500 dark:text-gray-400">{t('rso_targets.modal_subtitle')}</p>
               </div>
               <button onClick={() => setIsFormModalOpen(false)}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800 transition-colors">
+                className="flex min-h-11 min-w-11 items-center justify-center p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl bg-gray-50 dark:bg-slate-800 transition-colors cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+            <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-2 scrollbar-hide sm:p-6">
               {formError && (
                 <div className="mb-6 flex items-start gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-800 rounded-2xl">
                   <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
@@ -728,7 +816,7 @@ export default function RSOTargetsPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-3 sm:gap-6 md:grid-cols-2">
                 <div className="space-y-4">
                   <h4 className="text-xs font-bold text-primary-600 uppercase tracking-widest">House, RSO & Date</h4>
                   <div className="space-y-3">
@@ -785,7 +873,7 @@ export default function RSOTargetsPage() {
                   </div>
 
                   <h4 className="text-xs font-bold text-rose-600 uppercase tracking-widest pt-2">EV & SC Targets</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <InputField label={t('rso_targets.field_ev_secondary')} type="number" required
                       value={formData.ev_secondary}
                       onChange={v => {
@@ -809,11 +897,23 @@ export default function RSOTargetsPage() {
                     value={formData.total_recharge}
                     onChange={() => {}}
                     placeholder={t('rso_targets.field_total_recharge_placeholder')} />
+
+                  <h4 className="text-xs font-bold text-cyan-600 uppercase tracking-widest pt-2">{t('rso_targets.productivity_targets')}</h4>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <InputField label={t('rso_targets.field_productivity_c2c_tgt')} type="number" step="any"
+                      value={formData.productivity_c2c_tgt}
+                      onChange={v => setFormData({...formData, productivity_c2c_tgt: v})}
+                      placeholder={t('rso_targets.field_productivity_c2c_tgt_placeholder')} />
+                    <InputField label={t('rso_targets.field_productivity_trans_tgt')} type="number" step="any"
+                      value={formData.productivity_trans_tgt}
+                      onChange={v => setFormData({...formData, productivity_trans_tgt: v})}
+                      placeholder={t('rso_targets.field_productivity_trans_tgt_placeholder')} />
+                  </div>
                 </div>
 
                 <div className="space-y-4">
                   <h4 className="text-xs font-bold text-purple-600 uppercase tracking-widest">GA & Channel Targets</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <InputField label={t('rso_targets.field_ga')} type="number" required
                       value={formData.ga}
                       onChange={v => setFormData({...formData, ga: v})}
@@ -822,7 +922,7 @@ export default function RSOTargetsPage() {
                   </div>
 
                   <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest pt-2">SO Targets</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <InputField label={t('rso_targets.field_sso')} type="number"
                       value={formData.sso}
                       onChange={v => setFormData({...formData, sso: v})}
@@ -877,16 +977,16 @@ export default function RSOTargetsPage() {
                   </div>
 
                   <div className="pt-4 border-t border-gray-50 dark:border-slate-800">
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="mb-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <h4 className="text-xs font-bold text-amber-600 uppercase tracking-widest">Additional Targets</h4>
                       <button type="button" onClick={() => setFormData({...formData, extra_targets: [...formData.extra_targets, {key: "", value: ""}]})}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-xl transition-colors">
+                        className="flex min-h-11 w-full items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-xl transition-colors cursor-pointer sm:w-auto">
                         <Plus className="w-3.5 h-3.5" /> Add
                       </button>
                     </div>
                     <div className="space-y-2">
                       {formData.extra_targets.map((et, i) => (
-                        <div key={i} className="flex items-center gap-2">
+                        <div key={i} className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
                           <input type="text" placeholder="Target name"
                             value={et.key}
                             onChange={e => {
@@ -894,7 +994,7 @@ export default function RSOTargetsPage() {
                               arr[i] = {...arr[i], key: e.target.value};
                               setFormData({...formData, extra_targets: arr});
                             }}
-                            className="flex-1 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
+                            className="min-h-11 flex-1 px-3 py-2.5 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
                           <input type="number" placeholder="Value"
                             value={et.value}
                             onChange={e => {
@@ -902,9 +1002,9 @@ export default function RSOTargetsPage() {
                               arr[i] = {...arr[i], value: e.target.value};
                               setFormData({...formData, extra_targets: arr});
                             }}
-                            className="w-28 py-2.5 px-3 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400" />
+                            className="min-h-11 w-full px-3 py-2.5 bg-gray-50 dark:bg-slate-800/50 border border-transparent rounded-xl text-xs dark:text-gray-100 outline-none focus:border-amber-500/30 transition-all placeholder:text-gray-400 sm:w-28" />
                           <button type="button" onClick={() => setFormData({...formData, extra_targets: formData.extra_targets.filter((_, j) => j !== i)})}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
+                            className="flex h-11 w-11 shrink-0 items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -917,13 +1017,13 @@ export default function RSOTargetsPage() {
                 </div>
               </div>
 
-              <div className="mt-10 pt-6 border-t border-gray-50 dark:border-slate-800 flex gap-4">
+              <div className="mt-6 flex flex-col gap-2 border-t border-gray-50 pt-4 dark:border-slate-800 sm:mt-10 sm:flex-row sm:gap-4 sm:pt-6">
                 <button type="button" onClick={() => setIsFormModalOpen(false)}
-                  className="flex-1 py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all">
+                  className="min-h-11 w-full py-3 text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-2xl transition-all cursor-pointer sm:flex-1">
                   {t('rso_targets.btn_cancel')}
                 </button>
                 <button type="submit" disabled={formLoading}
-                  className="flex-[2] py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-200 dark:shadow-none flex items-center justify-center gap-2">
+                  className="flex min-h-11 w-full items-center justify-center gap-2 py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-xl shadow-primary-200 dark:shadow-none cursor-pointer disabled:cursor-not-allowed sm:flex-[2]">
                   {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                   {editingItem ? t('rso_targets.btn_update') : t('rso_targets.btn_create')}
                 </button>
@@ -958,9 +1058,9 @@ export default function RSOTargetsPage() {
   );
 }
 
-function InputField({ label, value, onChange, placeholder, required = false, type = "text", disabled = false, leftIcon: Icon, error }: {
+function InputField({ label, value, onChange, placeholder, required = false, type = "text", step, disabled = false, leftIcon: Icon, error }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string; required?: boolean;
-  type?: string; disabled?: boolean; leftIcon?: React.ComponentType<{ className?: string }>; error?: string;
+  type?: string; step?: string; disabled?: boolean; leftIcon?: React.ComponentType<{ className?: string }>; error?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -975,6 +1075,7 @@ function InputField({ label, value, onChange, placeholder, required = false, typ
         )}
         <input
           type={type}
+          step={step}
           required={required}
           disabled={disabled}
           className={`w-full py-3 bg-gray-50 dark:bg-slate-800/50 border transition-all dark:text-gray-100 outline-none disabled:opacity-50 rounded-2xl text-sm ${Icon ? "pl-11" : "pl-4"} pr-4 ${

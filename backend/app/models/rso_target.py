@@ -14,6 +14,8 @@ class RSOTarget(Base):
     ev_secondary = Column(Float, default=0.0)
     sc_secondary = Column(Float, default=0.0)
     total_recharge = Column(Float, default=0.0)
+    productivity_c2c_tgt = Column(Float, nullable=False, default=0.0)
+    productivity_trans_tgt = Column(Float, nullable=False, default=0.0)
     ga = Column(Integer, default=0)
     sso = Column(Integer, default=0)
     lso = Column(Integer, default=0)

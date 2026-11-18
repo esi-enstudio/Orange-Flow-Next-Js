@@ -59,6 +59,7 @@ HOUSE_NAME_HEADERS = (
     "House Name",
     "Distributor Name",
     "House_Name",
+    "Parent Profile",
 )
 HOUSE_GENERIC_HEADERS = ("House", "Distributor")
 SUPPORTED_LIVE_C2C_EXTENSIONS = {".xlsx", ".xlsb"}
@@ -102,6 +103,19 @@ def _normalize_header(value: Any) -> str:
 
 def _normalize_house_identifier(value: str | None) -> str:
     return " ".join((value or "").split()).casefold()
+
+
+def _matches_house_name(value: str, expected_name: str) -> bool:
+    normalized_value = _normalize_house_identifier(value)
+    normalized_name = _normalize_house_identifier(expected_name)
+    return normalized_value == normalized_name or (
+        bool(normalized_name)
+        and re.fullmatch(
+            rf"{re.escape(normalized_name)} \(\d+\)",
+            normalized_value,
+        )
+        is not None
+    )
 
 
 def _cell_value(cell: Any) -> Any:
@@ -341,7 +355,7 @@ def _parse_worksheet_rows(
                 )
                 or (
                     kind == "name"
-                    and _normalize_house_identifier(value) != expected_name
+                    and not _matches_house_name(value, expected_name)
                 )
                 or (
                     kind == "generic"

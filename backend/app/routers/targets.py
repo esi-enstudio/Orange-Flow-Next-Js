@@ -478,6 +478,8 @@ async def create_rso_target(
         ev_secondary=payload.ev_secondary or 0,
         sc_secondary=payload.sc_secondary or 0,
         total_recharge=total_recharge,
+        productivity_c2c_tgt=payload.productivity_c2c_tgt,
+        productivity_trans_tgt=payload.productivity_trans_tgt,
         ga=payload.ga or 0,
         sso=payload.sso or 0,
         lso=payload.lso or 0,

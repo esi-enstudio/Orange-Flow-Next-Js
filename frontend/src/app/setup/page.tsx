@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import {
   Rocket, ShieldCheck, Database, Loader2, CheckCircle2, AlertCircle,
-  Upload, Building2, Radio, Users, Store, ChevronRight, ChevronLeft,
+  Upload, Building2, Radio, Route, Users, Store, ChevronRight, ChevronLeft,
   Check, FileSpreadsheet, BarChart3, ArrowRight, Sparkles, Server,
   Globe, Eye, EyeOff, RefreshCw, UserPlus,
 } from "lucide-react";
@@ -21,7 +21,8 @@ const STEPS = [
   { key: "bts",          icon: Radio,           title: "BTS Codes",       desc: "Step 2 — Import BTS (depends on houses)" },
   { key: "users",        icon: UserPlus,        title: "Users",           desc: "Step 3 — Import Users (independent)" },
   { key: "employees",    icon: Users,           title: "Employees",       desc: "Step 4 — Import Employees (depends on houses + users)" },
-  { key: "retailers",    icon: Store,           title: "Retailers",       desc: "Step 5 — Import Retailers (depends on houses + employees)" },
+  { key: "routes",       icon: Route,           title: "Routes",          desc: "Step 5 — Import Routes (after houses and employees, before retailers; optional)" },
+  { key: "retailers",    icon: Store,           title: "Retailers",       desc: "Step 6 — Import Retailers (depends on houses + employees)" },
   { key: "complete",     icon: Sparkles,        title: "Complete",       desc: "All Set!" },
 ];
 
@@ -52,6 +53,7 @@ export default function SetupWizard() {
   const [bts, setBts] = useState<ImportState>(INIT_IMPORT);
   const [users, setUsers] = useState<ImportState>(INIT_IMPORT);
   const [employees, setEmployees] = useState<ImportState>(INIT_IMPORT);
+  const [routes, setRoutes] = useState<ImportState>(INIT_IMPORT);
   const [retailers, setRetailers] = useState<ImportState>(INIT_IMPORT);
   const [dragOver, setDragOver] = useState(false);
   const dragCounter = useRef(0);
@@ -60,6 +62,7 @@ export default function SetupWizard() {
   const btsInput = useRef<HTMLInputElement>(null);
   const usersInput = useRef<HTMLInputElement>(null);
   const empInput = useRef<HTMLInputElement>(null);
+  const routeInput = useRef<HTMLInputElement>(null);
   const retInput = useRef<HTMLInputElement>(null);
 
   const nextStep = () => { setDirection(1); setStep(s => Math.min(s + 1, STEPS.length - 1)); };
@@ -156,10 +159,12 @@ export default function SetupWizard() {
     { key: "bts",       state: bts,       setter: setBts,       inputRef: btsInput,   label: "BTS Codes" },
     { key: "users",     state: users,     setter: setUsers,     inputRef: usersInput, label: "Users" },
     { key: "employees", state: employees,  setter: setEmployees,  inputRef: empInput,   label: "Employees" },
+    { key: "routes",    state: routes,    setter: setRoutes,    inputRef: routeInput, label: t("setup.routes_summary") },
     { key: "retailers", state: retailers,  setter: setRetailers,  inputRef: retInput,   label: "Retailers" },
   ];
 
   const imp = STEP_IMPORTS[step - 2];
+  const isImportStep = step >= 2 && step < STEPS.length - 1;
 
   const variants = {
     enter: (d: number) => ({ x: d > 0 ? 300 : -300, opacity: 0 }),
@@ -179,11 +184,11 @@ export default function SetupWizard() {
       <div className="w-full max-w-3xl relative z-10">
         {/* Step indicator */}
         <div className="mb-8">
-          <div className="flex items-center justify-center gap-1">
+          <div className="flex items-center justify-center gap-0 sm:gap-1">
             {STEPS.map((s, i) => (
               <div key={s.key} className="flex items-center">
                 <div className={cn(
-                  "flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold transition-all duration-300 shrink-0",
+                  "flex items-center justify-center w-6 h-6 sm:w-8 sm:h-8 rounded-full text-[10px] sm:text-xs font-bold transition-all duration-300 shrink-0",
                   i < step ? "bg-primary-500 text-white shadow-md shadow-primary-500/30" :
                   i === step ? "bg-primary-500 text-white ring-2 ring-primary-200 dark:ring-primary-500/40 shadow-lg shadow-primary-500/30 scale-110" :
                   "bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500"
@@ -192,7 +197,7 @@ export default function SetupWizard() {
                 </div>
                 {i < STEPS.length - 1 && (
                   <div className={cn(
-                    "w-8 sm:w-12 h-0.5 mx-1 transition-all duration-500",
+                    "w-2.5 sm:w-8 h-0.5 mx-0.5 sm:mx-1 transition-all duration-500",
                     i < step ? "bg-primary-400" : "bg-gray-200 dark:bg-slate-700"
                   )} />
                 )}
@@ -200,7 +205,7 @@ export default function SetupWizard() {
             ))}
           </div>
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-2 font-medium">
-            Step {step + 1} of {STEPS.length} — {STEPS[step].desc}
+            Step {step + 1} of {STEPS.length} — {STEPS[step].key === "routes" ? t("setup.routes_description") : STEPS[step].desc}
           </p>
         </div>
 
@@ -333,8 +338,8 @@ export default function SetupWizard() {
                   </div>
                 )}
 
-                {/* ─── STEPS 2-6: IMPORTS ─── */}
-                {step >= 2 && step <= 6 && imp && (
+                {/* ─── STEPS 2-7: IMPORTS ─── */}
+                {isImportStep && imp && (
                   <div className="space-y-6">
                     <div className="flex items-center gap-4 mb-2">
                       <div className={cn(
@@ -348,7 +353,9 @@ export default function SetupWizard() {
                          <Upload className="w-7 h-7 text-white" />}
                       </div>
                       <div>
-                        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Import {imp.label}</h2>
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                          {STEPS[step].key === "routes" ? t("setup.routes_title") : `Import ${imp.label}`}
+                        </h2>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           {imp.state.status === "idle" && "Upload an Excel file with your data"}
                           {imp.state.status === "uploading" && "Processing your file..."}
@@ -453,8 +460,8 @@ export default function SetupWizard() {
                   </div>
                 )}
 
-                {/* ─── STEP 7: COMPLETE ─── */}
-                {step === 7 && (
+                {/* ─── STEP 8: COMPLETE ─── */}
+                {isLast && (
                   <div className="text-center space-y-6">
                     <div className="inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-xl shadow-green-500/30 mb-2">
                       <Sparkles className="w-12 h-12" />
@@ -476,6 +483,7 @@ export default function SetupWizard() {
                         { icon: Radio, label: "BTS Codes", done: bts.status === "success", count: bts.count },
                         { icon: UserPlus, label: "Users", done: users.status === "success", count: users.count },
                         { icon: Users, label: "Employees", done: employees.status === "success", count: employees.count },
+                        { icon: Route, label: t("setup.routes_summary"), done: routes.status === "success", count: routes.count },
                         { icon: Store, label: "Retailers", done: retailers.status === "success", count: retailers.count },
                       ].map((item, i) => (
                         <div key={i} className={cn(
@@ -557,8 +565,8 @@ export default function SetupWizard() {
                   </button>
                 )}
 
-                {/* Steps 2-6: Skip / Next */}
-                {step >= 2 && step <= 6 && (
+                {/* Steps 2-7: Skip / Next */}
+                {isImportStep && imp && (
                   <>
                     {imp.state.status === "success" ? (
                       <button

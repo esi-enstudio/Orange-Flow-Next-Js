@@ -156,6 +156,9 @@ RSO_COLUMN_MAP = {
     'TOTAL_RECHARGE': ('total_recharge', clean_float),
     'TOTAL_RECHAGE': ('total_recharge', clean_float),
     'TOTAL_RECHAGE_(EV_SECONDARY+SC_SECONDARY)': ('total_recharge', clean_float),
+    'PRODUCTIVITY_C2C_TGT': ('productivity_c2c_tgt', clean_float),
+    'PRODUCTIVITY_TRANS.TGT': ('productivity_trans_tgt', clean_float),
+    'PRODUCTIVITY_TRANS_TGT': ('productivity_trans_tgt', clean_float),
     'GA': ('ga', clean_int),
     'GA_(RSO)': ('ga', clean_int),
     'SSO': ('sso', clean_int),
@@ -443,10 +446,11 @@ def generate_rso_target_sample_bytes():
     ws.title = "RSO Target"
     headers = ["TARGET_DATE", "HOUSE_CODE", "RSO_CODE", "SUPERVISOR_MSISDN", "EV_SECONDARY", "SC_SECONDARY",
                "TOTAL_RECHARGE", "GA", "SSO", "LSO", "BSO", "DDSO", "DSSO", "DSO", "DLSO",
-               "SERVICE_ROUTE", "MARKET_TYPE", "THANA_NAME"]
+               "SERVICE_ROUTE", "MARKET_TYPE", "THANA_NAME", "Productivity C2C Tgt",
+               "Productivity trans.Tgt"]
     ws.append(headers)
-    ws.append(["2026-07-01", "DD001", "RSO001", "01712345678", "100", "80", "180", "15", "2", "1", "1", "1", "2", "1", "1", "Route A", "OSDO", "Thana A"])
-    ws.append(["2026-07-01", "DD002", "RSO002", "01787654321", "120", "90", "210", "18", "3", "2", "1", "1", "3", "2", "1", "Route B", "Residential", "Thana B"])
+    ws.append(["2026-07-01", "DD001", "RSO001", "01712345678", "100", "80", "180", "15", "2", "1", "1", "1", "2", "1", "1", "Route A", "OSDO", "Thana A", 1.5, 2.75])
+    ws.append(["2026-07-01", "DD002", "RSO002", "01787654321", "120", "90", "210", "18", "3", "2", "1", "1", "3", "2", "1", "Route B", "Residential", "Thana B", 2.5, 3.75])
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
@@ -494,13 +498,15 @@ async def export_rso_targets_excel(records):
     ws.title = "RSO Targets"
     headers = ["Employee ID", "Supervisor ID", "House Code", "EV Secondary", "SC Secondary",
                "Total Recharge", "GA", "SSO", "LSO", "BSO", "DDSO", "DSSO", "DSO", "DLSO",
-               "Service Route", "Market Type", "Thana", "Target Date"]
+               "Service Route", "Market Type", "Thana", "Productivity C2C Tgt",
+               "Productivity trans.Tgt", "Target Date"]
     ws.append(headers)
     for r in records:
         ws.append([
             r.employee_id, r.supervisor_id, r.house.code if r.house else "",
             r.ev_secondary, r.sc_secondary, r.total_recharge, r.ga, r.sso, r.lso,
             r.bso, r.ddso, r.dsso, r.dso, r.dlso, r.service_route, r.market_type, r.thana_name,
+            r.productivity_c2c_tgt, r.productivity_trans_tgt,
             str(r.target_date) if r.target_date else ""
         ])
     buf = io.BytesIO()

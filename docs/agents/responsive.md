@@ -8,6 +8,16 @@
 
 প্রতিটি মডিউল, পেজ, কম্পোনেন্ট, ফর্ম, টেবিল, এবং ড্যাশবোর্ড **ডেস্কটপ ও মোবাইল — উভয় ডিভাইসেই** সঠিকভাবে কাজ করতে হবে।
 
+### Compact One-Column Mobile Layout (All Pages)
+
+This rule is binding for **all existing and new pages**:
+
+1. Below Tailwind `sm` (640px), keep the combined outer page gutter to **8px**. Do not stack large page-root padding on top of the shared layout gutter.
+2. Stack page sections, form field groups, and grouped action buttons in **one column**. Grouped action buttons should be full-width; controls must retain a minimum 44x44px touch target.
+3. Forms and their field grids use one column on mobile; they may expand at `sm` or wider.
+4. Data tables are the exception to one-column section layout: keep using the responsive table patterns below (card view, contained horizontal scrolling, or collapsible rows). A table's horizontal scrolling must not create document-level horizontal overflow.
+5. Apply this standard when changing legacy pages; do not add blanket CSS that forces every nested flex/grid control into a column, because that breaks table cells and compact inline controls.
+
 ### Rules
 
 1. **Mobile-First Approach** — প্রথমে মোবাইল স্ক্রিনের জন্য ডিজাইন করুন, তারপর বড় স্ক্রিনের জন্য expand করুন

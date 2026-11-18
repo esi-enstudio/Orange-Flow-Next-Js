@@ -10,6 +10,8 @@ class RSOTargetCreate(BaseModel):
     ev_secondary: float = 0.0
     sc_secondary: float = 0.0
     total_recharge: Optional[float] = None
+    productivity_c2c_tgt: float = 0.0
+    productivity_trans_tgt: float = 0.0
     ga: int = 0
     sso: int = 0
     lso: int = 0
@@ -37,6 +39,8 @@ class RSOTargetUpdate(BaseModel):
     ev_secondary: Optional[float] = None
     sc_secondary: Optional[float] = None
     total_recharge: Optional[float] = None
+    productivity_c2c_tgt: Optional[float] = None
+    productivity_trans_tgt: Optional[float] = None
     ga: Optional[int] = None
     sso: Optional[int] = None
     lso: Optional[int] = None
@@ -66,6 +70,8 @@ class RSOTargetResponse(BaseModel):
     ev_secondary: float
     sc_secondary: float
     total_recharge: float
+    productivity_c2c_tgt: float
+    productivity_trans_tgt: float
     ga: int
     sso: int
     lso: int

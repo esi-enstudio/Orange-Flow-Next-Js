@@ -1281,6 +1281,60 @@ async def test_preview_filters_rows_using_house_name_case_insensitively(db, hous
     assert preview["summary"]["total_rows"] == 1
 
 
+async def test_preview_filters_parent_profile_with_trailing_house_number(db, house):
+    other_house = House(code="C2C-OTHER", name="Other House", email="other@example.com")
+    db.add(other_house)
+    await db.flush()
+    user = await _user_with_permissions(
+        db,
+        house,
+        ("reports.view", "live_c2c.import"),
+    )
+    employee, retailer = await _source_entities(db, house)
+    other_employee, other_retailer = await _source_entities(
+        db,
+        other_house,
+        suffix="2",
+    )
+    workbook = _workbook_bytes(
+        headers=[
+            "From Msisdn",
+            "To Msisdn",
+            "Modified ON",
+            "Transfer Mrp",
+            "Parent Profile",
+        ],
+        rows=[
+            [
+                employee.itop_number,
+                retailer.itop_number,
+                "2026-11-17 10:30",
+                "1000",
+                f"{house.name} (1915270100)",
+            ],
+            [
+                other_employee.itop_number,
+                other_retailer.itop_number,
+                "2026-11-17 10:45",
+                "1500",
+                f"{other_house.name} (1915270200)",
+            ],
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/preview",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    preview = response.json()["data"]
+    assert preview["can_import"] is True
+    assert preview["summary"]["total_rows"] == 1
+
+
 async def test_preview_rejects_data_row_without_house_identifier(db, house):
     user = await _user_with_permissions(
         db,

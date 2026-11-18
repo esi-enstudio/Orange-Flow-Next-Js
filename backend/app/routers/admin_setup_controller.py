@@ -1,12 +1,14 @@
 import json
 import os
 import asyncio
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.services.db_service import async_session
 from app.utils.validation import safe_filename, validate_excel, MAX_FILE_SIZE
@@ -120,3 +122,59 @@ async def setup_import_users(file: UploadFile = File(...), db: AsyncSession = De
 async def setup_import_retailers(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     from app.services.Automation.retailer_excel import process_retailer_excel
     return StreamingResponse(_setup_import_stream(file, process_retailer_excel, "🏪 Retailers"), media_type="text/event-stream")
+
+@router.post("/import/routes")
+async def setup_import_routes(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.role import Role
+    from app.models.user import User
+    from app.services.route_list_excel import import_route_list
+    from app.utils.activity_logger import log_activity
+
+    super_admin = (
+        await db.execute(
+            select(User)
+            .join(User.roles)
+            .where(
+                User.status == "Active",
+                func.lower(Role.name).in_(("super admin", "super_admin")),
+            )
+            .options(selectinload(User.roles))
+            .order_by(User.id)
+        )
+    ).scalars().first()
+    if super_admin is None:
+        raise HTTPException(status_code=400, detail="System is not initialized")
+
+    async def process_route_list(file_path: str, progress_callback=None):
+        try:
+            content = await asyncio.to_thread(Path(file_path).read_bytes)
+            report = await import_route_list(db, content, super_admin)
+            await log_activity(
+                db,
+                super_admin.id,
+                super_admin.name,
+                "routes",
+                "import",
+                new_values=report,
+                request=request,
+                status_code=200,
+                commit=False,
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+
+        imported_count = sum(
+            report[key] for key in ("created", "updated", "unchanged")
+        )
+        return imported_count, None
+
+    return StreamingResponse(
+        _setup_import_stream(file, process_route_list, "Routes"),
+        media_type="text/event-stream",
+    )

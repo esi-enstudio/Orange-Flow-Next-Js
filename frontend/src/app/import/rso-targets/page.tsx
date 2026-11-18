@@ -3,12 +3,14 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Upload, Download, ChevronLeft, ChevronRight, Loader2, Database, X, CheckCircle2, FileDown } from "lucide-react";
 import { toast } from "react-hot-toast";
 import axios from "@/lib/api";
+import { useLanguage } from "@/i18n/useLanguage";
 import Cookies from "js-cookie";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 
 interface Record {
   id: number; ev_secondary: number; sc_secondary: number; total_recharge: number;
+  productivity_c2c_tgt: number; productivity_trans_tgt: number;
   ga: number; sso: number; lso: number; bso: number; ddso: number;
   service_route: string; market_type: string; thana_name: string;
   target_date: string; employee_id: number; supervisor_id: number;
@@ -16,6 +18,7 @@ interface Record {
 }
 
 export default function ImportRSOTargetsPage() {
+  const { t } = useLanguage();
   const { hasPermission, loading: authLoading } = useAuth();
   const [data, setData] = useState<Record[]>([]);
   const [loading, setLoading] = useState(false);
@@ -253,6 +256,8 @@ export default function ImportRSOTargetsPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">EV Sec</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">SC Sec</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Recharge</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t("rso_targets.table_productivity_c2c_tgt")}</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">{t("rso_targets.table_productivity_trans_tgt")}</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">GA</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Route</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase">Date</th>
@@ -260,9 +265,9 @@ export default function ImportRSOTargetsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No records</td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-gray-400">No records</td></tr>
               ) : data.map((r) => (
                 <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{r.employee_id}</td>
@@ -270,6 +275,8 @@ export default function ImportRSOTargetsPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.ev_secondary}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.sc_secondary}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.total_recharge}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.productivity_c2c_tgt}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.productivity_trans_tgt}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.ga}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.service_route || "-"}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.target_date ? new Date(r.target_date).toLocaleDateString() : "-"}</td>

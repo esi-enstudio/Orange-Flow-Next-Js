@@ -27,11 +27,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { isFocusMode, revealHeader, setHeaderHovering, setFocusMode } = useFullscreen();
   const isPublicPage = pathname === "/login" || pathname === "/register" || pathname === "/setup" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/maintenance";
-  // The Liftings module is designed edge-to-edge on phones: minimal outer
-  // padding keeps its single-column mobile layout (filters, list accordion,
-  // modals) as wide as possible. Desktop keeps the standard rhythm.
-  const isLiftingsRoute = pathname?.startsWith("/liftings") ?? false;
-
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8FAFC] dark:bg-slate-950 transition-colors duration-300">
@@ -120,9 +115,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           "flex-1",
           isFocusMode
             ? "p-2 md:p-4 pb-6"
-            : isLiftingsRoute
-              ? "p-2 md:p-8 pb-24 md:pb-8"
-              : "p-4 md:p-8 pb-24 md:pb-8"
+            : "p-2 md:p-8 pb-24 md:pb-8"
         )}>
           {children}
         </main>
