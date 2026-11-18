@@ -715,6 +715,7 @@ async def import_live_c2c_rows(
         "success": True,
         "data": {
             "imported_rows": len(imported.rows),
+            "duplicate_rows": imported.summary["duplicate_rows"],
             "disabled_retailer_count": imported.disabled_retailer_count,
         },
     }

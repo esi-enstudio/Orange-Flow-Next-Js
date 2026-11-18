@@ -558,7 +558,23 @@ async def prepare_live_c2c_import(
 
     can_import = issue_count == 0
     prepared_rows: list[dict[str, Any]] = []
+    duplicate_row_numbers: list[int] = []
     if can_import:
+        seen_transfers: set[tuple[Any, ...]] = set()
+        unique_rows: list[dict[str, Any]] = []
+        for row in rows:
+            transfer_key = (
+                from_resolved[row["from_number"]],
+                to_resolved[row["to_number"]],
+                row["modified_on"],
+                row["transfer_mrp"],
+            )
+            if transfer_key in seen_transfers:
+                duplicate_row_numbers.append(row["_row_number"])
+                continue
+            seen_transfers.add(transfer_key)
+            unique_rows.append(row)
+
         retailer_ids = sorted(set(to_resolved.values()))
         route_today_ids: set[int] = set()
         today = now_naive().strftime("%A").lower()
@@ -588,7 +604,7 @@ async def prepare_live_c2c_import(
                 "transfer_mrp": row["transfer_mrp"],
                 "on_route": "Y" if to_resolved[row["to_number"]] in route_today_ids else "N",
             }
-            for row in rows
+            for row in unique_rows
         ]
 
     disabled_retailer_count = len(disabled_retailer_ids)
@@ -606,9 +622,9 @@ async def prepare_live_c2c_import(
             ),
             "issue_count": issue_count,
             "affected_rows": affected_rows,
-            "duplicate_rows": 0,
+            "duplicate_rows": len(duplicate_row_numbers),
         },
-        duplicate_excel_rows=[],
+        duplicate_excel_rows=duplicate_row_numbers[:MAX_DIAGNOSTIC_ROWS],
         disabled_retailer_count=disabled_retailer_count,
         truncated=truncated,
         can_import=can_import,
@@ -672,6 +688,7 @@ async def replace_live_c2c_rows(
                 "file_name": source_filename,
                 "sheet_name": sheet_name,
                 "imported_rows": len(prepared.rows),
+                "duplicate_rows": prepared.summary["duplicate_rows"],
                 "disabled_retailers": prepared.disabled_retailer_count,
             },
             request=request,

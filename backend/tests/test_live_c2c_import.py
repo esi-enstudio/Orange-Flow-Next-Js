@@ -844,3 +844,114 @@ async def test_bulk_insert_writes_every_row(db, house):
     await live_c2c_service._bulk_insert_live_c2c_rows(db, rows)
 
     assert await db.scalar(select(func.count(LiveC2CRow.id))) == 5000
+
+
+async def test_same_transfer_twice_is_stored_once(db, house):
+    employee, retailer = await _source_entities(db, house)
+    row = {
+        "_row_number": 3,
+        "from_number": employee.itop_number,
+        "to_number": retailer.itop_number,
+        "modified_on": "2026-11-17 10:30",
+        "transfer_mrp": Decimal("1000.00"),
+    }
+    duplicate = {**row, "_row_number": 4}
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db, house_id=house.id, rows=[row, duplicate]
+    )
+
+    assert check.can_import is True
+    assert len(check.rows) == 1
+    assert check.summary["duplicate_rows"] == 1
+    assert check.duplicate_excel_rows == [4]
+
+
+async def test_two_real_transfers_are_both_stored(db, house):
+    employee, retailer = await _source_entities(db, house)
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db,
+        house_id=house.id,
+        rows=[
+            {
+                "_row_number": 3,
+                "from_number": employee.itop_number,
+                "to_number": retailer.itop_number,
+                "modified_on": "2026-11-17 09:00",
+                "transfer_mrp": Decimal("1000.00"),
+            },
+            {
+                "_row_number": 4,
+                "from_number": employee.itop_number,
+                "to_number": retailer.itop_number,
+                "modified_on": "2026-11-17 17:00",
+                "transfer_mrp": Decimal("500.00"),
+            },
+        ],
+    )
+
+    assert check.can_import is True
+    assert [row["transfer_mrp"] for row in check.rows] == [
+        Decimal("1000.00"),
+        Decimal("500.00"),
+    ]
+    assert check.summary["duplicate_rows"] == 0
+
+
+async def test_dedupe_uses_resolved_entities_not_raw_text(db, house):
+    employee, retailer = await _source_entities(db, house)
+
+    check = await live_c2c_service.prepare_live_c2c_import(
+        db,
+        house_id=house.id,
+        rows=[
+            {
+                "_row_number": 3,
+                "from_number": employee.itop_number,
+                "to_number": retailer.itop_number,
+                "modified_on": "2026-11-17 10:30",
+                "transfer_mrp": Decimal("1000.00"),
+            },
+            {
+                "_row_number": 4,
+                "from_number": employee.itop_number.lstrip("0"),
+                "to_number": retailer.itop_number,
+                "modified_on": "2026-11-17 10:30",
+                "transfer_mrp": Decimal("1000.00"),
+            },
+        ],
+    )
+
+    assert len(check.rows) == 1
+    assert check.summary["duplicate_rows"] == 1
+
+
+async def test_import_response_reports_skipped_duplicates(db, house):
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    employee, retailer = await _source_entities(db, house)
+    workbook = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[
+            [employee.itop_number, retailer.itop_number, "2026-11-17 10:30", "1000"],
+            [employee.itop_number, retailer.itop_number, "2026-11-17 10:30", "1000"],
+        ],
+    )
+    async with _client(db, user) as client:
+        response = await client.post(
+            "/api/reports/live-c2c/import",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("live-c2c.xlsx", workbook)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["imported_rows"] == 1
+    assert response.json()["data"]["duplicate_rows"] == 1
+    assert await db.scalar(select(func.count(LiveC2CRow.id))) == 1
+    activity = (
+        await db.execute(select(ActivityLog).where(ActivityLog.module == "live_c2c"))
+    ).scalar_one()
+    assert activity.new_values["duplicate_rows"] == 1
