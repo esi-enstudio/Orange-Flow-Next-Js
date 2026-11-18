@@ -29,11 +29,22 @@ def load_permissions_config() -> dict[str, Any]:
     return json.loads(PERMISSIONS_CONFIG_PATH.read_text(encoding="utf-8"))
 
 
-async def sync_permissions_from_config(db: AsyncSession) -> dict[str, Any]:
+async def sync_permissions_from_config(
+    db: AsyncSession,
+    *,
+    grant_all_defaults: bool = False,
+) -> dict[str, Any]:
     """Add missing permissions and grant configured defaults.
 
     Only ever adds: a permission or a role grant is never removed here.
     The caller owns the commit; this function only flushes.
+
+    ``grant_all_defaults=False`` (boot) hands a role only the permission keys
+    that this run *created*. Existing keys are never re-granted, because
+    ``seed_db.seed_system_data`` guarantees that an existing role's permission
+    set is managed from the Roles UI and must survive a restart. The manual
+    ``POST /admin/sync-permissions`` endpoint passes ``True`` for the full
+    top-up it has always performed.
     """
     config = load_permissions_config()
 
@@ -59,6 +70,7 @@ async def sync_permissions_from_config(db: AsyncSession) -> dict[str, Any]:
 
     await db.flush()
 
+    created_names = set(permissions_added)
     all_permissions = list(db_perms.values())
     roles_updated: list[str] = []
     for role_config in config.get("default_roles", []):
@@ -72,19 +84,20 @@ async def sync_permissions_from_config(db: AsyncSession) -> dict[str, Any]:
 
         existing_names = {permission.name for permission in role.permissions}
         if role_config.get("is_admin"):
-            if any(permission.name not in existing_names for permission in all_permissions):
-                role.permissions = all_permissions
-                roles_updated.append(role_config["name"])
-        elif role_config.get("permissions"):
-            missing = [
-                db_perms[permission_name]
-                for permission_name in role_config["permissions"]
-                if permission_name in db_perms
-                and permission_name not in existing_names
-            ]
-            if missing:
-                role.permissions = list(role.permissions) + missing
-                roles_updated.append(role_config["name"])
+            wanted = [permission.name for permission in all_permissions]
+        else:
+            wanted = list(role_config.get("permissions") or [])
+
+        missing = [
+            db_perms[permission_name]
+            for permission_name in wanted
+            if permission_name in db_perms
+            and permission_name not in existing_names
+            and (grant_all_defaults or permission_name in created_names)
+        ]
+        if missing:
+            role.permissions = list(role.permissions) + missing
+            roles_updated.append(role_config["name"])
 
     await db.flush()
 

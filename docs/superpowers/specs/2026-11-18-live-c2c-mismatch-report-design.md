@@ -132,11 +132,15 @@ binding exemption, not an undocumented exception.
 
 - The body of `POST /sync-permissions` moves to
   `app/services/permission_sync.py` as
-  `sync_permissions_from_config(db) -> dict` (`total_permissions`,
-  `permissions_added`, `roles_updated`). It only adds missing permissions and
-  grants configured defaults — never removes anything.
-- `init_db()` calls it after `create_all` on every boot, on a short-lived
-  session, taking a PostgreSQL advisory lock so parallel workers cannot race.
+  `sync_permissions_from_config(db, *, grant_all_defaults=False) -> dict`
+  (`total_permissions`, `permissions_added`, `roles_updated`). It only adds —
+  never removes — and never re-grants an existing permission on the boot path,
+  because `seed_db` guarantees that an existing role's permission set is
+  managed from the Roles UI (`grant_all_defaults=True` keeps the manual
+  endpoint's full top-up).
+- `init_db()` calls it with the default (boot) mode after `create_all` on a
+  short-lived session, taking a PostgreSQL advisory lock so parallel workers
+  cannot race.
 - The admin endpoint delegates to the same function and keeps its audit-log entry;
   the boot-time run logs a summary line and does not write an activity entry
   (there is no user to attribute it to). A failure there is logged with a full

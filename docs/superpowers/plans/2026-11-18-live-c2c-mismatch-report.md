@@ -561,7 +561,9 @@ git commit -m "feat(live-c2c): skip exactly duplicated transfer rows"
 **Interfaces:**
 - Produces:
   ```python
-  async def sync_permissions_from_config(db: AsyncSession) -> dict[str, Any]
+  async def sync_permissions_from_config(
+      db: AsyncSession, *, grant_all_defaults: bool = False
+  ) -> dict[str, Any]
   # {"total_permissions": int, "permissions_added": list[str], "roles_updated": list[str]}
   ```
 
@@ -618,7 +620,10 @@ Expected: FAIL — `ModuleNotFoundError: app.services.permission_sync`.
   (`await db.flush()`; the caller owns the commit). Take
   `SELECT pg_advisory_xact_lock(:key)` when `db.bind.dialect.name == "postgresql"`
   with a module constant key, like `_BILLING_MIGRATION_LOCK_KEY` in `db_service.py`.
-  It must only add: never remove a permission or a role grant.
+  It must only add: never remove a permission or a role grant. In boot mode
+  (`grant_all_defaults=False`) a role only receives permission keys created by
+  that run, so a restart never restores a permission an admin revoked in the
+  Roles UI; the endpoint passes `grant_all_defaults=True` for the full top-up.
 - `admin_controller.sync_permissions`: call the service, `await db.commit()`, keep
   `log_activity`, and return the report.
 - `init_db()`: after `create_all` and the `_migrate_*` chain, run the sync on a

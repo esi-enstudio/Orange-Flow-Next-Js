@@ -22,7 +22,7 @@ async def sync_permissions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(has_permission("permissions.create")),
 ):
-    report = await sync_permissions_from_config(db)
+    report = await sync_permissions_from_config(db, grant_all_defaults=True)
     await db.commit()
 
     await log_activity(
