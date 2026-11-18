@@ -14,6 +14,11 @@ import {
   listLiveC2CWorksheetNames,
   validateLiveC2CFile,
 } from "@/lib/live-c2c-import";
+import type {
+  LiveC2CDiagnosticCandidate,
+  LiveC2CEntityIssue,
+  LiveC2CMatchReport,
+} from "@/lib/live-c2c-diagnostics";
 import { initialLiveC2CHouseId } from "@/lib/live-c2c-house-selection";
 
 interface AccessibleHouse {
@@ -63,6 +68,15 @@ function getImportErrorCode(error: unknown): string {
   return typeof errorCode === "string" ? errorCode : "upload_failed";
 }
 
+function candidateLabel(
+  side: LiveC2CEntityIssue["side"],
+  candidate: LiveC2CDiagnosticCandidate,
+): string {
+  const code = side === "from" ? candidate.dms_code : candidate.retailer_code;
+  const name = candidate.name ?? candidate.itop_number ?? "—";
+  return code ? `${name} — ${code}` : name;
+}
+
 export default function LiveC2CReportPage() {
   const { hasPermission, loading: authLoading } = useAuth();
   const { t } = useLanguage();
@@ -86,7 +100,11 @@ export default function LiveC2CReportPage() {
   const [previewing, setPreviewing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [importSuccess, setImportSuccess] = useState<number | null>(null);
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    duplicates: number;
+  } | null>(null);
+  const [matchReport, setMatchReport] = useState<LiveC2CMatchReport | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const selectedHouse = houses.find((house) => house.id === selectedHouseId) ?? null;
   const processing = readingWorkbook || previewing || importing;
@@ -149,7 +167,8 @@ export default function LiveC2CReportPage() {
     if (!file) return;
 
     setUploadError(null);
-    setImportSuccess(null);
+    setImportResult(null);
+    setMatchReport(null);
     setSelectedFile(null);
     setSheetNames([]);
     setSelectedSheetName(null);
@@ -204,7 +223,8 @@ export default function LiveC2CReportPage() {
     setSheetNames([]);
     setSelectedSheetName(null);
     setUploadError(null);
-    setImportSuccess(null);
+    setImportResult(null);
+    setMatchReport(null);
   };
 
   const handleImport = async () => {
@@ -215,18 +235,22 @@ export default function LiveC2CReportPage() {
 
     setImporting(true);
     setUploadError(null);
-    setImportSuccess(null);
+    setImportResult(null);
     const formData = new FormData();
     formData.append("file", selectedFile);
     formData.append("sheet_name", selectedSheetName);
 
     try {
-      const { data } = await apiClient.post<{ data: { imported_rows: number } }>(
-        "/reports/live-c2c/import",
-        formData,
-        { headers: { "X-House-ID": String(selectedHouseId) } },
-      );
-      setImportSuccess(data.data.imported_rows);
+      const { data } = await apiClient.post<{
+        data: { imported_rows: number; duplicate_rows?: number };
+      }>("/reports/live-c2c/import", formData, {
+        headers: { "X-House-ID": String(selectedHouseId) },
+      });
+      setImportResult({
+        imported: data.data.imported_rows,
+        duplicates: data.data.duplicate_rows ?? 0,
+      });
+      setMatchReport(null);
       setSelectedFile(null);
       setSheetNames([]);
       setSelectedSheetName(null);
@@ -252,16 +276,24 @@ export default function LiveC2CReportPage() {
     formData.append("sheet_name", selectedSheetName);
 
     try {
-      const { data } = await apiClient.post<{
-        data: { disabled_retailer_count: number };
-      }>("/reports/live-c2c/preview", formData, {
-        headers: { "X-House-ID": String(selectedHouseId) },
-      });
-      const disabledCount = data.data.disabled_retailer_count;
-      if (!Number.isSafeInteger(disabledCount) || disabledCount < 0) {
+      const { data } = await apiClient.post<{ data: LiveC2CMatchReport }>(
+        "/reports/live-c2c/preview",
+        formData,
+        { headers: { "X-House-ID": String(selectedHouseId) } },
+      );
+      const report = data.data;
+      const disabledCount = report.disabled_retailer_count;
+      if (
+        !Array.isArray(report.issues)
+        || typeof report.summary?.total_rows !== "number"
+        || !Number.isSafeInteger(disabledCount)
+        || disabledCount < 0
+      ) {
         setUploadError("upload_failed");
         return;
       }
+      setMatchReport(report);
+      if (!report.can_import) return;
       if (window.confirm(t("live_c2c.disabled_retailer_confirmation", {
         count: disabledCount,
       }))) {
@@ -413,13 +445,165 @@ export default function LiveC2CReportPage() {
             {t(`live_c2c.errors.${uploadError}`)}
           </p>
         )}
-        {importSuccess !== null && (
+        {importResult !== null && (
           <p
             role="status"
             className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300"
           >
-            {t("live_c2c.import_success", { count: importSuccess })}
+            {importResult.duplicates > 0
+              ? t("live_c2c.duplicates.imported_with_duplicates", {
+                  count: importResult.imported,
+                  duplicates: importResult.duplicates,
+                })
+              : t("live_c2c.import_success", { count: importResult.imported })}
           </p>
+        )}
+        {matchReport && matchReport.can_import && matchReport.summary.duplicate_rows > 0 && (
+          <p
+            role="status"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+          >
+            {t("live_c2c.duplicates.will_skip", {
+              count: matchReport.summary.duplicate_rows,
+            })}
+          </p>
+        )}
+        {matchReport && !matchReport.can_import && (
+          <section
+            role="region"
+            aria-live="polite"
+            aria-label={t("live_c2c.diagnostics.title")}
+            className="rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-500/30 dark:bg-red-500/10"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold text-red-800 dark:text-red-200">
+                {t("live_c2c.diagnostics.title")}
+              </h2>
+            </div>
+            <p className="mt-1 text-sm text-red-700 dark:text-red-200">
+              {t("live_c2c.diagnostics.blocked")}
+            </p>
+
+            <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {[
+                ["total_rows", matchReport.summary.total_rows],
+                ["affected_rows", matchReport.summary.affected_rows],
+                ["issue_count", matchReport.summary.issue_count],
+              ].map(([key, value]) => (
+                <div
+                  key={key}
+                  className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"
+                >
+                  <dt className="text-xs text-gray-500 dark:text-gray-400">
+                    {t(`live_c2c.diagnostics.${key}`)}
+                  </dt>
+                  <dd className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+
+            {matchReport.issues.length === 0 ? (
+              <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                {t("live_c2c.diagnostics.empty")}
+              </p>
+            ) : (
+              <>
+                <ul className="mt-3 space-y-2 lg:hidden">
+                  {matchReport.issues.map((issue) => (
+                    <li
+                      key={`${issue.side}-${issue.value}`}
+                      className="rounded-xl border border-red-200 bg-white p-3 dark:border-red-500/30 dark:bg-slate-900"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="break-all font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {issue.value}
+                        </span>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-slate-800 dark:text-gray-200">
+                          {t(`live_c2c.diagnostics.side_${issue.side}`)}
+                        </span>
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-500/20 dark:text-red-200">
+                          {t(`live_c2c.diagnostics.status_${issue.status}`)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                        {t("live_c2c.diagnostics.row_count", { count: issue.row_count })}
+                        {" · "}
+                        {t("live_c2c.diagnostics.excel_rows")}:{" "}
+                        {issue.excel_rows.join(", ")}
+                      </p>
+                      {issue.candidates.length > 0 && (
+                        <p className="mt-1 break-words text-xs text-gray-600 dark:text-gray-300">
+                          <span className="font-medium">
+                            {t("live_c2c.diagnostics.candidates")}:{" "}
+                          </span>
+                          {issue.candidates
+                            .map((candidate) => candidateLabel(issue.side, candidate))
+                            .join("; ")}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-3 hidden max-w-full overflow-x-auto rounded-xl border border-red-200 dark:border-red-500/30 lg:block">
+                  <table className="w-full min-w-[720px] border-collapse bg-white text-left text-sm text-gray-800 dark:bg-slate-900 dark:text-gray-100">
+                    <thead className="bg-gray-50 dark:bg-slate-800">
+                      <tr>
+                        {["value", "side", "status", "rows", "excel_rows", "candidates"].map((column) => (
+                          <th
+                            key={column}
+                            scope="col"
+                            className="whitespace-nowrap border border-gray-200 px-3 py-2 font-semibold dark:border-slate-700"
+                          >
+                            {t(`live_c2c.diagnostics.columns.${column}`)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {matchReport.issues.map((issue) => (
+                        <tr
+                          key={`${issue.side}-${issue.value}`}
+                          className="even:bg-gray-50 dark:even:bg-slate-800/50"
+                        >
+                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 font-mono dark:border-slate-700">
+                            {issue.value}
+                          </td>
+                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                            {t(`live_c2c.diagnostics.side_${issue.side}`)}
+                          </td>
+                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                            {t(`live_c2c.diagnostics.status_${issue.status}`)}
+                          </td>
+                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                            {issue.row_count}
+                          </td>
+                          <td className="whitespace-nowrap border border-gray-200 px-3 py-2 dark:border-slate-700">
+                            {issue.excel_rows.join(", ")}
+                          </td>
+                          <td className="border border-gray-200 px-3 py-2 dark:border-slate-700">
+                            {issue.candidates.length > 0
+                              ? issue.candidates
+                                  .map((candidate) => candidateLabel(issue.side, candidate))
+                                  .join("; ")
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {matchReport.truncated && (
+              <p className="mt-2 text-xs text-red-700 dark:text-red-200">
+                {t("live_c2c.diagnostics.truncated")}
+              </p>
+            )}
+          </section>
         )}
         <div
           role="region"
