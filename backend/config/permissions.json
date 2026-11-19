@@ -207,7 +207,9 @@
       "display_name": "Live C2C",
       "permissions": [
         "live_c2c.import",
-        "live_c2c.export"
+        "live_c2c.export",
+        "live_c2c.automation_view",
+        "live_c2c.automation_manage"
       ]
     },
     "live_activations": {
@@ -724,6 +726,8 @@
         "reports.view",
         "live_c2c.import",
         "live_c2c.export",
+        "live_c2c.automation_view",
+        "live_c2c.automation_manage",
         "retailers.view",
         "routes.view",
         "employees.view",

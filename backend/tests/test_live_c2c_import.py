@@ -1410,6 +1410,37 @@ async def test_import_response_reports_skipped_duplicates(db, house):
     assert activity.new_values["duplicate_rows"] == 1
 
 
+async def test_automation_import_without_request_stores_rows_and_audit(db, house):
+    user = await _user_with_permissions(db, house, ("live_c2c.import",))
+    employee, retailer = await _source_entities(db, house)
+
+    result = await live_c2c_service.store_live_c2c_rows(
+        db,
+        house_id=house.id,
+        user=user,
+        filename="Live C2C report.xlsx",
+        sheet_name="C2C Data",
+        rows=[
+            {
+                "_row_number": 3,
+                "from_number": employee.itop_number,
+                "to_number": retailer.itop_number,
+                "modified_on": "10:30:00",
+                "transfer_mrp": Decimal("25.50"),
+            }
+        ],
+    )
+
+    assert result.imported_rows == 1
+    saved = (await db.execute(select(LiveC2CRow))).scalar_one()
+    assert saved.created_by == user.id
+    activity = (await db.execute(select(ActivityLog))).scalar_one()
+    assert activity.user_id == user.id
+    assert activity.module == "live_c2c"
+    assert activity.action == "import"
+    assert activity.new_values["imported_rows"] == 1
+
+
 async def test_preview_rejects_workbook_without_rows_for_selected_house(db, house):
     other_house = House(code="C2C-OTHER", name="Other House", email="other@example.com")
     db.add(other_house)

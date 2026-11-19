@@ -13,6 +13,7 @@ from app.models.rso_bp_assignment import RSOBPAssignment
 from app.models.activation import Activation
 from app.models.itopup_detail import ITopUpDetail
 from app.models.live_c2c import LiveC2CRow
+from app.models.live_c2c_automation import LiveC2CAutomationConfig, LiveC2CInboundFile
 from app.models.live_activation import LiveActivation
 from app.models.scratch_card_issue import ScratchCardIssue
 from app.models.scratch_card_serial import ScratchCardSerial

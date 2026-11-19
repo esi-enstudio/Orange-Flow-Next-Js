@@ -334,6 +334,90 @@ class WhatsAppServiceClient:
             logger.error(f"WA gateway groups fetch failed: {e}")
             raise WhatsAppServiceError(code="WA_SERVICE_UNREACHABLE", message=WA_GATEWAY_UNREACHABLE_MSG) from e
 
+    async def create_webhook(
+        self,
+        jwt_token: str,
+        url: str,
+        events: list[str],
+    ) -> dict:
+        """Register a device-scoped webhook and return its ID and signing secret."""
+        self._check_enabled()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(
+                    f"{self.base_url}/webhooks",
+                    headers={"Authorization": f"Bearer {jwt_token}"},
+                    json={"url": url, "events": events},
+                )
+                self._raise(resp)
+                try:
+                    body = resp.json()
+                except ValueError as exc:
+                    raise WhatsAppServiceError(
+                        code="WA_WEBHOOK_INVALID_RESPONSE",
+                        message="WhatsApp gateway returned an invalid webhook response.",
+                    ) from exc
+        except httpx.HTTPError as e:
+            logger.error("WA gateway webhook creation failed: %s", e)
+            raise WhatsAppServiceError(
+                code="WA_SERVICE_UNREACHABLE",
+                message=WA_GATEWAY_UNREACHABLE_MSG,
+            ) from e
+        if not isinstance(body, dict) or body.get("status") is False:
+            raise WhatsAppServiceError(
+                code="WA_WEBHOOK_INVALID_RESPONSE",
+                message="WhatsApp gateway returned an invalid webhook response.",
+            )
+        data = body.get("data", body) if isinstance(body, dict) else {}
+        webhook_id = data.get("webhook_id")
+        secret = data.get("secret")
+        if not isinstance(webhook_id, (int, str)) or not str(webhook_id).isdigit():
+            raise WhatsAppServiceError(
+                code="WA_WEBHOOK_INVALID_RESPONSE",
+                message="WhatsApp gateway returned an invalid webhook ID.",
+            )
+        if not isinstance(secret, str) or not secret:
+            raise WhatsAppServiceError(
+                code="WA_WEBHOOK_INVALID_RESPONSE",
+                message="WhatsApp gateway returned no webhook signing secret.",
+            )
+        return {"webhook_id": int(webhook_id), "secret": secret}
+
+    async def delete_webhook(self, jwt_token: str, webhook_id: int) -> dict:
+        """Remove a device-scoped webhook by its gateway ID."""
+        self._check_enabled()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.delete(
+                    f"{self.base_url}/webhooks/{webhook_id}",
+                    headers={"Authorization": f"Bearer {jwt_token}"},
+                )
+                self._raise(resp)
+                try:
+                    body = resp.json()
+                except ValueError as exc:
+                    raise WhatsAppServiceError(
+                        code="WA_WEBHOOK_INVALID_RESPONSE",
+                        message="WhatsApp gateway returned an invalid webhook response.",
+                    ) from exc
+                if not isinstance(body, dict):
+                    raise WhatsAppServiceError(
+                        code="WA_WEBHOOK_INVALID_RESPONSE",
+                        message="WhatsApp gateway returned an invalid webhook response.",
+                    )
+                if body.get("status") is False:
+                    raise WhatsAppServiceError(
+                        code="WA_WEBHOOK_DELETE_FAILED",
+                        message="WhatsApp gateway could not remove the webhook.",
+                    )
+                return body.get("data", body)
+        except httpx.HTTPError as e:
+            logger.error("WA gateway webhook deletion failed: %s", e)
+            raise WhatsAppServiceError(
+                code="WA_SERVICE_UNREACHABLE",
+                message=WA_GATEWAY_UNREACHABLE_MSG,
+            ) from e
+
     async def send_text(self, jwt_token: str, chat_jid: str, text: str, retries: int = 2) -> dict:
         """Send text message to a chat_jid (e.g. 120363...@g.us)."""
         self._check_enabled()

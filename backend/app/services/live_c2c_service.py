@@ -1035,7 +1035,7 @@ async def store_live_c2c_rows(
     filename: str | None,
     sheet_name: str,
     rows: list[dict[str, Any]],
-    request: Request,
+    request: Request | None = None,
 ) -> LiveC2CStoreResult:
     """Append an upload to the house's Live C2C rows, skipping stored transfers.
 

@@ -1230,13 +1230,34 @@ func handleWhatsAppEvents(jid string, deviceID string) func(interface{}) {
 							"media_type": "audio",
 						})
 					}
-					if e.Message.GetDocumentMessage() != nil {
-						dispatchWebhook(deviceID, webhook.EventMediaReceived, map[string]interface{}{
+					if document := e.Message.GetDocumentMessage(); document != nil {
+						payload := map[string]interface{}{
 							"jid":        currentJID,
 							"message_id": e.Info.ID,
 							"chat":       e.Info.Chat.String(),
 							"media_type": "document",
-						})
+						}
+						if isLiveC2CSpreadsheet(document.GetFileName(), document.GetFileLength()) {
+							payload["filename"] = document.GetFileName()
+							payload["mimetype"] = document.GetMimetype()
+							fileContent, downloadErr := WhatsAppDownloadMedia(
+								context.Background(),
+								jid,
+								deviceID,
+								document,
+							)
+							if downloadErr != nil {
+								log.SysErr("live-c2c-document-download", downloadErr)
+							} else if len(fileContent) > 0 && len(fileContent) <= maxLiveC2CFileSize {
+								payload["file_content"] = base64.StdEncoding.EncodeToString(fileContent)
+							} else {
+								log.SysErr(
+									"live-c2c-document-size",
+									fmt.Errorf("downloaded document size %d is outside the allowed range", len(fileContent)),
+								)
+							}
+						}
+						dispatchWebhook(deviceID, webhook.EventMediaReceived, payload)
 					}
 					if e.Message.GetStickerMessage() != nil {
 						dispatchWebhook(deviceID, webhook.EventMediaReceived, map[string]interface{}{

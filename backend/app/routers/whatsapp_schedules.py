@@ -1079,7 +1079,11 @@ async def whatsapp_status(
 @router.get("/whatsapp/groups")
 async def whatsapp_groups(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(SCHEDULE_PERMISSIONS)),
+    current_user: User = Depends(
+        has_any_permission(
+            [*SCHEDULE_PERMISSIONS, "live_c2c.automation_manage"]
+        )
+    ),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     if not house_context:

@@ -6,7 +6,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, has_permission, get_house_context, require_house_context
+from app.routers.deps import (
+    get_db,
+    has_any_permission,
+    has_permission,
+    get_house_context,
+    require_house_context,
+)
 from app.models.house import House
 from app.models.user import User
 from app.models.whatsapp_connection import WhatsappConnection, whatsapp_connection_houses
@@ -321,7 +327,11 @@ async def connect_whatsapp_pairing(
 @router.get("/whatsapp/groups")
 async def whatsapp_groups(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("whatsapp.view")),
+    current_user: User = Depends(
+        has_any_permission(
+            ["whatsapp.view", "live_c2c.automation_manage"]
+        )
+    ),
     house_context: Optional[int] = Depends(get_house_context),
 ):
     """Get WhatsApp groups for the current house's device."""

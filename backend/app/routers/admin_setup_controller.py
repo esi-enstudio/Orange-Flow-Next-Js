@@ -29,7 +29,12 @@ async def _require_uninitialized(db: AsyncSession):
     if result.scalar() > 0:
         raise HTTPException(status_code=400, detail="System already initialized")
 
-async def _setup_import_stream(file: UploadFile, processor, label: str):
+async def _setup_import_stream(
+    file: UploadFile,
+    processor,
+    label: str,
+    content: Optional[bytes] = None,
+):
     if not os.path.exists("temp_downloads"):
         os.makedirs("temp_downloads")
     filename = file.filename or "upload.xlsx"
@@ -38,15 +43,14 @@ async def _setup_import_stream(file: UploadFile, processor, label: str):
         return
     safe_name = safe_filename(filename)
     file_path = f"temp_downloads/{safe_name}"
-    total_bytes = 0
     try:
+        if content is None:
+            raise RuntimeError("Upload content must be read before streaming")
+        if len(content) > MAX_FILE_SIZE:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'File too large. Max 50 MB.'})}\n\n"
+            return
         with open(file_path, "wb") as buffer:
-            while chunk := await file.read(1024 * 1024):
-                total_bytes += len(chunk)
-                if total_bytes > MAX_FILE_SIZE:
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'File too large. Max 50 MB.'})}\n\n"
-                    return
-                buffer.write(chunk)
+            buffer.write(content)
         progress_queue = asyncio.Queue()
         async def progress(msg: str):
             await progress_queue.put(msg)
@@ -101,27 +105,32 @@ async def initialize_system(db: AsyncSession = Depends(get_db)):
 @router.post("/import/houses")
 async def setup_import_houses(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     from app.services.Automation.house_excel import process_house_excel
-    return StreamingResponse(_setup_import_stream(file, process_house_excel, "🏠 Houses"), media_type="text/event-stream")
+    content = await file.read(MAX_FILE_SIZE + 1)
+    return StreamingResponse(_setup_import_stream(file, process_house_excel, "🏠 Houses", content), media_type="text/event-stream")
 
 @router.post("/import/bts")
 async def setup_import_bts(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     from app.services.Automation.bts_excel import process_bts_excel
-    return StreamingResponse(_setup_import_stream(file, process_bts_excel, "📡 BTS"), media_type="text/event-stream")
+    content = await file.read(MAX_FILE_SIZE + 1)
+    return StreamingResponse(_setup_import_stream(file, process_bts_excel, "📡 BTS", content), media_type="text/event-stream")
 
 @router.post("/import/employees")
 async def setup_import_employees(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     from app.services.Automation.employee_excel import process_employee_excel
-    return StreamingResponse(_setup_import_stream(file, process_employee_excel, "👤 Employees"), media_type="text/event-stream")
+    content = await file.read(MAX_FILE_SIZE + 1)
+    return StreamingResponse(_setup_import_stream(file, process_employee_excel, "👤 Employees", content), media_type="text/event-stream")
 
 @router.post("/import/users")
 async def setup_import_users(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     from app.services.Automation.user_excel import process_user_excel
-    return StreamingResponse(_setup_import_stream(file, process_user_excel, "👥 Users"), media_type="text/event-stream")
+    content = await file.read(MAX_FILE_SIZE + 1)
+    return StreamingResponse(_setup_import_stream(file, process_user_excel, "👥 Users", content), media_type="text/event-stream")
 
 @router.post("/import/retailers")
 async def setup_import_retailers(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     from app.services.Automation.retailer_excel import process_retailer_excel
-    return StreamingResponse(_setup_import_stream(file, process_retailer_excel, "🏪 Retailers"), media_type="text/event-stream")
+    content = await file.read(MAX_FILE_SIZE + 1)
+    return StreamingResponse(_setup_import_stream(file, process_retailer_excel, "🏪 Retailers", content), media_type="text/event-stream")
 
 @router.post("/import/routes")
 async def setup_import_routes(
@@ -175,6 +184,11 @@ async def setup_import_routes(
         return imported_count, None
 
     return StreamingResponse(
-        _setup_import_stream(file, process_route_list, "Routes"),
+        _setup_import_stream(
+            file,
+            process_route_list,
+            "Routes",
+            await file.read(MAX_FILE_SIZE + 1),
+        ),
         media_type="text/event-stream",
     )

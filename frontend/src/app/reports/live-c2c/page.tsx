@@ -17,6 +17,7 @@ import PageGuideModal from "@/components/PageGuideModal";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
+import LiveC2CAutomationSettings from "./_components/LiveC2CAutomationSettings";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
@@ -452,6 +453,8 @@ export default function LiveC2CReportPage() {
   const { language, t } = useLanguage();
   const canView = hasPermission("reports.view") || hasPermission("itopup.view");
   const canImport = hasPermission("live_c2c.import");
+  const canViewAutomation = hasPermission("live_c2c.automation_view");
+  const canManageAutomation = hasPermission("live_c2c.automation_manage");
   const [houses, setHouses] = useState<AccessibleHouse[]>([]);
   const [housesLoading, setHousesLoading] = useState(true);
   const [housesError, setHousesError] = useState(false);
@@ -871,6 +874,15 @@ export default function LiveC2CReportPage() {
             </>
           )}
         </div>
+
+        {selectedHouseId !== null && (canViewAutomation || canManageAutomation) && (
+          <LiveC2CAutomationSettings
+            key={selectedHouseId}
+            houseId={selectedHouseId}
+            canView={canViewAutomation || canManageAutomation}
+            canManage={canManageAutomation}
+          />
+        )}
 
         {selectedFile && sheetNames.length > 0 && !reportGenerated && (
           <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3 sm:flex-row sm:items-end dark:border-slate-700 dark:bg-slate-900">

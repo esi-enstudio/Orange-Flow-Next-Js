@@ -605,6 +605,7 @@ async def send_direct_report(
     send_as: str = "image",
     orientation: str | None = None,
     report_params: dict | None = None,
+    activity_module: str = "live_activations",
 ) -> tuple[bool, str | None]:
     """Send a report image immediately without creating a schedule.
 
@@ -683,7 +684,7 @@ async def send_direct_report(
                 db,
                 user_id=user_id,
                 user_name=user_name,
-                module="live_activations",
+                module=activity_module,
                 action="report.direct_send_failed",
                 record_identifier=f"{title} → {house.telegram_chat_name or house.telegram_chat_id}",
                 new_values={"error": error, "channel": "telegram"},
@@ -766,7 +767,7 @@ async def send_direct_report(
             db,
             user_id=user_id,
             user_name=user_name,
-            module="live_activations",
+            module=activity_module,
             action="report.direct_send_failed",
             record_identifier=f"{title} → {sent_to}",
             new_values={"error": error, "channel": channel, "delivered": delivered},
@@ -779,7 +780,7 @@ async def send_direct_report(
         db,
         user_id=user_id,
         user_name=user_name,
-        module="live_activations",
+        module=activity_module,
         action=log_channel,
         record_identifier=f"{title} → {sent_to}",
         new_values={

@@ -150,6 +150,10 @@ from app.routers.restore_points import router as restore_points_router
 from app.routers.location import router as location_router
 from app.routers.monitoring import router as monitoring_router
 from app.routers.documents import router as documents_router
+from app.routers.live_c2c_automation import (
+    live_c2c_automation_scheduler,
+    router as live_c2c_automation_router,
+)
 
 # ==========================================
 # 1. FASTAPI SETUP
@@ -227,6 +231,7 @@ app.include_router(restore_points_router)
 app.include_router(location_router)
 app.include_router(monitoring_router)
 app.include_router(documents_router)
+app.include_router(live_c2c_automation_router)
 
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -609,6 +614,7 @@ async def main():
 
         background_tasks.append(asyncio.create_task(system_monitoring_scheduler()))
         background_tasks.append(asyncio.create_task(live_c2c_daily_cleanup_scheduler()))
+        background_tasks.append(asyncio.create_task(live_c2c_automation_scheduler()))
 
         logger.info("OrangeFlow API is Live on port 8000")
 

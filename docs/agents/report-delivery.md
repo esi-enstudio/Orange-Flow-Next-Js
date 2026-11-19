@@ -120,3 +120,42 @@ import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModa
 | `backend/app/routers/whatsapp_schedules.py` | API endpoints |
 | `frontend/src/components/WhatsAppReportDeliveryModal.tsx` | Reusable React component |
 | `backend/main.py` (lines 300-322) | Background scheduler loop |
+
+## Live C2C Inbound Automation
+
+### Source Routing
+
+Each house can use exactly one enabled inbound source:
+
+- **Gmail**: the mailbox is the house's `House.email` value. The same mailbox cannot be enabled for two houses.
+- **WhatsApp**: the source is the selected device and source group pair. The same `(device, source group)` pair cannot be enabled for two houses.
+
+The filename must contain both `Live` and `C2C` as case-insensitive words. House codes must not be inferred from filenames.
+
+### Gmail OAuth Setup
+
+Configure these environment variables:
+
+```env
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GOOGLE_OAUTH_REDIRECT_URI=https://<backend-host>/api/v1/live-c2c-automation/gmail/callback
+```
+
+Register the exact redirect URI in Google Cloud Console and request Gmail read-only scope only. The callback must be reachable from the public backend host and must use HTTPS in production.
+
+The Live C2C automation page starts OAuth for the selected house's mailbox. OAuth state is one-time, expires after ten minutes, and is bound to the initiating user and house. Stored Gmail tokens are AES-GCM encrypted. The house mailbox is verified against Google account profile data before activation.
+
+The scheduler polls only enabled, connected Gmail configurations. Failed polls retain explicit status and retry state.
+
+### WhatsApp Inbound Setup
+
+Set the public callback URL for signed gateway webhooks:
+
+```env
+LIVE_C2C_WHATSAPP_WEBHOOK_URL=https://<backend-host>/api/v1/live-c2c-automation/whatsapp/webhook
+```
+
+The URL must be reachable from the WhatsApp gateway. The gateway must send `media.received` document events with the signed HMAC header. Invalid signatures, oversized bodies, wrong devices, and wrong source groups are rejected or ignored without enqueueing.
+
+Incoming event bodies are limited to 15 MiB. Live C2C attachments are additionally limited to 10 MiB and must use `.xlsx` or `.xlsb`. Duplicate gateway event IDs are not processed twice.

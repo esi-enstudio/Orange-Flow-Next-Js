@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     SMTP_FROM: Optional[str] = None
     APP_URL: str = "http://localhost:3000"
 
+    # Gmail read-only integration for Live C2C inbound automation
+    GOOGLE_OAUTH_CLIENT_ID: Optional[str] = None
+    GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_OAUTH_REDIRECT_URI: Optional[str] = None
+    LIVE_C2C_WHATSAPP_WEBHOOK_URL: Optional[str] = None
+
     # JWT Authentication
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
