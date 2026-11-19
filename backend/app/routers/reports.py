@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, func, or_, and_, cast, String
+from sqlalchemy import select, func, or_, and_, cast, String, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, selectinload
 from starlette.concurrency import run_in_threadpool
@@ -562,6 +562,40 @@ async def _load_live_c2c_rsos_and_targets(
     return rsos, targets
 
 
+async def _load_live_c2c_route_totals(
+    db: AsyncSession,
+    *,
+    house_id: int,
+) -> dict[int, tuple[float, float]]:
+    """C2C totals per RSO from the live_c2c table, split by on_route.
+
+    Returns {employee_id: (c2c_today_route, c2c_other_route)}. RSOs with no
+    live_c2c rows default to (0.0, 0.0).
+    """
+    route_result = await db.execute(
+        select(
+            LiveC2CRow.from_msisdn,
+            func.coalesce(
+                func.sum(case((LiveC2CRow.on_route == "Y", LiveC2CRow.transfer_mrp))),
+                0,
+            ).label("c2c_today_route"),
+            func.coalesce(
+                func.sum(case((LiveC2CRow.on_route == "N", LiveC2CRow.transfer_mrp))),
+                0,
+            ).label("c2c_other_route"),
+        )
+        .where(LiveC2CRow.house_id == house_id)
+        .group_by(LiveC2CRow.from_msisdn)
+    )
+    return {
+        row.from_msisdn: (
+            float(row.c2c_today_route or 0.0),
+            float(row.c2c_other_route or 0.0),
+        )
+        for row in route_result.all()
+    }
+
+
 @router.get("/reports/live-c2c/rsos")
 async def get_live_c2c_base_report(
     db: AsyncSession = Depends(get_db),
@@ -579,6 +613,10 @@ async def get_live_c2c_base_report(
         house_id=house_id,
         target_date=target_date,
     )
+    route_totals = await _load_live_c2c_route_totals(
+        db,
+        house_id=house_id,
+    )
 
     return {
         "success": True,
@@ -592,6 +630,8 @@ async def get_live_c2c_base_report(
                     "rso_name": employee.employee_name or employee.dms_code or "",
                     "rso_itop_number": employee.itop_number,
                     "productivity_c2c_tgt": targets.get(employee.id, (0.0, 0.0))[0],
+                    "c2c_today_route": route_totals.get(employee.id, (0.0, 0.0))[0],
+                    "c2c_other_route": route_totals.get(employee.id, (0.0, 0.0))[1],
                     "productivity_trans_tgt": targets.get(employee.id, (0.0, 0.0))[1],
                 }
                 for employee in rsos

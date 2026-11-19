@@ -57,6 +57,8 @@ interface LiveC2CBaseReportRow {
   rso_name: string;
   rso_itop_number: string | null;
   productivity_c2c_tgt: number;
+  c2c_today_route: number;
+  c2c_other_route: number;
   productivity_trans_tgt: number;
 }
 
@@ -71,6 +73,10 @@ function isBaseReportRow(value: unknown): value is LiveC2CBaseReportRow {
     && (typeof row.rso_itop_number === "string" || row.rso_itop_number === null)
     && typeof row.productivity_c2c_tgt === "number"
     && Number.isFinite(row.productivity_c2c_tgt)
+    && typeof row.c2c_today_route === "number"
+    && Number.isFinite(row.c2c_today_route)
+    && typeof row.c2c_other_route === "number"
+    && Number.isFinite(row.c2c_other_route)
     && typeof row.productivity_trans_tgt === "number"
     && Number.isFinite(row.productivity_trans_tgt)
   );

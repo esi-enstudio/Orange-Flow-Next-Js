@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app.models.employee import Employee
 from app.models.house import House
+from app.models.live_c2c import LiveC2CRow
 from app.models.role import Permission, Role
 from app.models.rso_target import RSOTarget
 from app.models.user import User
@@ -123,6 +124,20 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             productivity_c2c_tgt=777.0, productivity_trans_tgt=777.0,
         ),
     ])
+    db.add_all([
+        LiveC2CRow(
+            house_id=house.id, from_msisdn=babul.id, to_msisdn=1,
+            on_route="Y", modified_on="2026-11-17 10:30", transfer_mrp=25.50,
+            source_filename="test.xlsx", source_sheet="C2C Data",
+            created_by=1,
+        ),
+        LiveC2CRow(
+            house_id=house.id, from_msisdn=babul.id, to_msisdn=2,
+            on_route="N", modified_on="2026-11-17 10:45", transfer_mrp=50.00,
+            source_filename="test.xlsx", source_sheet="C2C Data",
+            created_by=1,
+        ),
+    ])
     await db.commit()
     user = await _user_with_permissions(db, house, ("reports.view",))
 
@@ -144,6 +159,8 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "rso_name": "Babul",
             "rso_itop_number": "01700000001",
             "productivity_c2c_tgt": 120.0,
+            "c2c_today_route": 25.5,
+            "c2c_other_route": 50.0,
             "productivity_trans_tgt": 60.0,
         },
         {
@@ -153,6 +170,8 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "rso_name": "Amina",
             "rso_itop_number": "01700000002",
             "productivity_c2c_tgt": 0.0,
+            "c2c_today_route": 0.0,
+            "c2c_other_route": 0.0,
             "productivity_trans_tgt": 0.0,
         },
         {
@@ -162,6 +181,8 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "rso_name": "DMS-03",
             "rso_itop_number": None,
             "productivity_c2c_tgt": 0.0,
+            "c2c_today_route": 0.0,
+            "c2c_other_route": 0.0,
             "productivity_trans_tgt": 0.0,
         },
     ]
@@ -209,6 +230,8 @@ async def test_base_report_keeps_rows_with_missing_identity_fields(db, house):
             "rso_name": "",
             "rso_itop_number": None,
             "productivity_c2c_tgt": 0.0,
+            "c2c_today_route": 0.0,
+            "c2c_other_route": 0.0,
             "productivity_trans_tgt": 0.0,
         },
     ]
@@ -249,6 +272,56 @@ async def test_base_report_sorts_by_itop_number_and_puts_blanks_last(db, house):
         "Blank",
         "Empty Itop",
     ]
+
+
+async def test_base_report_route_totals_from_live_c2c_table(db, house):
+    yak = Employee(
+        house_id=house.id, employee_name="Yak", dms_code="Z-99",
+        itop_number="01700000001", employee_type="rso", status="Active",
+    )
+    blank = Employee(
+        house_id=house.id, employee_name="Blank", dms_code="M-50",
+        itop_number=None, employee_type="rso", status="Active",
+    )
+    db.add_all([yak, blank])
+    await db.flush()
+    db.add_all([
+        LiveC2CRow(
+            house_id=house.id, from_msisdn=yak.id, to_msisdn=1,
+            on_route="Y", modified_on="2026-11-17 10:30", transfer_mrp=100.00,
+            source_filename="test.xlsx", source_sheet="C2C Data",
+            created_by=1,
+        ),
+        LiveC2CRow(
+            house_id=house.id, from_msisdn=yak.id, to_msisdn=2,
+            on_route="Y", modified_on="2026-11-17 11:00", transfer_mrp=50.00,
+            source_filename="test.xlsx", source_sheet="C2C Data",
+            created_by=1,
+        ),
+        LiveC2CRow(
+            house_id=house.id, from_msisdn=yak.id, to_msisdn=3,
+            on_route="N", modified_on="2026-11-17 12:00", transfer_mrp=30.00,
+            source_filename="test.xlsx", source_sheet="C2C Data",
+            created_by=1,
+        ),
+        # blank RSO has no live_c2c rows -> defaults to 0.0 / 0.0
+    ])
+    await db.commit()
+    user = await _user_with_permissions(db, house, ("reports.view",))
+
+    async with _client(db, user) as client:
+        response = await client.get(
+            "/api/reports/live-c2c/rsos",
+            headers={"X-House-ID": str(house.id)},
+        )
+
+    assert response.status_code == 200
+    rows = response.json()["data"]["rows"]
+    by_name = {row["rso_name"]: row for row in rows}
+    assert by_name["Yak"]["c2c_today_route"] == 150.0
+    assert by_name["Yak"]["c2c_other_route"] == 30.0
+    assert by_name["Blank"]["c2c_today_route"] == 0.0
+    assert by_name["Blank"]["c2c_other_route"] == 0.0
 
 
 async def test_base_report_accepts_itopup_view_only_permission(db, house):
