@@ -214,6 +214,43 @@ async def test_base_report_keeps_rows_with_missing_identity_fields(db, house):
     ]
 
 
+async def test_base_report_sorts_by_itop_number_and_puts_blanks_last(db, house):
+    db.add_all([
+        Employee(
+            house_id=house.id, employee_name="Zed", dms_code="A-01",
+            itop_number="01900000009", employee_type="rso", status="Active",
+        ),
+        Employee(
+            house_id=house.id, employee_name="Yak", dms_code="Z-99",
+            itop_number="01700000001", employee_type="rso", status="Active",
+        ),
+        Employee(
+            house_id=house.id, employee_name="Blank", dms_code="M-50",
+            itop_number=None, employee_type="rso", status="Active",
+        ),
+        Employee(
+            house_id=house.id, employee_name="Empty Itop", dms_code="M-51",
+            itop_number="", employee_type="rso", status="Active",
+        ),
+    ])
+    await db.commit()
+    user = await _user_with_permissions(db, house, ("reports.view",))
+
+    async with _client(db, user) as client:
+        response = await client.get(
+            "/api/reports/live-c2c/rsos",
+            headers={"X-House-ID": str(house.id)},
+        )
+
+    assert response.status_code == 200
+    assert [row["rso_name"] for row in response.json()["data"]["rows"]] == [
+        "Yak",
+        "Zed",
+        "Blank",
+        "Empty Itop",
+    ]
+
+
 async def test_base_report_accepts_itopup_view_only_permission(db, house):
     employee = Employee(
         house_id=house.id, employee_name="Topup Only", dms_code="DMS-ITOP",

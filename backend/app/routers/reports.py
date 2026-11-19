@@ -535,9 +535,16 @@ async def _load_live_c2c_rsos_and_targets(
             Employee.employee_type == "rso",
             Employee.status == "Active",
         )
-        .order_by(Employee.dms_code, Employee.id)
     )
-    rsos = list(rso_result.scalars().all())
+    # The report shows RSOs sorted A-Z by iTop number; rows without one go last.
+    rsos = sorted(
+        rso_result.scalars().all(),
+        key=lambda employee: (
+            not employee.itop_number,
+            employee.itop_number or "",
+            employee.id,
+        ),
+    )
 
     target_result = await db.execute(
         select(RSOTarget).where(

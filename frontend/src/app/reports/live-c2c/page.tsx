@@ -107,6 +107,41 @@ const REPORT_COLUMNS = [
 
 type ReportColumn = (typeof REPORT_COLUMNS)[number];
 
+type LiveC2CReportRow = LiveC2CBaseReportRow | LiveC2CProductivityRow;
+
+// Non-additive columns: identity, percentages, and time-of-day values.
+const NON_TOTAL_COLUMNS: ReadonlySet<ReportColumn> = new Set([
+  "serial_number",
+  "house_code",
+  "dms_code",
+  "rso_name",
+  "rso_itop_number",
+  "c2c_achievement_pct",
+  "trans_achievement_pct",
+  "start_time",
+  "end_time",
+]);
+
+function numericReportValue(column: ReportColumn, row: LiveC2CReportRow): number | null {
+  if (NON_TOTAL_COLUMNS.has(column)) return null;
+  const value = (row as unknown as Record<string, unknown>)[column];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function reportColumnTotal(column: ReportColumn, rows: LiveC2CReportRow[]): number | null {
+  if (NON_TOTAL_COLUMNS.has(column)) return null;
+  let total = 0;
+  let seen = false;
+  for (const row of rows) {
+    const value = numericReportValue(column, row);
+    if (value !== null) {
+      total += value;
+      seen = true;
+    }
+  }
+  return seen ? total : null;
+}
+
 function baseReportCellText(
   column: ReportColumn,
   row: LiveC2CBaseReportRow,
@@ -264,6 +299,12 @@ export default function LiveC2CReportPage() {
     reportRows !== null
     || previewing
     || (matchReport === null && selectedHouseId !== null && !housesLoading);
+  const displayedRows: LiveC2CReportRow[] = reportRows ?? baseRows ?? [];
+  const columnTotals = new Map<ReportColumn, number>();
+  for (const column of REPORT_COLUMNS) {
+    const total = reportColumnTotal(column, displayedRows);
+    if (total !== null) columnTotals.set(column, total);
+  }
   const formatNumber = (value: number) =>
     new Intl.NumberFormat(language === "bn" ? "bn-BD" : "en-US", {
       maximumFractionDigits: 2,
@@ -917,6 +958,25 @@ export default function LiveC2CReportPage() {
               );
             })
           )}
+          {!previewing && columnTotals.size > 0 && (
+            <article className="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-800">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {t("live_c2c.total_row")}
+              </h3>
+              <dl className="mt-2 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                {Array.from(columnTotals.entries()).map(([column, total]) => (
+                  <div key={column} className="flex items-center justify-between gap-3">
+                    <dt className="min-w-0 truncate text-gray-500 dark:text-gray-400">
+                      {t(`live_c2c.report_columns.${column}`)}
+                    </dt>
+                    <dd className="font-semibold text-gray-900 dark:text-gray-100">
+                      {formatNumber(total)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </article>
+          )}
         </div>
         )}
 
@@ -1012,6 +1072,24 @@ export default function LiveC2CReportPage() {
                 ))
               )}
             </tbody>
+            {!previewing && columnTotals.size > 0 && (
+              <tfoot className="bg-gray-50 font-semibold dark:bg-slate-800">
+                <tr>
+                  {REPORT_COLUMNS.map((column) => {
+                    const total = columnTotals.get(column);
+                    return (
+                      <td key={column} className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
+                        {column === "serial_number"
+                          ? t("live_c2c.total_row")
+                          : total !== undefined
+                            ? formatNumber(total)
+                            : ""}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
         )}
