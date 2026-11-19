@@ -63,6 +63,13 @@ interface LiveC2CBaseReportRow {
   c2c_achievement_pct: number;
   c2c_remaining: number;
   productivity_trans_tgt: number;
+  today_route_trans: number;
+  other_route_trans: number;
+  trans_achievement_pct: number;
+  trans_remaining: number;
+  start_time: string | null;
+  end_time: string | null;
+  serving_hours: number | null;
 }
 
 function isBaseReportRow(value: unknown): value is LiveC2CBaseReportRow {
@@ -88,6 +95,20 @@ function isBaseReportRow(value: unknown): value is LiveC2CBaseReportRow {
     && Number.isFinite(row.c2c_remaining)
     && typeof row.productivity_trans_tgt === "number"
     && Number.isFinite(row.productivity_trans_tgt)
+    && typeof row.today_route_trans === "number"
+    && Number.isFinite(row.today_route_trans)
+    && typeof row.other_route_trans === "number"
+    && Number.isFinite(row.other_route_trans)
+    && typeof row.trans_achievement_pct === "number"
+    && Number.isFinite(row.trans_achievement_pct)
+    && typeof row.trans_remaining === "number"
+    && Number.isFinite(row.trans_remaining)
+    && (typeof row.start_time === "string" || row.start_time === null)
+    && (typeof row.end_time === "string" || row.end_time === null)
+    && (
+      row.serving_hours === null
+      || (typeof row.serving_hours === "number" && Number.isFinite(row.serving_hours))
+    )
   );
 }
 
@@ -143,7 +164,59 @@ function numericReportValue(column: ReportColumn, row: LiveC2CReportRow): number
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function numericField(row: LiveC2CReportRow, field: string): number | null {
+  const value = (row as unknown as Record<string, unknown>)[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+// Achievement percentages are not summed; the total row shows the weighted
+// figure (achieved ÷ target × 100) the same way the backend report does.
+function aggregateAchievementPct(
+  rows: LiveC2CReportRow[],
+  achievedFields: readonly string[],
+  targetField: string,
+): number | null {
+  let achieved = 0;
+  let target = 0;
+  let seen = false;
+  for (const row of rows) {
+    const rowTarget = numericField(row, targetField);
+    if (rowTarget === null) continue;
+    const values = achievedFields.map((field) => numericField(row, field));
+    // Skip rows without the source columns (the base report has no trans data).
+    if (values.every((value) => value === null)) continue;
+    achieved += values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+    target += rowTarget;
+    seen = true;
+  }
+  if (!seen) return null;
+  if (target <= 0) return 0;
+  return Math.round((achieved / target) * 10000) / 100;
+}
+
 function reportColumnTotal(column: ReportColumn, rows: LiveC2CReportRow[]): number | null {
+  if (column === "c2c_achievement_pct") {
+    return aggregateAchievementPct(rows, ["total_c2c"], "productivity_c2c_tgt");
+  }
+  if (column === "trans_achievement_pct") {
+    return aggregateAchievementPct(
+      rows,
+      ["today_route_trans", "other_route_trans"],
+      "productivity_trans_tgt",
+    );
+  }
+  // Serving hours reads as an average across the RSOs that have a value.
+  if (column === "serving_hours") {
+    let hours = 0;
+    let count = 0;
+    for (const row of rows) {
+      const value = numericField(row, "serving_hours");
+      if (value === null) continue;
+      hours += value;
+      count += 1;
+    }
+    return count === 0 ? null : Math.round((hours / count) * 100) / 100;
+  }
   if (NON_TOTAL_COLUMNS.has(column)) return null;
   let total = 0;
   let seen = false;
@@ -157,11 +230,13 @@ function reportColumnTotal(column: ReportColumn, rows: LiveC2CReportRow[]): numb
   return seen ? total : null;
 }
 
+type NumberFormatter = (value: number, fractionDigits?: number) => string;
+
 function baseReportCellText(
   column: ReportColumn,
   row: LiveC2CBaseReportRow,
   index: number,
-  formatNumber: (value: number) => string,
+  formatNumber: NumberFormatter,
 ): string {
   switch (column) {
     case "serial_number":
@@ -188,10 +263,67 @@ function baseReportCellText(
       return formatNumber(row.c2c_remaining);
     case "productivity_trans_tgt":
       return formatNumber(row.productivity_trans_tgt);
-    default:
-      // Transaction-derived columns arrive with the uploaded workbook.
-      return "—";
+    case "today_route_trans":
+      return formatNumber(row.today_route_trans);
+    case "other_route_trans":
+      return formatNumber(row.other_route_trans);
+    case "trans_achievement_pct":
+      // Always two decimals so the achievement figure reads 100.00%.
+      return `${formatNumber(row.trans_achievement_pct, 2)}%`;
+    case "trans_remaining":
+      return formatNumber(row.trans_remaining);
+    case "start_time":
+      return row.start_time ?? "—";
+    case "end_time":
+      return row.end_time ?? "—";
+    case "serving_hours":
+      return row.serving_hours === null ? "—" : formatNumber(row.serving_hours);
   }
+}
+
+const RED_CELL_CLASS = "text-red-600 dark:text-red-400";
+const GREEN_CELL_CLASS = "text-green-600 dark:text-green-400";
+
+// Highlight rules: other-route workload always reads red; achievement at or
+// above 100% and a remaining target of zero or below read green.
+function reportCellToneClass(column: ReportColumn, row: LiveC2CReportRow): string {
+  if (column === "c2c_other_route" || column === "other_route_trans") {
+    return RED_CELL_CLASS;
+  }
+  const value = (row as unknown as Record<string, unknown>)[column];
+  if (typeof value !== "number" || !Number.isFinite(value)) return "";
+  if (column === "c2c_achievement_pct" || column === "trans_achievement_pct") {
+    return value >= 100 ? GREEN_CELL_CLASS : "";
+  }
+  if (column === "c2c_remaining" || column === "trans_remaining") {
+    return value <= 0 ? GREEN_CELL_CLASS : "";
+  }
+  return "";
+}
+
+// Same tone rules applied to the summed total row.
+function totalCellToneClass(column: ReportColumn, total: number): string {
+  if (column === "c2c_other_route" || column === "other_route_trans") {
+    return RED_CELL_CLASS;
+  }
+  if (column === "c2c_achievement_pct" || column === "trans_achievement_pct") {
+    return total >= 100 ? GREEN_CELL_CLASS : "";
+  }
+  if (column === "c2c_remaining" || column === "trans_remaining") {
+    return total <= 0 ? GREEN_CELL_CLASS : "";
+  }
+  return "";
+}
+
+function totalCellText(
+  column: ReportColumn,
+  total: number,
+  formatNumber: NumberFormatter,
+): string {
+  if (column === "c2c_achievement_pct" || column === "trans_achievement_pct") {
+    return `${formatNumber(total, 2)}%`;
+  }
+  return formatNumber(total);
 }
 
 function isProductivityReportRow(value: unknown): value is LiveC2CProductivityRow {
@@ -232,7 +364,7 @@ function reportCellText(
   column: ReportColumn,
   row: LiveC2CProductivityRow,
   index: number,
-  formatNumber: (value: number) => string,
+  formatNumber: NumberFormatter,
 ): string {
   switch (column) {
     case "serial_number":
@@ -264,7 +396,8 @@ function reportCellText(
     case "other_route_trans":
       return formatNumber(row.other_route_trans);
     case "trans_achievement_pct":
-      return `${formatNumber(row.trans_achievement_pct)}%`;
+      // Always two decimals so the achievement figure reads 100.00%.
+      return `${formatNumber(row.trans_achievement_pct, 2)}%`;
     case "trans_remaining":
       return formatNumber(row.trans_remaining);
     case "start_time":
@@ -330,9 +463,10 @@ export default function LiveC2CReportPage() {
     const total = reportColumnTotal(column, displayedRows);
     if (total !== null) columnTotals.set(column, total);
   }
-  const formatNumber = (value: number) =>
+  const formatNumber: NumberFormatter = (value, fractionDigits = 0) =>
     new Intl.NumberFormat(language === "bn" ? "bn-BD" : "en-US", {
-      maximumFractionDigits: 2,
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: Math.max(fractionDigits, 2),
     }).format(value);
 
   useEffect(() => {
@@ -919,7 +1053,9 @@ export default function LiveC2CReportPage() {
                             <dt className="text-xs text-gray-500 dark:text-gray-400">
                               {t(`live_c2c.report_columns.${column}`)}
                             </dt>
-                            <dd className="mt-1 break-words text-gray-900 dark:text-gray-100">
+                            <dd
+                              className={`mt-1 break-words text-gray-900 dark:text-gray-100 ${reportCellToneClass(column, row)}`}
+                            >
                               {baseReportCellText(column, row, index, formatNumber)}
                             </dd>
                           </div>
@@ -972,7 +1108,9 @@ export default function LiveC2CReportPage() {
                           <dt className="text-xs text-gray-500 dark:text-gray-400">
                             {t(`live_c2c.report_columns.${column}`)}
                           </dt>
-                          <dd className="mt-1 break-words text-gray-900 dark:text-gray-100">
+                          <dd
+                            className={`mt-1 break-words text-gray-900 dark:text-gray-100 ${reportCellToneClass(column, row)}`}
+                          >
                             {reportCellText(column, row, index, formatNumber)}
                           </dd>
                         </div>
@@ -994,8 +1132,10 @@ export default function LiveC2CReportPage() {
                     <dt className="min-w-0 truncate text-gray-500 dark:text-gray-400">
                       {t(`live_c2c.report_columns.${column}`)}
                     </dt>
-                    <dd className="font-semibold text-gray-900 dark:text-gray-100">
-                      {formatNumber(total)}
+                    <dd
+                      className={`font-semibold text-gray-900 dark:text-gray-100 ${totalCellToneClass(column, total)}`}
+                    >
+                      {totalCellText(column, total, formatNumber)}
                     </dd>
                   </div>
                 ))}
@@ -1072,7 +1212,10 @@ export default function LiveC2CReportPage() {
                   baseRows.map((row, index) => (
                     <tr key={row.employee_id} className="even:bg-gray-50 dark:even:bg-slate-800/50">
                       {REPORT_COLUMNS.map((column) => (
-                        <td key={column} className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
+                        <td
+                          key={column}
+                          className={`whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700 ${reportCellToneClass(column, row)}`}
+                        >
                           {baseReportCellText(column, row, index, formatNumber)}
                         </td>
                       ))}
@@ -1089,7 +1232,10 @@ export default function LiveC2CReportPage() {
                 reportRows.map((row, index) => (
                   <tr key={row.employee_id} className="even:bg-gray-50 dark:even:bg-slate-800/50">
                     {REPORT_COLUMNS.map((column) => (
-                      <td key={column} className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
+                      <td
+                        key={column}
+                        className={`whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700 ${reportCellToneClass(column, row)}`}
+                      >
                         {reportCellText(column, row, index, formatNumber)}
                       </td>
                     ))}
@@ -1103,11 +1249,14 @@ export default function LiveC2CReportPage() {
                   {REPORT_COLUMNS.map((column) => {
                     const total = columnTotals.get(column);
                     return (
-                      <td key={column} className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
+                      <td
+                        key={column}
+                        className={`whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700 ${total !== undefined ? totalCellToneClass(column, total) : ""}`}
+                      >
                         {column === "serial_number"
                           ? t("live_c2c.total_row")
                           : total !== undefined
-                            ? formatNumber(total)
+                            ? totalCellText(column, total, formatNumber)
                             : ""}
                       </td>
                     );

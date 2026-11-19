@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+from dataclasses import dataclass
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -9,7 +10,7 @@ from sqlalchemy import select, func, or_, and_, cast, String, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, selectinload
 from starlette.concurrency import run_in_threadpool
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 from calendar import monthrange
 
 from app.routers.deps import (
@@ -562,16 +563,68 @@ async def _load_live_c2c_rsos_and_targets(
     return rsos, targets
 
 
+@dataclass(frozen=True)
+class _LiveC2CRsoTotals:
+    """Per-RSO C2C figures derived from the stored live_c2c rows."""
+
+    c2c_today_route: float = 0.0
+    c2c_other_route: float = 0.0
+    today_route_trans: int = 0
+    other_route_trans: int = 0
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+
+
+def _live_c2c_clock(value: Optional[str]) -> Optional[time]:
+    """Parse a stored Modified ON value into a clock time.
+
+    Imports store a time-only ISO string, but old rows may hold a full
+    timestamp; both are accepted and anything unparseable is ignored.
+    """
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return time.fromisoformat(text)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).time()
+    except ValueError:
+        return None
+
+
+def _live_c2c_serving_hours(
+    start_clock: Optional[time],
+    end_clock: Optional[time],
+) -> Optional[float]:
+    if start_clock is None or end_clock is None:
+        return None
+    seconds = (
+        end_clock.hour * 3600 + end_clock.minute * 60 + end_clock.second
+        - start_clock.hour * 3600 - start_clock.minute * 60 - start_clock.second
+    )
+    return round(seconds / 3600, 2)
+
+
 async def _load_live_c2c_route_totals(
     db: AsyncSession,
     *,
     house_id: int,
-) -> dict[int, tuple[float, float]]:
-    """C2C totals per RSO from the live_c2c table, split by on_route.
+) -> dict[int, _LiveC2CRsoTotals]:
+    """C2C and transaction figures per RSO from the live_c2c table.
 
-    Returns {employee_id: (c2c_today_route, c2c_other_route)}. RSOs with no
-    live_c2c rows default to (0.0, 0.0).
+    Splits amounts by on_route (Y = today's route, N = other route), counts the
+    transactions per side, and captures the day's first/last Modified ON so the
+    report can show start time, end time and serving hours. RSOs with no
+    live_c2c rows are absent from the mapping and default to zeros.
     """
+    has_modified_on = and_(
+        LiveC2CRow.modified_on.isnot(None),
+        LiveC2CRow.modified_on != "",
+    )
     route_result = await db.execute(
         select(
             LiveC2CRow.from_msisdn,
@@ -583,14 +636,28 @@ async def _load_live_c2c_route_totals(
                 func.sum(case((LiveC2CRow.on_route == "N", LiveC2CRow.transfer_mrp))),
                 0,
             ).label("c2c_other_route"),
+            func.coalesce(
+                func.sum(case((LiveC2CRow.on_route == "Y", 1), else_=0)),
+                0,
+            ).label("today_route_trans"),
+            func.coalesce(
+                func.sum(case((LiveC2CRow.on_route == "N", 1), else_=0)),
+                0,
+            ).label("other_route_trans"),
+            func.min(case((has_modified_on, LiveC2CRow.modified_on))).label("start_time"),
+            func.max(case((has_modified_on, LiveC2CRow.modified_on))).label("end_time"),
         )
         .where(LiveC2CRow.house_id == house_id)
         .group_by(LiveC2CRow.from_msisdn)
     )
     return {
-        row.from_msisdn: (
-            float(row.c2c_today_route or 0.0),
-            float(row.c2c_other_route or 0.0),
+        row.from_msisdn: _LiveC2CRsoTotals(
+            c2c_today_route=float(row.c2c_today_route or 0.0),
+            c2c_other_route=float(row.c2c_other_route or 0.0),
+            today_route_trans=int(row.today_route_trans or 0),
+            other_route_trans=int(row.other_route_trans or 0),
+            start_time=row.start_time,
+            end_time=row.end_time,
         )
         for row in route_result.all()
     }
@@ -621,8 +688,13 @@ async def get_live_c2c_base_report(
     rows = []
     for employee in rsos:
         c2c_target, trans_target = targets.get(employee.id, (0.0, 0.0))
-        today_route, other_route = route_totals.get(employee.id, (0.0, 0.0))
+        rso_totals = route_totals.get(employee.id) or _LiveC2CRsoTotals()
+        today_route = rso_totals.c2c_today_route
+        other_route = rso_totals.c2c_other_route
         total_c2c = today_route + other_route
+        total_trans = rso_totals.today_route_trans + rso_totals.other_route_trans
+        start_clock = _live_c2c_clock(rso_totals.start_time)
+        end_clock = _live_c2c_clock(rso_totals.end_time)
         rows.append(
             {
                 "employee_id": employee.id,
@@ -644,6 +716,17 @@ async def get_live_c2c_base_report(
                 ),
                 "c2c_remaining": round(c2c_target - total_c2c, 2),
                 "productivity_trans_tgt": trans_target,
+                "today_route_trans": rso_totals.today_route_trans,
+                "other_route_trans": rso_totals.other_route_trans,
+                "trans_achievement_pct": (
+                    round(total_trans / trans_target * 100, 2)
+                    if trans_target > 0
+                    else 0.0
+                ),
+                "trans_remaining": round(trans_target - total_trans, 2),
+                "start_time": start_clock.isoformat() if start_clock else None,
+                "end_time": end_clock.isoformat() if end_clock else None,
+                "serving_hours": _live_c2c_serving_hours(start_clock, end_clock),
             }
         )
 

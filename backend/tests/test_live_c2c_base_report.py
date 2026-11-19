@@ -165,6 +165,13 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "c2c_achievement_pct": 62.92,
             "c2c_remaining": 44.5,
             "productivity_trans_tgt": 60.0,
+            "today_route_trans": 1,
+            "other_route_trans": 1,
+            "trans_achievement_pct": 3.33,
+            "trans_remaining": 58.0,
+            "start_time": "10:30:00",
+            "end_time": "10:45:00",
+            "serving_hours": 0.25,
         },
         {
             "employee_id": amina.id,
@@ -179,6 +186,13 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "c2c_achievement_pct": 0.0,
             "c2c_remaining": 0.0,
             "productivity_trans_tgt": 0.0,
+            "today_route_trans": 0,
+            "other_route_trans": 0,
+            "trans_achievement_pct": 0.0,
+            "trans_remaining": 0.0,
+            "start_time": None,
+            "end_time": None,
+            "serving_hours": None,
         },
         {
             "employee_id": body["data"]["rows"][2]["employee_id"],
@@ -193,6 +207,13 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "c2c_achievement_pct": 0.0,
             "c2c_remaining": 0.0,
             "productivity_trans_tgt": 0.0,
+            "today_route_trans": 0,
+            "other_route_trans": 0,
+            "trans_achievement_pct": 0.0,
+            "trans_remaining": 0.0,
+            "start_time": None,
+            "end_time": None,
+            "serving_hours": None,
         },
     ]
 
@@ -245,6 +266,13 @@ async def test_base_report_keeps_rows_with_missing_identity_fields(db, house):
             "c2c_achievement_pct": 0.0,
             "c2c_remaining": 0.0,
             "productivity_trans_tgt": 0.0,
+            "today_route_trans": 0,
+            "other_route_trans": 0,
+            "trans_achievement_pct": 0.0,
+            "trans_remaining": 0.0,
+            "start_time": None,
+            "end_time": None,
+            "serving_hours": None,
         },
     ]
 
@@ -339,11 +367,25 @@ async def test_base_report_route_totals_from_live_c2c_table(db, house):
     assert by_name["Yak"]["total_c2c"] == 180.0
     assert by_name["Yak"]["c2c_achievement_pct"] == 90.0
     assert by_name["Yak"]["c2c_remaining"] == 20.0
+    assert by_name["Yak"]["today_route_trans"] == 2
+    assert by_name["Yak"]["other_route_trans"] == 1
+    assert by_name["Yak"]["trans_achievement_pct"] == 75.0
+    assert by_name["Yak"]["trans_remaining"] == 1.0
+    assert by_name["Yak"]["start_time"] == "10:30:00"
+    assert by_name["Yak"]["end_time"] == "12:00:00"
+    assert by_name["Yak"]["serving_hours"] == 1.5
     assert by_name["Blank"]["c2c_today_route"] == 0.0
     assert by_name["Blank"]["c2c_other_route"] == 0.0
     assert by_name["Blank"]["total_c2c"] == 0.0
     assert by_name["Blank"]["c2c_achievement_pct"] == 0.0
     assert by_name["Blank"]["c2c_remaining"] == 0.0
+    assert by_name["Blank"]["today_route_trans"] == 0
+    assert by_name["Blank"]["other_route_trans"] == 0
+    assert by_name["Blank"]["trans_achievement_pct"] == 0.0
+    assert by_name["Blank"]["trans_remaining"] == 0.0
+    assert by_name["Blank"]["start_time"] is None
+    assert by_name["Blank"]["end_time"] is None
+    assert by_name["Blank"]["serving_hours"] is None
 
 
 async def test_base_report_accepts_itopup_view_only_permission(db, house):
