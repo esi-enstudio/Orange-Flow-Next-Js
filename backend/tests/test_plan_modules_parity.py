@@ -135,7 +135,10 @@ def test_leaf_catalog_has_no_base_module_leaves():
 
 def test_live_c2c_leaf_uses_reports_api_scope():
     assert LEAF_OWNER["/reports/live-c2c"] == "reports"
-    assert LEAF_TO_API_PREFIXES["/reports/live-c2c"] == ("/api/itopup-details",)
+    assert LEAF_TO_API_PREFIXES["/reports/live-c2c"] == (
+        "/api/itopup-details",
+        "/api/reports/live-c2c",
+    )
 
 
 def test_every_leaf_has_an_api_prefix_mapping():

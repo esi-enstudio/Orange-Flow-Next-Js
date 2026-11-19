@@ -321,7 +321,7 @@ LEAF_TO_API_PREFIXES: dict = {
     "/reports/active-lso": ("/api/reports/active-lso",),
     "/reports/active-sso": ("/api/reports/active-sso",),
     "/reports/live-activations": ("/api/reports/live-activations", "/api/live-activations"),
-    "/reports/live-c2c": ("/api/itopup-details",),
+    "/reports/live-c2c": ("/api/itopup-details", "/api/reports/live-c2c"),
     "/reports/ga-report-builder": ("/api/ga-report-builder",),
     "/reports/ga-query": ("/api/ga-query",),
     "/reports/scratch-card": ("/api/scratch-card",),

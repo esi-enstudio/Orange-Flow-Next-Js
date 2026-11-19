@@ -515,6 +515,65 @@ async def get_live_c2c_rsos(
         },
     }
 
+@router.get("/reports/live-c2c/rsos")
+async def get_live_c2c_base_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["reports.view", "itopup.view"])),
+    house_id: int = Depends(require_house_context),
+):
+    _assert_house_access(current_user, house_id)
+    house = await db.scalar(select(House).where(House.id == house_id))
+    if house is None:
+        raise HTTPException(status_code=404, detail="live_c2c_house_not_found")
+
+    today = now_naive().date()
+    target_date = date(today.year, today.month, 1)
+
+    rso_result = await db.execute(
+        select(Employee)
+        .where(
+            Employee.house_id == house_id,
+            Employee.employee_type == "rso",
+            Employee.status == "Active",
+        )
+        .order_by(Employee.dms_code, Employee.id)
+    )
+    rsos = rso_result.scalars().all()
+
+    target_result = await db.execute(
+        select(RSOTarget).where(
+            RSOTarget.house_id == house_id,
+            RSOTarget.target_date == target_date,
+        )
+    )
+    targets = {
+        target.employee_id: (
+            float(target.productivity_c2c_tgt or 0.0),
+            float(target.productivity_trans_tgt or 0.0),
+        )
+        for target in target_result.scalars().all()
+    }
+
+    return {
+        "success": True,
+        "data": {
+            "target_date": target_date.isoformat(),
+            "rows": [
+                {
+                    "employee_id": employee.id,
+                    "house_code": house.code,
+                    "dms_code": employee.dms_code,
+                    "rso_name": employee.employee_name or employee.dms_code or "",
+                    "rso_itop_number": employee.itop_number,
+                    "productivity_c2c_tgt": targets.get(employee.id, (0.0, 0.0))[0],
+                    "productivity_trans_tgt": targets.get(employee.id, (0.0, 0.0))[1],
+                }
+                for employee in rsos
+            ],
+        },
+    }
+
+
 @router.get("/reports/live-c2c")
 async def get_live_c2c_rows(
     pagination: PaginationParams = Depends(),
