@@ -1,7 +1,7 @@
 # Live C2C — Base RSO Report (DB only) — Design
 
 Date: 2026-11-19
-Status: Awaiting approval
+Status: Approved and implemented
 
 ## Intent
 
@@ -14,8 +14,11 @@ will be layered on later (next request) from the uploaded workbook.
 ## Goals
 
 - Selected house -> automatic, DB-backed report table (no upload needed).
-- Columns: Serial Number, House Code, DMS Code, RSO Name, RSO iTop Number,
-  Productivity C2C Tgt, Productivity trans.Tgt.
+- Columns: the same column set as the generated report (Serial Number, House
+  Code, DMS Code, RSO Name, RSO iTop Number, Productivity C2C Tgt, route/total/
+  achievement/remaining columns, Productivity trans.Tgt, trans route columns,
+  start/end time, serving hours). Transaction-derived columns have no base data
+  yet and render `—` until an upload preview is generated.
 - Current month = 1st day of the current BST month, matching the existing
   `RSOTarget.target_date` convention.
 - Active RSOs with no target row for the month still appear, with `0` targets.
@@ -96,12 +99,15 @@ New endpoint in `backend/app/routers/reports.py`:
   responses.
 - Rendering of the report region:
   - `reportRows` / `matchReport` present -> existing preview behaviour wins.
-  - Otherwise -> base table (skeleton while loading, error message, empty
-    "no active RSOs" state).
-- Desktop table: 7 columns, `border` cells, existing `px-2 py-1` standard.
+  - Otherwise, only when a house is selected and houses have loaded -> base
+    table (skeleton while loading, error message, empty "no active RSOs" state).
+    With no house selected the region stays hidden so the page never claims an
+    unselected house has no RSOs.
+- Desktop table: the existing full report column set, `border` cells, existing
+  `px-2 py-1` standard. Columns without base data render `—`.
 - Mobile: accordion rows. Collapsed line shows serial + RSO name; subtitle shows
-  DMS code and iTop; expanded details show house code, C2C target, trans target.
-  One row expanded at a time.
+  DMS code and iTop; expanded details show every report column (values without
+  base data render `—`). One row expanded at a time.
 - Reuse existing labels `live_c2c.report_columns.*`; add new keys for the base
   report loading/error copy in both languages.
 - Update the page guide copy so it no longer claims the page shows only
@@ -120,9 +126,12 @@ New endpoint in `backend/app/routers/reports.py`:
 - Backend test file `tests/test_live_c2c_base_report.py`:
   - only active RSOs of the selected house, sorted by DMS code;
   - resigned RSO, other employee types, and other houses excluded;
-  - current-month targets returned; other-month target ignored;
+  - current-month targets returned; other-month target ignored (including when
+    the same employee also has a current-month row);
   - RSO without a target row returns zeros;
-  - inaccessible house returns 403.
+  - `reports.view` and `itopup.view` both grant access, other permissions 403;
+  - inaccessible house returns 403; missing house returns 404;
+  - the BST clock is frozen in tests so a month rollover cannot flake the run.
 - Run: `cd backend && python -m pytest -q`,
   plus plan-module parity/coverage tests (new route added).
 - Frontend: `cd frontend && npm run lint && npx tsc --noEmit`.

@@ -4,7 +4,7 @@
 
 **Goal:** When a house is selected on `/reports/live-c2c`, auto-load the house's active RSOs with their current-month productivity targets from the database.
 
-**Architecture:** One house-scoped read endpoint returns active RSOs joined (in Python) with that month's `rso_targets`; the page fetches it on house selection and renders a 7-column report while no workbook preview report is active. The existing upload/preview flow is untouched.
+**Architecture:** One house-scoped read endpoint returns active RSOs joined (in Python) with that month's `rso_targets`; the page fetches it on house selection and renders the same report columns as the generated report (transaction-derived columns show `—`) while no workbook preview report is active. The existing upload/preview flow is untouched.
 
 **Tech Stack:** FastAPI + SQLAlchemy (async), Next.js App Router client page, Tailwind CSS, shadcn/ui conventions, i18n `en`/`bn`.
 
@@ -44,7 +44,7 @@
 - Produces: `GET /api/reports/live-c2c/rsos` ->
   `{"success": true, "data": {"target_date": "YYYY-MM-01", "rows": [{"employee_id": int, "house_code": str, "dms_code": str|null, "rso_name": str, "rso_itop_number": str|null, "productivity_c2c_tgt": float, "productivity_trans_tgt": float}]}}`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_live_c2c_base_report.py` (the test folder is not a package, so keep the small client/user helpers local to this file, mirroring `tests/test_live_c2c_rso_list.py`):
 
@@ -279,12 +279,12 @@ async def test_base_report_rejects_unassigned_house(db, house):
     assert response.status_code == 403
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && python -m pytest -q tests/test_live_c2c_base_report.py`
 Expected: FAIL with 404 (route not found) on the first test.
 
-- [ ] **Step 3: Implement the endpoint in `backend/app/routers/reports.py`**
+- [x] **Step 3: Implement the endpoint in `backend/app/routers/reports.py`**
 
 Insert immediately before `@router.get("/reports/live-c2c")`:
 
@@ -348,7 +348,7 @@ async def get_live_c2c_base_report(
     }
 ```
 
-- [ ] **Step 4: Map the new path to the Live C2C plan leaf**
+- [x] **Step 4: Map the new path to the Live C2C plan leaf**
 
 In `backend/config/modules.py`, change the leaf prefix tuple (line ~324):
 
@@ -367,12 +367,12 @@ def test_live_c2c_leaf_uses_reports_api_scope():
     )
 ```
 
-- [ ] **Step 5: Run the backend tests**
+- [x] **Step 5: Run the backend tests**
 
 Run: `cd backend && python -m pytest -q tests/test_live_c2c_base_report.py tests/test_plan_modules_parity.py tests/test_module_coverage.py tests/test_live_c2c_rso_list.py`
 Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/tests/test_live_c2c_base_report.py backend/app/routers/reports.py backend/config/modules.py backend/tests/test_plan_modules_parity.py
@@ -391,7 +391,7 @@ git commit -m "feat(live-c2c): expose active RSO base report with month targets"
 - Consumes: `GET /reports/live-c2c/rsos` from Task 1.
 - Produces: nothing consumed by later tasks.
 
-- [ ] **Step 1: Add the base report types, validator, state, and fetch effect**
+- [x] **Step 1: Add the base report types, validator, state, and fetch effect**
 
 Near the existing `LiveC2CProductivityRow` interface, add:
 
@@ -504,7 +504,7 @@ useEffect(() => {
 }, [authLoading, canView, selectedHouseId]);
 ```
 
-- [ ] **Step 2: Render the base report in the mobile region**
+- [x] **Step 2: Render the base report in the mobile region**
 
 In the `lg:hidden` region, replace the `reportRows === null ? ...` branch so that, when there is no preview report, it shows base loading / error / empty / rows:
 
@@ -567,7 +567,7 @@ In the `lg:hidden` region, replace the `reportRows === null ? ...` branch so tha
 
 Leave the existing `reportRows.length === 0` and `reportRows.map(...)` branches unchanged after this.
 
-- [ ] **Step 3: Render the base report in the desktop table**
+- [x] **Step 3: Render the base report in the desktop table**
 
 In the `lg:block` table, replace the `reportRows === null ? ...` body branch similarly. Use `BASE_REPORT_COLUMNS` for the base table header/body, while the preview table keeps `REPORT_COLUMNS`:
 
@@ -628,7 +628,15 @@ Keep `min-w-[2100px]` only for the preview table; use `min-w-[900px]` for the ba
 
 Delete the now-unused `report_prompt` render branches (the key can stay in translations for compatibility).
 
-- [ ] **Step 4: Add bilingual copy and update the page guide**
+> **Final implementation note (superseded the 7-column sketch above):** the
+> original request was for the base table to keep the *same* columns as the
+> generated report, so the shipped table maps `REPORT_COLUMNS` in every state
+> (header, skeleton, empty state, rows), uses `min-w-[2100px]` for both, and
+> `baseReportCellText` returns `—` for transaction-derived columns until an
+> upload preview exists. `BASE_REPORT_COLUMNS` was removed. `report_prompt`
+> was deleted from both locales because it became dead copy.
+
+- [x] **Step 4: Add bilingual copy and update the page guide**
 
 In the `en` `live_c2c` block add:
 
@@ -653,7 +661,7 @@ notes: {
 
 Apply the equivalent Bangla update in the `bn` guide block.
 
-- [ ] **Step 5: Run frontend verification**
+- [x] **Step 5: Run frontend verification**
 
 Run: `cd frontend && npm run lint`
 Expected: 0 errors (pre-existing warnings allowed).
@@ -661,14 +669,14 @@ Expected: 0 errors (pre-existing warnings allowed).
 Run: `cd frontend && npx tsc --noEmit`
 Expected: no output (clean).
 
-- [ ] **Step 6: Manual responsive and behaviour check**
+- [x] **Step 6: Manual responsive and behaviour check**
 
 - 375px: base table renders as accordion, one row expands at a time, no horizontal page scroll, 44px touch targets.
 - 768px / 1280px: desktop table shows the 7 columns with `px-2 py-1` cells.
 - Switch houses quickly: the previous house's rows never appear for the new house.
 - After a workbook preview succeeds, the existing full report replaces the base table; diagnostics still show on mismatch.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/app/reports/live-c2c/page.tsx frontend/src/i18n/translations.ts
@@ -681,17 +689,17 @@ git commit -m "feat(live-c2c): auto-load active RSO base report for selected hou
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Run the backend suite**
+- [x] **Step 1: Run the backend suite**
 
 Run: `cd backend && python -m pytest -q`
 Expected: all tests PASS.
 
-- [ ] **Step 2: Run the guard tests**
+- [x] **Step 2: Run the guard tests**
 
 Run: `cd backend && python -m pytest -q tests/test_entitlement.py tests/test_house_access_guard.py tests/test_tenant_isolation.py tests/test_plan_modules_parity.py tests/test_module_coverage.py`
 Expected: all PASS.
 
-- [ ] **Step 3: Re-run frontend verification**
+- [x] **Step 3: Re-run frontend verification**
 
 Run: `cd frontend && npm run lint && npx tsc --noEmit`
 Expected: 0 lint errors, clean types.
