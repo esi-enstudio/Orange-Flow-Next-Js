@@ -20,6 +20,19 @@ Avoid:
 - Inconsistent styles
 - Duplicate components
 
+## Standard Page Header
+
+Every page header, on both new and existing routes, follows the same structure:
+
+1. **Breadcrumb** at the top: Home → section/category (when applicable) → current page. Link only to routes that exist; render non-routable categories as text. Use a localized `nav` element with `aria-label`, and mark the current page with `aria-current="page"`.
+2. **Title row** below the breadcrumb: a 40×40 rounded, primary-tinted icon tile, the page `<h1>`, and the `PageGuideModal` immediately after the heading.
+3. **Subtitle** directly below the title: one concise sentence explaining the page, with matching `en` and `bn` translation keys.
+4. **Divider** below the header, using the existing light/dark border colors and spacing conventions.
+
+Use the existing Tailwind theme colors, Lucide icons, translation system, and `PageGuideModal`; do not add inline styles, custom color scales, fake breadcrumb links, or a second guide control. Keep the header responsive and prevent horizontal overflow. See `frontend/src/app/reports/live-c2c/page.tsx` for the reference layout.
+
+This standard applies to all routes. New pages must use it by default; when an existing page header is modified, bring it into compliance. A bulk retrofit of untouched pages requires a separate task.
+
 ### Project-wide Date Display Format
 
 Display dates consistently as `DD MMM YYYY` with an English, abbreviated month, for example `06 Nov 2026`. Apply this format throughout the project anywhere a date is presented to users, including pages, tables, reports, exports, and notifications. Keep API/database date values and machine-readable formats unchanged; format them only at the presentation boundary. When a date is unavailable or invalid, use the existing localized empty-value convention.

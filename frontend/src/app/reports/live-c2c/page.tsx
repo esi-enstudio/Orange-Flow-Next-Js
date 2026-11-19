@@ -1,8 +1,18 @@
 "use client";
 
 import axios from "axios";
+import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { ChevronDown, Download, Share2 } from "lucide-react";
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  FileSpreadsheet,
+  Home,
+  Share2,
+  Store,
+} from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -717,45 +727,81 @@ export default function LiveC2CReportPage() {
   if (!authLoading && !canView) return <AccessDenied />;
 
   return (
-    <main className="mx-auto min-h-screen max-w-[1600px] min-w-0 p-2 pb-8 sm:p-6">
-      <header className="flex items-center gap-2.5">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          {t("live_c2c.title")}
-        </h1>
-        <PageGuideModal pageKey="live_c2c" />
+    <main className="mx-auto min-h-screen max-w-[1600px] min-w-0 p-2 pb-8 sm:px-6 sm:pb-8 sm:pt-2">
+      <header className="mb-4 border-b border-gray-200 pb-4 dark:border-slate-700">
+        <nav aria-label={t("live_c2c.breadcrumb_label")} className="-mt-2 mb-4 text-[13px]">
+          <ol className="flex flex-wrap items-center gap-1.5 text-gray-500 dark:text-gray-400">
+            <li>
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-gray-700 dark:hover:text-gray-200"
+              >
+                <Home aria-hidden="true" className="size-4" />
+                {t("live_c2c.breadcrumb_home")}
+              </Link>
+            </li>
+            <li aria-hidden="true">
+              <ChevronRight className="size-3.5" />
+            </li>
+            <li>{t("live_c2c.breadcrumb_reports")}</li>
+            <li aria-hidden="true">
+              <ChevronRight className="size-3.5" />
+            </li>
+            <li aria-current="page" className="font-medium text-gray-700 dark:text-gray-300">
+              {t("live_c2c.title")}
+            </li>
+          </ol>
+        </nav>
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+            <BarChart3 aria-hidden="true" className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+                {t("live_c2c.title")}
+              </h1>
+              <PageGuideModal pageKey="live_c2c" />
+            </div>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {t("live_c2c.subtitle")}
+            </p>
+          </div>
+        </div>
       </header>
 
-      <section className="mt-5 min-w-0 space-y-4">
-        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-          {housesLoading ? (
-            <div
-              role="status"
-              aria-label={t("live_c2c.houses_loading")}
-              className="h-11 w-full animate-pulse rounded-xl bg-gray-100 sm:max-w-xs dark:bg-slate-800"
-            />
-          ) : housesError ? (
-            <p
-              role="alert"
-              className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
-            >
-              {t("live_c2c.houses_error")}
-            </p>
-          ) : houses.length === 0 ? (
-            <p
-              role="alert"
-              className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
-            >
-              {t("live_c2c.no_houses")}
-            </p>
-          ) : houses.length === 1 ? (
-            <p className="min-h-11 rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700 dark:bg-slate-800 dark:text-gray-200">
-              <span className="font-semibold">{t("live_c2c.house_label")}: </span>
-              {selectedHouse?.name}
-            </p>
-          ) : (
-            <div className="w-full sm:max-w-xs">
+      <section className="mt-4 min-w-0 space-y-4">
+        <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:items-center">
+          <div className="w-full min-w-0 sm:max-w-[340px] sm:flex-1">
+            {housesLoading ? (
+              <div
+                role="status"
+                aria-label={t("live_c2c.houses_loading")}
+                className="h-11 w-full animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800"
+              />
+            ) : housesError ? (
+              <p
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+              >
+                {t("live_c2c.houses_error")}
+              </p>
+            ) : houses.length === 0 ? (
+              <p
+                role="alert"
+                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+              >
+                {t("live_c2c.no_houses")}
+              </p>
+            ) : houses.length === 1 ? (
+              <div className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200">
+                <Store aria-hidden="true" className="size-4 shrink-0 text-gray-400" />
+                <span className="truncate">{selectedHouse?.name}</span>
+              </div>
+            ) : (
               <EntitySelector
                 label={t("live_c2c.house_label")}
+                hideLabel
                 items={houses.map((house) => ({
                   id: String(house.id),
                   label: house.name,
@@ -772,48 +818,57 @@ export default function LiveC2CReportPage() {
                 showSelectAll={false}
                 clearLabel={t("live_c2c.clear_selection")}
               />
-            </div>
-          )}
+            )}
+          </div>
 
-          {canImport && (
+          {selectedHouseId !== null && (canImport || canShare || selectedFile) && (
             <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xlsb,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.binary.macroEnabled.12"
-                aria-label={t("live_c2c.upload_button")}
-                onChange={handleFileChange}
-                className="sr-only"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={processing || housesLoading || housesError || !selectedHouseId}
-                className="inline-flex h-11 w-full min-w-11 items-center justify-center rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:w-auto"
-              >
-                {t(readingWorkbook ? "live_c2c.processing" : "live_c2c.upload_button")}
-              </button>
+              <div aria-hidden="true" className="h-px w-full bg-gray-200 dark:bg-slate-700 sm:h-10 sm:w-px sm:shrink-0" />
+
+              <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
+                {canImport && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx,.xlsb,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.binary.macroEnabled.12"
+                      aria-label={t("live_c2c.upload_button")}
+                      onChange={handleFileChange}
+                      className="sr-only"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={processing || housesLoading || housesError}
+                      className="inline-flex h-11 min-w-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:flex-none"
+                    >
+                      <FileSpreadsheet aria-hidden="true" className="size-[18px]" />
+                      {t(readingWorkbook ? "live_c2c.processing" : "live_c2c.upload_button")}
+                    </button>
+                  </>
+                )}
+
+                {canShare && (
+                  <button
+                    type="button"
+                    onClick={() => setWsModalOpen(true)}
+                    disabled={processing}
+                    aria-label={t("live_c2c.share_report")}
+                    title={t("live_c2c.share_report")}
+                    className="inline-flex h-11 min-h-11 min-w-11 flex-1 items-center justify-center gap-2 rounded-xl border border-green-300 bg-white px-4 text-sm font-semibold text-green-600 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer dark:border-green-500/40 dark:bg-slate-900 dark:text-green-400 dark:hover:bg-green-500/10 sm:flex-none"
+                  >
+                    <Share2 aria-hidden="true" className="size-[18px]" />
+                    <span>{t("live_c2c.share_button")}</span>
+                  </button>
+                )}
+
+                {selectedFile && (
+                  <span className="min-h-11 max-w-full content-center truncate text-sm text-gray-600 dark:text-gray-300">
+                    {selectedFile.name}
+                  </span>
+                )}
+              </div>
             </>
-          )}
-
-          {canShare && (
-            <button
-              type="button"
-              onClick={() => setWsModalOpen(true)}
-              disabled={!selectedHouseId || processing}
-              aria-label={t("live_c2c.share_report")}
-              title={t("live_c2c.share_report")}
-              className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-xl border border-green-300 bg-white px-3 text-green-600 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer dark:border-green-500/40 dark:bg-slate-900 dark:text-green-400 dark:hover:bg-green-500/10"
-            >
-              <Share2 aria-hidden="true" className="size-4" />
-              <span className="sr-only">{t("live_c2c.share_report")}</span>
-            </button>
-          )}
-
-          {selectedFile && (
-            <span className="min-h-11 max-w-full content-center truncate text-sm text-gray-600 dark:text-gray-300">
-              {selectedFile.name}
-            </span>
           )}
         </div>
 

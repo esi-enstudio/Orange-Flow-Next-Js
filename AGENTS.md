@@ -30,7 +30,7 @@ This file holds only what applies to **every** task: precedence, language, skill
 | Forms, input types, validation, error handling | [forms-validation.md](docs/agents/forms-validation.md) |
 | Tables, models, migrations, soft delete | [database.md](docs/agents/database.md) |
 | Mutations, activity log | [audit-log.md](docs/agents/audit-log.md) |
-| Any UI: selects, filters, tables, titles, skeletons | [ui-ux.md](docs/agents/ui-ux.md) |
+| Any UI: page headers, selects, filters, tables, titles, skeletons | [ui-ux.md](docs/agents/ui-ux.md) |
 | Mobile / tablet / desktop behaviour | [responsive.md](docs/agents/responsive.md) |
 | Page Guide, time-based status, table accordion | [ui-components.md](docs/agents/ui-components.md) |
 | Any user-visible text (bn/en) | [i18n.md](docs/agents/i18n.md) |
@@ -42,12 +42,13 @@ This file holds only what applies to **every** task: precedence, language, skill
 
 ## Non-Negotiables
 
-These four apply to almost every change. Details are in the linked docs.
+These five apply to almost every change. Details are in the linked docs.
 
 1. **Permissions** - every endpoint, button, menu item and route is permission controlled. Never trust frontend data. ([permissions.md](docs/agents/permissions.md))
 2. **House isolation** - every data model carries `house_id`; every query is house-scoped. ([multi-tenancy.md](docs/agents/multi-tenancy.md))
 3. **Bilingual** - every user-visible string has `en` and `bn` keys. ([i18n.md](docs/agents/i18n.md))
 4. **Audit** - every mutation writes an activity log entry. ([audit-log.md](docs/agents/audit-log.md))
+5. **Page headers** - every page follows the shared breadcrumb, icon/title, and subtitle pattern. ([ui-ux.md](docs/agents/ui-ux.md))
 
 
 ---
