@@ -33,7 +33,10 @@ will be layered on later (next request) from the uploaded workbook.
 - No change to `preview_live_c2c_import`, `/reports/live-c2c/preview`,
   `/reports/live-c2c/import`, diagnostics, mismatch export, or the uploaded
   workbook flow.
-- No new transaction totals, achievement %, remaining, or serving hours.
+- No new transaction counts, trans achievement/remaining, times or serving
+  hours. The C2C side is DB-backed: route-wise `transfer_mrp` sums from the
+  `live_c2c` table (on_route `Y` -> today's route, `N` -> other route), with
+  Total C2C, Ach% (against `productivity_c2c_tgt`) and Remain derived from them.
 - No new module, permission key, nav item, or route.
 - No pagination for this report (matches the existing preview report, which
   returns all active RSOs in one response).

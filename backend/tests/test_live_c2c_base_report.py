@@ -161,6 +161,9 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "productivity_c2c_tgt": 120.0,
             "c2c_today_route": 25.5,
             "c2c_other_route": 50.0,
+            "total_c2c": 75.5,
+            "c2c_achievement_pct": 62.92,
+            "c2c_remaining": 44.5,
             "productivity_trans_tgt": 60.0,
         },
         {
@@ -172,6 +175,9 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "productivity_c2c_tgt": 0.0,
             "c2c_today_route": 0.0,
             "c2c_other_route": 0.0,
+            "total_c2c": 0.0,
+            "c2c_achievement_pct": 0.0,
+            "c2c_remaining": 0.0,
             "productivity_trans_tgt": 0.0,
         },
         {
@@ -183,6 +189,9 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "productivity_c2c_tgt": 0.0,
             "c2c_today_route": 0.0,
             "c2c_other_route": 0.0,
+            "total_c2c": 0.0,
+            "c2c_achievement_pct": 0.0,
+            "c2c_remaining": 0.0,
             "productivity_trans_tgt": 0.0,
         },
     ]
@@ -232,6 +241,9 @@ async def test_base_report_keeps_rows_with_missing_identity_fields(db, house):
             "productivity_c2c_tgt": 0.0,
             "c2c_today_route": 0.0,
             "c2c_other_route": 0.0,
+            "total_c2c": 0.0,
+            "c2c_achievement_pct": 0.0,
+            "c2c_remaining": 0.0,
             "productivity_trans_tgt": 0.0,
         },
     ]
@@ -286,6 +298,10 @@ async def test_base_report_route_totals_from_live_c2c_table(db, house):
     db.add_all([yak, blank])
     await db.flush()
     db.add_all([
+        RSOTarget(
+            house_id=house.id, employee_id=yak.id, target_date=_current_month(),
+            productivity_c2c_tgt=200.0, productivity_trans_tgt=4.0,
+        ),
         LiveC2CRow(
             house_id=house.id, from_msisdn=yak.id, to_msisdn=1,
             on_route="Y", modified_on="2026-11-17 10:30", transfer_mrp=100.00,
@@ -320,8 +336,14 @@ async def test_base_report_route_totals_from_live_c2c_table(db, house):
     by_name = {row["rso_name"]: row for row in rows}
     assert by_name["Yak"]["c2c_today_route"] == 150.0
     assert by_name["Yak"]["c2c_other_route"] == 30.0
+    assert by_name["Yak"]["total_c2c"] == 180.0
+    assert by_name["Yak"]["c2c_achievement_pct"] == 90.0
+    assert by_name["Yak"]["c2c_remaining"] == 20.0
     assert by_name["Blank"]["c2c_today_route"] == 0.0
     assert by_name["Blank"]["c2c_other_route"] == 0.0
+    assert by_name["Blank"]["total_c2c"] == 0.0
+    assert by_name["Blank"]["c2c_achievement_pct"] == 0.0
+    assert by_name["Blank"]["c2c_remaining"] == 0.0
 
 
 async def test_base_report_accepts_itopup_view_only_permission(db, house):

@@ -59,6 +59,9 @@ interface LiveC2CBaseReportRow {
   productivity_c2c_tgt: number;
   c2c_today_route: number;
   c2c_other_route: number;
+  total_c2c: number;
+  c2c_achievement_pct: number;
+  c2c_remaining: number;
   productivity_trans_tgt: number;
 }
 
@@ -77,6 +80,12 @@ function isBaseReportRow(value: unknown): value is LiveC2CBaseReportRow {
     && Number.isFinite(row.c2c_today_route)
     && typeof row.c2c_other_route === "number"
     && Number.isFinite(row.c2c_other_route)
+    && typeof row.total_c2c === "number"
+    && Number.isFinite(row.total_c2c)
+    && typeof row.c2c_achievement_pct === "number"
+    && Number.isFinite(row.c2c_achievement_pct)
+    && typeof row.c2c_remaining === "number"
+    && Number.isFinite(row.c2c_remaining)
     && typeof row.productivity_trans_tgt === "number"
     && Number.isFinite(row.productivity_trans_tgt)
   );
@@ -167,6 +176,16 @@ function baseReportCellText(
       return row.rso_itop_number || "—";
     case "productivity_c2c_tgt":
       return formatNumber(row.productivity_c2c_tgt);
+    case "c2c_today_route":
+      return formatNumber(row.c2c_today_route);
+    case "c2c_other_route":
+      return formatNumber(row.c2c_other_route);
+    case "total_c2c":
+      return formatNumber(row.total_c2c);
+    case "c2c_achievement_pct":
+      return `${formatNumber(row.c2c_achievement_pct)}%`;
+    case "c2c_remaining":
+      return formatNumber(row.c2c_remaining);
     case "productivity_trans_tgt":
       return formatNumber(row.productivity_trans_tgt);
     default:

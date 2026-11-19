@@ -618,24 +618,40 @@ async def get_live_c2c_base_report(
         house_id=house_id,
     )
 
+    rows = []
+    for employee in rsos:
+        c2c_target, trans_target = targets.get(employee.id, (0.0, 0.0))
+        today_route, other_route = route_totals.get(employee.id, (0.0, 0.0))
+        total_c2c = today_route + other_route
+        rows.append(
+            {
+                "employee_id": employee.id,
+                "house_code": house.code,
+                "dms_code": employee.dms_code,
+                "rso_name": employee.employee_name or employee.dms_code or "",
+                "rso_itop_number": employee.itop_number,
+                "productivity_c2c_tgt": c2c_target,
+                "c2c_today_route": today_route,
+                "c2c_other_route": other_route,
+                "total_c2c": total_c2c,
+                # Same achievement/remaining semantics as the workbook report:
+                # zero percent when the target is zero, and remaining may be
+                # negative once the target is exceeded.
+                "c2c_achievement_pct": (
+                    round(total_c2c / c2c_target * 100, 2)
+                    if c2c_target > 0
+                    else 0.0
+                ),
+                "c2c_remaining": round(c2c_target - total_c2c, 2),
+                "productivity_trans_tgt": trans_target,
+            }
+        )
+
     return {
         "success": True,
         "data": {
             "target_date": target_date.isoformat(),
-            "rows": [
-                {
-                    "employee_id": employee.id,
-                    "house_code": house.code,
-                    "dms_code": employee.dms_code,
-                    "rso_name": employee.employee_name or employee.dms_code or "",
-                    "rso_itop_number": employee.itop_number,
-                    "productivity_c2c_tgt": targets.get(employee.id, (0.0, 0.0))[0],
-                    "c2c_today_route": route_totals.get(employee.id, (0.0, 0.0))[0],
-                    "c2c_other_route": route_totals.get(employee.id, (0.0, 0.0))[1],
-                    "productivity_trans_tgt": targets.get(employee.id, (0.0, 0.0))[1],
-                }
-                for employee in rsos
-            ],
+            "rows": rows,
         },
     }
 
