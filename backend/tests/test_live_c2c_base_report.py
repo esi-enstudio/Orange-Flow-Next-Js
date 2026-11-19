@@ -347,8 +347,20 @@ async def test_base_report_route_totals_from_live_c2c_table(db, house):
             created_by=1,
         ),
         LiveC2CRow(
+            house_id=house.id, from_msisdn=yak.id, to_msisdn=1,
+            on_route="Y", modified_on="2026-11-17 11:30", transfer_mrp=25.00,
+            source_filename="test.xlsx", source_sheet="C2C Data",
+            created_by=1,
+        ),
+        LiveC2CRow(
             house_id=house.id, from_msisdn=yak.id, to_msisdn=3,
             on_route="N", modified_on="2026-11-17 12:00", transfer_mrp=30.00,
+            source_filename="test.xlsx", source_sheet="C2C Data",
+            created_by=1,
+        ),
+        LiveC2CRow(
+            house_id=house.id, from_msisdn=yak.id, to_msisdn=3,
+            on_route="N", modified_on="2026-11-17 12:30", transfer_mrp=15.00,
             source_filename="test.xlsx", source_sheet="C2C Data",
             created_by=1,
         ),
@@ -366,19 +378,19 @@ async def test_base_report_route_totals_from_live_c2c_table(db, house):
     assert response.status_code == 200
     rows = response.json()["data"]["rows"]
     by_name = {row["rso_name"]: row for row in rows}
-    assert by_name["Yak"]["c2c_today_route"] == 150.0
-    assert by_name["Yak"]["c2c_other_route"] == 30.0
-    assert by_name["Yak"]["total_c2c"] == 180.0
-    assert by_name["Yak"]["c2c_achievement_pct"] == 90.0
-    assert by_name["Yak"]["c2c_remaining"] == 20.0
+    assert by_name["Yak"]["c2c_today_route"] == 175.0
+    assert by_name["Yak"]["c2c_other_route"] == 45.0
+    assert by_name["Yak"]["total_c2c"] == 220.0
+    assert by_name["Yak"]["c2c_achievement_pct"] == 110.0
+    assert by_name["Yak"]["c2c_remaining"] == -20.0
     assert by_name["Yak"]["today_route_trans"] == 2
     assert by_name["Yak"]["other_route_trans"] == 1
     assert by_name["Yak"]["total_trans"] == 3
     assert by_name["Yak"]["trans_achievement_pct"] == 75.0
     assert by_name["Yak"]["trans_remaining"] == 1.0
     assert by_name["Yak"]["start_time"] == "10:30:00"
-    assert by_name["Yak"]["end_time"] == "12:00:00"
-    assert by_name["Yak"]["serving_hours"] == 1.5
+    assert by_name["Yak"]["end_time"] == "12:30:00"
+    assert by_name["Yak"]["serving_hours"] == 2.0
     assert by_name["Blank"]["c2c_today_route"] == 0.0
     assert by_name["Blank"]["c2c_other_route"] == 0.0
     assert by_name["Blank"]["total_c2c"] == 0.0

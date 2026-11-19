@@ -121,9 +121,9 @@ async def load_live_c2c_route_totals(
 ) -> dict[int, LiveC2CRsoTotals]:
     """C2C and transaction figures per RSO from the live_c2c table.
 
-    Splits amounts by on_route (Y = today's route, N = other route), counts the
-    transactions per side, and captures the day's first/last Modified ON so the
-    report can show start time, end time and serving hours. RSOs with no
+    Splits amounts by on_route (Y = today's route, N = other route), counts
+    unique retailers per side, and captures the day's first/last Modified ON
+    so the report can show start time, end time and serving hours. RSOs with no
     live_c2c rows are absent from the mapping and default to zeros.
     """
     has_modified_on = and_(
@@ -141,13 +141,19 @@ async def load_live_c2c_route_totals(
                 func.sum(case((LiveC2CRow.on_route == "N", LiveC2CRow.transfer_mrp))),
                 0,
             ).label("c2c_other_route"),
-            func.coalesce(
-                func.sum(case((LiveC2CRow.on_route == "Y", 1), else_=0)),
-                0,
+            func.count(
+                func.distinct(
+                    case(
+                        (LiveC2CRow.on_route == "Y", LiveC2CRow.to_msisdn)
+                    )
+                )
             ).label("today_route_trans"),
-            func.coalesce(
-                func.sum(case((LiveC2CRow.on_route == "N", 1), else_=0)),
-                0,
+            func.count(
+                func.distinct(
+                    case(
+                        (LiveC2CRow.on_route == "N", LiveC2CRow.to_msisdn)
+                    )
+                )
             ).label("other_route_trans"),
             func.min(case((has_modified_on, LiveC2CRow.modified_on))).label("start_time"),
             func.max(case((has_modified_on, LiveC2CRow.modified_on))).label("end_time"),
