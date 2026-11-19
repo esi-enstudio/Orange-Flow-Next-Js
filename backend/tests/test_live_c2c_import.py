@@ -229,7 +229,7 @@ def _workbook_bytes(*, headers, sheet_name="C2C Data", rows=()):
     return output.getvalue()
 
 
-async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house(db, house):
+async def test_selected_sheet_import_appends_only_the_selected_house_rows(db, house):
     other_house = House(code="C2C-OTHER", name="Other House", email="other@example.com")
     db.add(other_house)
     await db.flush()
@@ -326,9 +326,10 @@ async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house
     assert response.json()["data"]["imported_rows"] == 1
     assert report_response.status_code == 200
     report_rows = report_response.json()["data"]
-    assert len(report_rows) == 1
+    # The house's earlier row is kept; the upload is appended after it.
+    assert len(report_rows) == 2
     assert {
-        key: report_rows[0][key]
+        key: report_rows[1][key]
         for key in ("from_msisdn", "to_msisdn", "modified_on", "transfer_mrp")
     } == {
         "from_msisdn": employee.itop_number,
@@ -336,10 +337,11 @@ async def test_selected_sheet_import_replaces_only_active_rows_in_selected_house
         "modified_on": "10:30:00",
         "transfer_mrp": "25.50",
     }
-    assert report_rows[0]["on_route"] == "N"
+    assert report_rows[1]["on_route"] == "N"
 
     saved_rows = (await db.execute(select(LiveC2CRow).order_by(LiveC2CRow.id))).scalars().all()
     assert [(row.house_id, row.source_filename) for row in saved_rows] == [
+        (house.id, "old.xlsx"),
         (other_house.id, "other.xlsx"),
         (house.id, "live-c2c.xlsx"),
     ]
@@ -928,6 +930,7 @@ async def test_preview_generates_upload_based_productivity_report_without_saving
             "productivity_trans_tgt": 4.0,
             "today_route_trans": 1,
             "other_route_trans": 1,
+            "total_trans": 2,
             "trans_achievement_pct": 50.0,
             "trans_remaining": 2.0,
             "start_time": "09:15:00",
@@ -949,6 +952,7 @@ async def test_preview_generates_upload_based_productivity_report_without_saving
             "productivity_trans_tgt": 0.0,
             "today_route_trans": 0,
             "other_route_trans": 0,
+            "total_trans": 0,
             "trans_achievement_pct": 0.0,
             "trans_remaining": 0.0,
             "start_time": None,
@@ -1103,7 +1107,7 @@ def test_live_c2c_model_has_no_soft_delete_columns():
     )
 
 
-async def test_import_hard_deletes_only_the_selected_house_rows(db, house):
+async def test_import_keeps_existing_rows_and_other_houses(db, house):
     other = await make_house(db, code="H777", name="Other", email="o2@example.com")
     user = await _user_with_permissions(
         db, house, ("reports.view", "live_c2c.import")
@@ -1161,10 +1165,11 @@ async def test_import_hard_deletes_only_the_selected_house_rows(db, house):
     assert response.status_code == 200
     saved = (await db.execute(select(LiveC2CRow).order_by(LiveC2CRow.id))).scalars().all()
     assert [(row.house_id, row.source_filename) for row in saved] == [
+        (house.id, "old.xlsx"),
         (other.id, "other.xlsx"),
         (house.id, "live-c2c.xlsx"),
     ]
-    assert listing.json()["pagination"]["total"] == 1
+    assert listing.json()["pagination"]["total"] == 2
 
 
 def test_copy_columns_cover_every_required_model_column():
@@ -1206,6 +1211,92 @@ async def test_bulk_insert_writes_every_row(db, house):
     await live_c2c_service._bulk_insert_live_c2c_rows(db, rows)
 
     assert await db.scalar(select(func.count(LiveC2CRow.id))) == 5000
+
+
+async def test_second_upload_only_stores_new_transfers(db, house):
+    user = await _user_with_permissions(
+        db, house, ("reports.view", "live_c2c.import")
+    )
+    employee, retailer = await _source_entities(db, house)
+    first = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[[employee.itop_number, retailer.itop_number, "2026-11-17 10:30", "1000"]],
+    )
+    second = _workbook_bytes(
+        headers=["From Msisdn", "To Msisdn", "Modified ON", "Transfer Mrp"],
+        rows=[
+            [employee.itop_number, retailer.itop_number, "2026-11-17 10:30", "1000"],
+            [employee.itop_number, retailer.itop_number, "2026-11-17 17:00", "500"],
+        ],
+    )
+    async with _client(db, user) as client:
+        first_response = await client.post(
+            "/api/reports/live-c2c/import",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("first.xlsx", first)},
+        )
+        second_response = await client.post(
+            "/api/reports/live-c2c/import",
+            headers={"X-House-ID": str(house.id)},
+            data={"sheet_name": "C2C Data"},
+            files={"file": ("second.xlsx", second)},
+        )
+
+    assert first_response.status_code == 200
+    assert first_response.json()["data"]["imported_rows"] == 1
+    assert first_response.json()["data"]["skipped_existing_rows"] == 0
+    assert second_response.status_code == 200
+    assert second_response.json()["data"]["imported_rows"] == 1
+    assert second_response.json()["data"]["skipped_existing_rows"] == 1
+    assert second_response.json()["data"]["stored_rows"] == 2
+    saved = (await db.execute(select(LiveC2CRow).order_by(LiveC2CRow.id))).scalars().all()
+    assert [(row.source_filename, str(row.transfer_mrp)) for row in saved] == [
+        ("first.xlsx", "1000.00"),
+        ("second.xlsx", "500.00"),
+    ]
+
+
+async def test_daily_cleanup_removes_only_rows_created_before_midnight(db, house):
+    user = await _user_with_permissions(db, house, ("reports.view",))
+    employee, retailer = await _source_entities(db, house)
+    db.add_all(
+        [
+            LiveC2CRow(
+                house_id=house.id,
+                from_msisdn=employee.id,
+                to_msisdn=retailer.id,
+                modified_on="10:30:00",
+                transfer_mrp=10,
+                on_route="N",
+                source_filename="yesterday.xlsx",
+                source_sheet="C2C",
+                created_by=user.id,
+                created_at=datetime(2026, 11, 18, 23, 59),
+            ),
+            LiveC2CRow(
+                house_id=house.id,
+                from_msisdn=employee.id,
+                to_msisdn=retailer.id,
+                modified_on="00:01:00",
+                transfer_mrp=20,
+                on_route="N",
+                source_filename="today.xlsx",
+                source_sheet="C2C",
+                created_by=user.id,
+                created_at=datetime(2026, 11, 19, 0, 1),
+            ),
+        ]
+    )
+    await db.commit()
+
+    deleted = await live_c2c_service.clear_live_c2c_rows_before(
+        db, datetime(2026, 11, 19, 0, 0)
+    )
+
+    assert deleted == 1
+    remaining = (await db.execute(select(LiveC2CRow))).scalars().all()
+    assert [row.source_filename for row in remaining] == ["today.xlsx"]
 
 
 async def test_same_transfer_twice_is_stored_once(db, house):

@@ -49,7 +49,7 @@ Exempt models:
 
 | Model | Table | Why |
 |---|---|---|
-| `LiveC2CRow` | `live_c2c` | Every successful import replaces the entire Live C2C dataset of one house; there is no per-row delete or restore. |
+| `LiveC2CRow` | `live_c2c` | A per-day snapshot: imports append only transfers that are not stored yet, and the scheduler clears every row after midnight. There is no per-row delete or restore. |
 
 Adding a new exemption requires a row in this table plus the reason. Do not use
 this section to skip soft delete on transactional or editable records.

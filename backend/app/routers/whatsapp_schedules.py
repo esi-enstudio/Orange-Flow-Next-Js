@@ -48,7 +48,7 @@ SCHEDULE_PERMISSIONS = ["live_activations.schedule", "reports.whatsapp_share"]
 
 ALLOWED_REPORT_TYPES = ("ga_live", "active_lso", "active_sso", "activation", "recharge",
                         "recharge_ev_secondary", "active_sso_inactive_retailers",
-                        "active_lso_inactive_retailers")
+                        "active_lso_inactive_retailers", "live_c2c")
 
 # Report types that render a slice of the data instead of the whole house. The
 # schedule/send must carry these keys in ``report_params`` (e.g. one RSO's

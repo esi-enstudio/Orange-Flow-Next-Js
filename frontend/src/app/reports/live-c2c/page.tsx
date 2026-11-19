@@ -2,8 +2,9 @@
 
 import axios from "axios";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { ChevronDown, Download } from "lucide-react";
+import { ChevronDown, Download, Share2 } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
+import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 import { useAuth } from "@/context/AuthContext";
@@ -43,6 +44,7 @@ interface LiveC2CProductivityRow {
   productivity_trans_tgt: number;
   today_route_trans: number;
   other_route_trans: number;
+  total_trans: number;
   trans_achievement_pct: number;
   trans_remaining: number;
   start_time: string | null;
@@ -65,6 +67,7 @@ interface LiveC2CBaseReportRow {
   productivity_trans_tgt: number;
   today_route_trans: number;
   other_route_trans: number;
+  total_trans: number;
   trans_achievement_pct: number;
   trans_remaining: number;
   start_time: string | null;
@@ -99,6 +102,8 @@ function isBaseReportRow(value: unknown): value is LiveC2CBaseReportRow {
     && Number.isFinite(row.today_route_trans)
     && typeof row.other_route_trans === "number"
     && Number.isFinite(row.other_route_trans)
+    && typeof row.total_trans === "number"
+    && Number.isFinite(row.total_trans)
     && typeof row.trans_achievement_pct === "number"
     && Number.isFinite(row.trans_achievement_pct)
     && typeof row.trans_remaining === "number"
@@ -134,6 +139,7 @@ const REPORT_COLUMNS = [
   "productivity_trans_tgt",
   "today_route_trans",
   "other_route_trans",
+  "total_trans",
   "trans_achievement_pct",
   "trans_remaining",
   "start_time",
@@ -201,7 +207,7 @@ function reportColumnTotal(column: ReportColumn, rows: LiveC2CReportRow[]): numb
   if (column === "trans_achievement_pct") {
     return aggregateAchievementPct(
       rows,
-      ["today_route_trans", "other_route_trans"],
+      ["total_trans"],
       "productivity_trans_tgt",
     );
   }
@@ -267,6 +273,8 @@ function baseReportCellText(
       return formatNumber(row.today_route_trans);
     case "other_route_trans":
       return formatNumber(row.other_route_trans);
+    case "total_trans":
+      return formatNumber(row.total_trans);
     case "trans_achievement_pct":
       // Always two decimals so the achievement figure reads 100.00%.
       return `${formatNumber(row.trans_achievement_pct, 2)}%`;
@@ -340,6 +348,7 @@ function isProductivityReportRow(value: unknown): value is LiveC2CProductivityRo
     "productivity_trans_tgt",
     "today_route_trans",
     "other_route_trans",
+    "total_trans",
     "trans_achievement_pct",
     "trans_remaining",
   ];
@@ -395,6 +404,8 @@ function reportCellText(
       return formatNumber(row.today_route_trans);
     case "other_route_trans":
       return formatNumber(row.other_route_trans);
+    case "total_trans":
+      return formatNumber(row.total_trans);
     case "trans_achievement_pct":
       // Always two decimals so the achievement figure reads 100.00%.
       return `${formatNumber(row.trans_achievement_pct, 2)}%`;
@@ -448,14 +459,26 @@ export default function LiveC2CReportPage() {
   const [previewing, setPreviewing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [matchReport, setMatchReport] = useState<LiveC2CMatchReport | null>(null);
+  const [savedSummary, setSavedSummary] = useState<{ saved: number; skipped: number } | null>(null);
+  const [savingToDb, setSavingToDb] = useState(false);
+  const [baseReportRefreshKey, setBaseReportRefreshKey] = useState(0);
+  // Once a report has been generated the worksheet picker is done with; it only
+  // comes back when a new workbook or house is chosen.
+  const [reportGenerated, setReportGenerated] = useState(false);
 
   const [exporting, setExporting] = useState(false);
   const canExportMismatches = hasPermission("live_c2c.export");
+  // Report delivery is shared with the Live Activations schedulers; either
+  // permission unlocks the WhatsApp/Telegram schedule module (mirrors the API).
+  const canShare = hasPermission("reports.whatsapp_share") || hasPermission("live_activations.schedule");
+  const [wsModalOpen, setWsModalOpen] = useState(false);
   const selectedHouse = houses.find((house) => house.id === selectedHouseId) ?? null;
-  const processing = readingWorkbook || previewing;
+  const processing = readingWorkbook || previewing || savingToDb;
   const showReportArea =
     reportRows !== null
     || previewing
+    || reportGenerated
+    || savedSummary !== null
     || (matchReport === null && selectedHouseId !== null && !housesLoading);
   const displayedRows: LiveC2CReportRow[] = reportRows ?? baseRows ?? [];
   const columnTotals = new Map<ReportColumn, number>();
@@ -489,6 +512,14 @@ export default function LiveC2CReportPage() {
     return () => controller.abort();
   }, [authLoading, canView]);
 
+  // The save confirmation is transient: it clears after 5 seconds so it never
+  // lingers over the generated report.
+  useEffect(() => {
+    if (savedSummary === null) return;
+    const timer = window.setTimeout(() => setSavedSummary(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [savedSummary]);
+
   useEffect(() => {
     if (authLoading || !canView || selectedHouseId === null) {
       setBaseRows(null);
@@ -521,7 +552,7 @@ export default function LiveC2CReportPage() {
     });
 
     return () => controller.abort();
-  }, [authLoading, canView, selectedHouseId]);
+  }, [authLoading, canView, selectedHouseId, baseReportRefreshKey]);
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
@@ -532,6 +563,8 @@ export default function LiveC2CReportPage() {
     setUploadError(null);
     setMatchReport(null);
     setReportRows(null);
+    setSavedSummary(null);
+    setReportGenerated(false);
     setSelectedFile(null);
     setSheetNames([]);
     setSelectedSheetName(null);
@@ -587,6 +620,8 @@ export default function LiveC2CReportPage() {
     setUploadError(null);
     setMatchReport(null);
     setReportRows(null);
+    setSavedSummary(null);
+    setReportGenerated(false);
   };
 
   const handleExportMismatches = async () => {
@@ -641,7 +676,37 @@ export default function LiveC2CReportPage() {
         return;
       }
       setMatchReport(report);
-      if (report.can_import) setReportRows(report.report);
+      if (!report.can_import) return;
+      setReportRows(report.report);
+      setReportGenerated(true);
+
+      // Persist the upload: a later upload only adds the transfers that are not
+      // stored yet, and the live_c2c table is cleared after midnight.
+      setSavingToDb(true);
+      try {
+        const saveData = new FormData();
+        saveData.append("file", selectedFile);
+        saveData.append("sheet_name", selectedSheetName);
+        const { data: saved } = await apiClient.post<{
+          data: { imported_rows: number; skipped_existing_rows: number };
+        }>(
+          "/reports/live-c2c/import",
+          saveData,
+          { headers: { "X-House-ID": String(selectedHouseId) } },
+        );
+        setSavedSummary({
+          saved: saved.data.imported_rows,
+          skipped: saved.data.skipped_existing_rows,
+        });
+        // Show the stored snapshot (earlier uploads included) instead of this file only.
+        setReportRows(null);
+        setBaseReportRefreshKey((key) => key + 1);
+      } catch (error) {
+        const code = getImportErrorCode(error);
+        setUploadError(code === "upload_failed" ? "save_failed" : code);
+      } finally {
+        setSavingToDb(false);
+      }
     } catch (error) {
       setUploadError(getImportErrorCode(error));
     } finally {
@@ -731,6 +796,20 @@ export default function LiveC2CReportPage() {
             </>
           )}
 
+          {canShare && (
+            <button
+              type="button"
+              onClick={() => setWsModalOpen(true)}
+              disabled={!selectedHouseId || processing}
+              aria-label={t("live_c2c.share_report")}
+              title={t("live_c2c.share_report")}
+              className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-xl border border-green-300 bg-white px-3 text-green-600 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer dark:border-green-500/40 dark:bg-slate-900 dark:text-green-400 dark:hover:bg-green-500/10"
+            >
+              <Share2 aria-hidden="true" className="size-4" />
+              <span className="sr-only">{t("live_c2c.share_report")}</span>
+            </button>
+          )}
+
           {selectedFile && (
             <span className="min-h-11 max-w-full content-center truncate text-sm text-gray-600 dark:text-gray-300">
               {selectedFile.name}
@@ -738,7 +817,7 @@ export default function LiveC2CReportPage() {
           )}
         </div>
 
-        {selectedFile && sheetNames.length > 0 && (
+        {selectedFile && sheetNames.length > 0 && !reportGenerated && (
           <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3 sm:flex-row sm:items-end dark:border-slate-700 dark:bg-slate-900">
             <div className="w-full sm:max-w-sm">
               <EntitySelector
@@ -770,9 +849,11 @@ export default function LiveC2CReportPage() {
               className="inline-flex h-11 min-w-11 items-center justify-center rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:ml-auto"
             >
               {t(
-                previewing
-                  ? "live_c2c.generating"
-                  : "live_c2c.generate_report",
+                savingToDb
+                  ? "live_c2c.saving"
+                  : previewing
+                    ? "live_c2c.generating"
+                    : "live_c2c.generate_report",
               )}
             </button>
           </div>
@@ -972,14 +1053,14 @@ export default function LiveC2CReportPage() {
             )}
           </section>
         )}
-        {reportRows !== null && matchReport?.can_import && (
+        {savedSummary && (
           <p
             role="status"
             className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300"
           >
-            {t("live_c2c.report_generated", {
-              rows: matchReport.summary.importable_rows,
-              rsos: reportRows.length,
+            {t("live_c2c.import_saved", {
+              saved: savedSummary.saved,
+              skipped: savedSummary.skipped,
             })}
           </p>
         )}
@@ -999,7 +1080,7 @@ export default function LiveC2CReportPage() {
               />
             ))
           ) : reportRows === null ? (
-            matchReport ? null : baseLoading ? (
+            baseLoading ? (
               Array.from({ length: 5 }, (_, index) => (
                 <div
                   key={`base-skeleton-${index}`}
@@ -1178,12 +1259,7 @@ export default function LiveC2CReportPage() {
                   </tr>
                 ))
               ) : reportRows === null ? (
-                matchReport ? (
-                  <tr>
-                    <td colSpan={REPORT_COLUMNS.length} className="border border-gray-200 px-2 py-1 text-center text-gray-500 dark:border-slate-700 dark:text-gray-400">
-                    </td>
-                  </tr>
-                ) : baseLoading ? (
+                baseLoading ? (
                   Array.from({ length: 5 }, (_, rowIndex) => (
                     <tr key={`base-skeleton-${rowIndex}`} aria-hidden="true">
                       {REPORT_COLUMNS.map((column) => (
@@ -1268,6 +1344,15 @@ export default function LiveC2CReportPage() {
         </div>
         )}
       </section>
+
+      <WhatsAppReportDeliveryModal
+        open={wsModalOpen}
+        houseId={selectedHouseId}
+        reportType="live_c2c"
+        title={t("live_c2c.whatsapp.title")}
+        subtitle={t("live_c2c.whatsapp.subtitle")}
+        onClose={() => setWsModalOpen(false)}
+      />
     </main>
   );
 }

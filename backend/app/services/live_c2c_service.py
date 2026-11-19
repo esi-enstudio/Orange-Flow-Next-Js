@@ -962,6 +962,7 @@ def build_live_c2c_productivity_report(
                 "productivity_trans_tgt": float(decimal_trans_target),
                 "today_route_trans": totals.today_route_trans,
                 "other_route_trans": totals.other_route_trans,
+                "total_trans": total_trans,
                 "trans_achievement_pct": (
                     round(float(Decimal(total_trans) / decimal_trans_target * 100), 2)
                     if decimal_trans_target > 0
@@ -977,7 +978,56 @@ def build_live_c2c_productivity_report(
     return report
 
 
-async def replace_live_c2c_rows(
+@dataclass(frozen=True)
+class LiveC2CStoreResult:
+    """Outcome of appending one upload to a house's stored Live C2C rows."""
+
+    imported_rows: int
+    duplicate_rows: int
+    skipped_existing_rows: int
+    stored_rows: int
+    disabled_retailer_count: int
+
+
+def _transfer_key(
+    from_msisdn: int,
+    to_msisdn: int,
+    modified_on: str | None,
+    transfer_mrp: Any,
+) -> tuple[int, int, str | None, Decimal]:
+    """Identity of one transfer for cross-upload de-duplication."""
+    amount = (
+        transfer_mrp
+        if isinstance(transfer_mrp, Decimal)
+        else Decimal(str(transfer_mrp))
+    )
+    return (from_msisdn, to_msisdn, modified_on, amount)
+
+
+async def _existing_transfer_keys(
+    db: AsyncSession,
+    house_id: int,
+) -> set[tuple[int, int, str | None, Decimal]]:
+    """Every transfer already stored for this house.
+
+    Live C2C is a daily snapshot that is cleared after midnight, so the house
+    holds one day of rows and loading its keys is cheap.
+    """
+    result = await db.execute(
+        select(
+            LiveC2CRow.from_msisdn,
+            LiveC2CRow.to_msisdn,
+            LiveC2CRow.modified_on,
+            LiveC2CRow.transfer_mrp,
+        ).where(LiveC2CRow.house_id == house_id)
+    )
+    return {
+        _transfer_key(from_id, to_id, modified_on, amount)
+        for from_id, to_id, modified_on, amount in result.all()
+    }
+
+
+async def store_live_c2c_rows(
     db: AsyncSession,
     *,
     house_id: int,
@@ -986,7 +1036,16 @@ async def replace_live_c2c_rows(
     sheet_name: str,
     rows: list[dict[str, Any]],
     request: Request,
-) -> LiveC2CImportCheck:
+) -> LiveC2CStoreResult:
+    """Append an upload to the house's Live C2C rows, skipping stored transfers.
+
+    An upload is additive: a transfer is inserted only when its
+    (RSO, retailer, Modified ON, amount) identity is not already in `live_c2c`,
+    so re-uploading a workbook never duplicates or removes earlier data. The
+    house row is locked for the duration, which serialises concurrent imports
+    of the same house and keeps the duplicate check reliable. The table is
+    cleared by the daily cleanup job after midnight, so each day starts empty.
+    """
     try:
         house = await db.scalar(
             select(House.id).where(House.id == house_id).with_for_update()
@@ -1003,10 +1062,25 @@ async def replace_live_c2c_rows(
                 "live_c2c_entity_mismatch",
                 diagnostics=live_c2c_check_payload(prepared),
             )
-        previous_count = await db.scalar(
-            select(func.count(LiveC2CRow.id)).where(LiveC2CRow.house_id == house_id)
-        ) or 0
-        await db.execute(delete(LiveC2CRow).where(LiveC2CRow.house_id == house_id))
+
+        existing_keys = await _existing_transfer_keys(db, house_id)
+        new_rows: list[dict[str, Any]] = []
+        skipped_existing_rows = 0
+        for row in prepared.rows:
+            key = _transfer_key(
+                row["from_msisdn"],
+                row["to_msisdn"],
+                row["modified_on"],
+                row["transfer_mrp"],
+            )
+            if key in existing_keys:
+                # Already imported by an earlier upload today.
+                skipped_existing_rows += 1
+                continue
+            existing_keys.add(key)
+            new_rows.append(row)
+
+        stored_before = len(existing_keys) - len(new_rows)
 
         source_filename = _safe_filename(filename)
         insert_values = [
@@ -1018,9 +1092,17 @@ async def replace_live_c2c_rows(
                 "source_filename": source_filename,
                 "source_sheet": sheet_name,
             }
-            for row in prepared.rows
+            for row in new_rows
         ]
         await _bulk_insert_live_c2c_rows(db, insert_values)
+
+        stored_rows = (
+            await db.scalar(
+                select(func.count(LiveC2CRow.id)).where(
+                    LiveC2CRow.house_id == house_id
+                )
+            )
+        ) or 0
 
         await log_activity(
             db=db,
@@ -1029,19 +1111,39 @@ async def replace_live_c2c_rows(
             module="live_c2c",
             action="import",
             record_identifier=f"house:{house_id}",
-            old_values={"active_rows": previous_count},
+            old_values={"active_rows": stored_before},
             new_values={
                 "file_name": source_filename,
                 "sheet_name": sheet_name,
-                "imported_rows": len(prepared.rows),
+                "imported_rows": len(new_rows),
                 "duplicate_rows": prepared.summary["duplicate_rows"],
+                "skipped_existing_rows": skipped_existing_rows,
                 "disabled_retailers": prepared.disabled_retailer_count,
             },
             request=request,
             commit=False,
         )
         await db.commit()
-        return prepared
+        return LiveC2CStoreResult(
+            imported_rows=len(new_rows),
+            duplicate_rows=prepared.summary["duplicate_rows"],
+            skipped_existing_rows=skipped_existing_rows,
+            stored_rows=stored_rows,
+            disabled_retailer_count=prepared.disabled_retailer_count,
+        )
     except Exception:
         await db.rollback()
         raise
+
+
+async def clear_live_c2c_rows_before(db: AsyncSession, cutoff: datetime) -> int:
+    """Delete Live C2C rows created before ``cutoff``.
+
+    The scheduler calls this just after midnight (Bangladesh time) with the
+    current day's 00:00, so the whole table is emptied for the new day.
+    """
+    result = await db.execute(
+        delete(LiveC2CRow).where(LiveC2CRow.created_at < cutoff)
+    )
+    await db.commit()
+    return int(result.rowcount or 0)

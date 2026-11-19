@@ -160,6 +160,7 @@ const REPORT_TITLES: Record<string, string> = {
   activation: "Activation Report",
   recharge: "Recharge Report",
   recharge_ev_secondary: "EV Secondary Report",
+  live_c2c: "Live C2C Report",
 };
 
 const REPORT_DEFAULT_CAPTIONS: Record<string, string> = {
@@ -171,6 +172,7 @@ const REPORT_DEFAULT_CAPTIONS: Record<string, string> = {
   activation: "Daily Activation Report",
   recharge: "Daily Recharge Report",
   recharge_ev_secondary: "Daily EV Secondary Report",
+  live_c2c: "Daily Live C2C Report",
 };
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;

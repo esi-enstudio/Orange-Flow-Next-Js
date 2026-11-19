@@ -26,6 +26,7 @@ A reusable module for scheduling and sending report images (PNG) to WhatsApp gro
 | `activation` | `build_activation_report_image()` | Activation dashboard: house / supervisor / RSO / BP tables |
 | `recharge` | `build_recharge_report_image()` | Recharge dashboard: house / supervisor / RSO tables (total recharge target) |
 | `recharge_ev_secondary` | `build_recharge_ev_report_image()` | Same tables measured against the EV C2C target — the WhatsApp twin of the Recharge page's "EV Secondary" toggle |
+| `live_c2c` | `build_live_c2c_report_image()` | Live C2C RSO productivity table (A4 landscape) — the WhatsApp twin of `/reports/live-c2c` |
 
 **Schedule Model** (`backend/app/models/whatsapp_schedule.py`):
 - `report_type` column (VARCHAR(50), default `"ga_live"`)
@@ -113,6 +114,8 @@ import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModa
 | `backend/app/services/activation_whatsapp_image.py` | Activation PNG builder |
 | `backend/app/services/recharge_whatsapp_image.py` | Recharge PNG builder |
 | `backend/app/services/active_lso_whatsapp_image.py` | Active LSO PNG builder |
+| `backend/app/services/live_c2c_whatsapp_image.py` | Live C2C PNG builder (A4 landscape) |
+| `backend/app/services/live_c2c_report_rows.py` | Live C2C report rows shared by the page API and the image builder |
 | `backend/app/services/active_sso_whatsapp_image.py` | Active SSO PNG builder |
 | `backend/app/routers/whatsapp_schedules.py` | API endpoints |
 | `frontend/src/components/WhatsAppReportDeliveryModal.tsx` | Reusable React component |

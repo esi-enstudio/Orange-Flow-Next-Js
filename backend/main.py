@@ -451,6 +451,43 @@ async def whatsapp_schedule_runner():
             logger.error(f"WhatsApp schedule runner error: {e}", exc_info=True)
         await asyncio.sleep(30)
 
+async def live_c2c_daily_cleanup_scheduler():
+    """Clear the Live C2C table after 12:00 AM Bangladesh time.
+
+    Live C2C is a per-day snapshot. Every row created before today's midnight
+    is removed, so a new day always starts from an empty `live_c2c` table.
+    The check runs every 5 minutes instead of sleeping until exactly midnight,
+    which also purges yesterday's rows right after a deploy or restart.
+    """
+    from app.services.db_service import async_session
+    from app.services.live_c2c_service import clear_live_c2c_rows_before
+    from app.utils.timezone import now_naive
+
+    if getattr(settings, "DISABLE_SCHEDULER", False):
+        return
+    logger.info("Live C2C daily cleanup scheduler started...")
+    await asyncio.sleep(30)
+    last_cleanup_date = None
+    while True:
+        try:
+            now_time = now_naive()
+            today = now_time.date()
+            if last_cleanup_date != today:
+                cutoff = now_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                async with async_session() as session:
+                    deleted = await clear_live_c2c_rows_before(session, cutoff)
+                if deleted:
+                    logger.info(
+                        "Live C2C daily cleanup: removed %s row(s) created before %s",
+                        deleted,
+                        cutoff,
+                    )
+                last_cleanup_date = today
+        except Exception as e:
+            logger.error(f"Live C2C cleanup scheduler error: {e}", exc_info=True)
+        await asyncio.sleep(300)
+
+
 async def system_monitoring_scheduler():
     """Dedicated loop that collects system metrics and updates monitoring alerts."""
     from app.services.db_service import async_session
@@ -571,6 +608,7 @@ async def main():
             background_tasks.append(asyncio.create_task(billing_loop()))
 
         background_tasks.append(asyncio.create_task(system_monitoring_scheduler()))
+        background_tasks.append(asyncio.create_task(live_c2c_daily_cleanup_scheduler()))
 
         logger.info("OrangeFlow API is Live on port 8000")
 

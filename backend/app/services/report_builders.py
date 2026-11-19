@@ -73,6 +73,7 @@ def get_report_title(report_type: str) -> str:
         "recharge_ev_secondary": "EV Secondary Report",
         "active_sso_inactive_retailers": "Inactive Retailers (Active SSO)",
         "active_lso_inactive_retailers": "Inactive Retailers (Active LSO)",
+        "live_c2c": "Live C2C Report",
     }
     return titles.get(report_type, report_type.replace("_", " ").title())
 
@@ -96,12 +97,17 @@ def _register_all():
     REPORT_BUILDERS["recharge"] = build_recharge_report_image
     REPORT_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
 
+    from app.services.live_c2c_whatsapp_image import build_live_c2c_report_image
+
+    REPORT_BUILDERS["live_c2c"] = build_live_c2c_report_image
+
     SCALE_AWARE_BUILDERS["ga_live"] = build_ga_live_report_image
     SCALE_AWARE_BUILDERS["active_lso"] = build_active_lso_report_image
     SCALE_AWARE_BUILDERS["active_sso"] = build_active_sso_report_image
     SCALE_AWARE_BUILDERS["activation"] = build_activation_report_image
     SCALE_AWARE_BUILDERS["recharge"] = build_recharge_report_image
     SCALE_AWARE_BUILDERS["recharge_ev_secondary"] = build_recharge_ev_report_image
+    SCALE_AWARE_BUILDERS["live_c2c"] = build_live_c2c_report_image
 
     ORIENTATION_AWARE_BUILDERS["activation"] = build_activation_report_image
 

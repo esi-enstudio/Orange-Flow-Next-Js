@@ -1038,6 +1038,8 @@ export default function EmployeesPage() {
   if (!hasPermission("employees.view")) return <AccessDenied />;
 
   const activeFilterCount = countActiveEmployeeFilters(filters);
+  const canExport = hasPermission("employees.export");
+  const canImport = hasPermission("employees.import");
 
   return (
     <div className="-mx-2 -mt-2 sm:mx-0 sm:mt-0 w-full space-y-3 sm:space-y-6">
@@ -1054,6 +1056,7 @@ export default function EmployeesPage() {
             <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-0.5 md:mt-1">{t('employees.description')}</p>
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full md:w-auto">
+          {canExport && (
           <button 
             onClick={handleExport}
             disabled={isExporting}
@@ -1062,6 +1065,8 @@ export default function EmployeesPage() {
             {isExporting ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin"/> : <Download className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary-500"/>}
             <span>{t('employees.export')}</span>
           </button>
+          )}
+          {canImport && (
           <button 
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
@@ -1070,6 +1075,7 @@ export default function EmployeesPage() {
             {isImporting ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin"/> : <Upload className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary-500"/>}
             <span>{t('employees.import')}</span>
           </button>
+          )}
           <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.xls"/>
           <button 
             onClick={openAddModal}
@@ -1083,14 +1089,14 @@ export default function EmployeesPage() {
 
       {/* Main Content */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border dark:border-slate-800 shadow-sm overflow-hidden transition-all duration-300">
-        <div className="p-3 md:p-4 border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-row gap-2 md:gap-4 justify-between items-center">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="relative flex-1 md:w-80 group">
+        <div className="p-3 md:p-4 border-b dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex flex-row gap-2 md:gap-4 items-center">
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
               <input 
                 type="text" 
                 placeholder={t('employees.search_placeholder')} 
-                className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-1 focus:ring-primary-500 outline-none dark:text-gray-100 transition-all shadow-sm"
+                className="w-44 sm:w-72 pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border-none rounded-xl text-sm focus:ring-1 focus:ring-primary-500 outline-none dark:text-gray-100 transition-all shadow-sm cursor-text"
                 value={filters.search}
                 onChange={e => {setFilters(f => ({ ...f, search: e.target.value })); setPage(1);}}
               />

@@ -1870,7 +1870,7 @@ async def export_employees(
     current_user: User = Depends(has_permission("employees.export")),
     house_id: Optional[int] = Depends(get_house_context)
 ):
-    query = select(Employee).options(joinedload(Employee.user))
+    query = select(Employee).options(joinedload(Employee.house), joinedload(Employee.user))
     is_admin = is_admin_user(current_user)
     if house_id:
         query = query.where(Employee.house_id == house_id)

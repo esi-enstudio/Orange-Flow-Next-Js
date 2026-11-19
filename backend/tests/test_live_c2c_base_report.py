@@ -167,6 +167,7 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "productivity_trans_tgt": 60.0,
             "today_route_trans": 1,
             "other_route_trans": 1,
+            "total_trans": 2,
             "trans_achievement_pct": 3.33,
             "trans_remaining": 58.0,
             "start_time": "10:30:00",
@@ -188,6 +189,7 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "productivity_trans_tgt": 0.0,
             "today_route_trans": 0,
             "other_route_trans": 0,
+            "total_trans": 0,
             "trans_achievement_pct": 0.0,
             "trans_remaining": 0.0,
             "start_time": None,
@@ -209,6 +211,7 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
             "productivity_trans_tgt": 0.0,
             "today_route_trans": 0,
             "other_route_trans": 0,
+            "total_trans": 0,
             "trans_achievement_pct": 0.0,
             "trans_remaining": 0.0,
             "start_time": None,
@@ -268,6 +271,7 @@ async def test_base_report_keeps_rows_with_missing_identity_fields(db, house):
             "productivity_trans_tgt": 0.0,
             "today_route_trans": 0,
             "other_route_trans": 0,
+            "total_trans": 0,
             "trans_achievement_pct": 0.0,
             "trans_remaining": 0.0,
             "start_time": None,
@@ -369,6 +373,7 @@ async def test_base_report_route_totals_from_live_c2c_table(db, house):
     assert by_name["Yak"]["c2c_remaining"] == 20.0
     assert by_name["Yak"]["today_route_trans"] == 2
     assert by_name["Yak"]["other_route_trans"] == 1
+    assert by_name["Yak"]["total_trans"] == 3
     assert by_name["Yak"]["trans_achievement_pct"] == 75.0
     assert by_name["Yak"]["trans_remaining"] == 1.0
     assert by_name["Yak"]["start_time"] == "10:30:00"
@@ -381,6 +386,7 @@ async def test_base_report_route_totals_from_live_c2c_table(db, house):
     assert by_name["Blank"]["c2c_remaining"] == 0.0
     assert by_name["Blank"]["today_route_trans"] == 0
     assert by_name["Blank"]["other_route_trans"] == 0
+    assert by_name["Blank"]["total_trans"] == 0
     assert by_name["Blank"]["trans_achievement_pct"] == 0.0
     assert by_name["Blank"]["trans_remaining"] == 0.0
     assert by_name["Blank"]["start_time"] is None
