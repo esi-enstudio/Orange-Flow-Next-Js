@@ -50,6 +50,66 @@ interface LiveC2CProductivityRow {
   serving_hours: number | null;
 }
 
+interface LiveC2CBaseReportRow {
+  employee_id: number;
+  house_code: string;
+  dms_code: string | null;
+  rso_name: string;
+  rso_itop_number: string | null;
+  productivity_c2c_tgt: number;
+  productivity_trans_tgt: number;
+}
+
+const BASE_REPORT_COLUMNS = [
+  "serial_number",
+  "house_code",
+  "dms_code",
+  "rso_name",
+  "rso_itop_number",
+  "productivity_c2c_tgt",
+  "productivity_trans_tgt",
+] as const;
+
+function isBaseReportRow(value: unknown): value is LiveC2CBaseReportRow {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.employee_id === "number"
+    && typeof row.house_code === "string"
+    && (typeof row.dms_code === "string" || row.dms_code === null)
+    && typeof row.rso_name === "string"
+    && (typeof row.rso_itop_number === "string" || row.rso_itop_number === null)
+    && typeof row.productivity_c2c_tgt === "number"
+    && Number.isFinite(row.productivity_c2c_tgt)
+    && typeof row.productivity_trans_tgt === "number"
+    && Number.isFinite(row.productivity_trans_tgt)
+  );
+}
+
+function baseReportCellText(
+  column: (typeof BASE_REPORT_COLUMNS)[number],
+  row: LiveC2CBaseReportRow,
+  index: number,
+  formatNumber: (value: number) => string,
+): string {
+  switch (column) {
+    case "serial_number":
+      return formatNumber(index + 1);
+    case "house_code":
+      return row.house_code || "—";
+    case "dms_code":
+      return row.dms_code || "—";
+    case "rso_name":
+      return row.rso_name || "—";
+    case "rso_itop_number":
+      return row.rso_itop_number || "—";
+    case "productivity_c2c_tgt":
+      return formatNumber(row.productivity_c2c_tgt);
+    case "productivity_trans_tgt":
+      return formatNumber(row.productivity_trans_tgt);
+  }
+}
+
 interface ApiErrorBody {
   error_code?: unknown;
   detail?: {
@@ -195,10 +255,14 @@ export default function LiveC2CReportPage() {
   const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
   const [reportRows, setReportRows] = useState<LiveC2CProductivityRow[] | null>(null);
+  const [baseRows, setBaseRows] = useState<LiveC2CBaseReportRow[] | null>(null);
+  const [baseLoading, setBaseLoading] = useState(false);
+  const [baseError, setBaseError] = useState(false);
   const [readingWorkbook, setReadingWorkbook] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [matchReport, setMatchReport] = useState<LiveC2CMatchReport | null>(null);
+  const hasPreviewReport = previewing || matchReport !== null || reportRows !== null;
   const [exporting, setExporting] = useState(false);
   const canExportMismatches = hasPermission("live_c2c.export");
   const selectedHouse = houses.find((house) => house.id === selectedHouseId) ?? null;
@@ -228,6 +292,40 @@ export default function LiveC2CReportPage() {
 
     return () => controller.abort();
   }, [authLoading, canView]);
+
+  useEffect(() => {
+    if (authLoading || !canView || selectedHouseId === null) {
+      setBaseRows(null);
+      setBaseLoading(false);
+      setBaseError(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setBaseRows(null);
+    setBaseLoading(true);
+    setBaseError(false);
+
+    apiClient.get<{
+      success: boolean;
+      data: { target_date: string; rows: unknown };
+    }>("/reports/live-c2c/rsos", {
+      headers: { "X-House-ID": String(selectedHouseId) },
+      signal: controller.signal,
+    }).then(({ data }) => {
+      const rows = data?.data?.rows;
+      if (!Array.isArray(rows) || !rows.every(isBaseReportRow)) {
+        throw new Error("invalid_base_report");
+      }
+      setBaseRows(rows);
+    }).catch(() => {
+      if (!controller.signal.aborted) setBaseError(true);
+    }).finally(() => {
+      if (!controller.signal.aborted) setBaseLoading(false);
+    });
+
+    return () => controller.abort();
+  }, [authLoading, canView, selectedHouseId]);
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
@@ -705,10 +803,70 @@ export default function LiveC2CReportPage() {
               />
             ))
           ) : reportRows === null ? (
-            matchReport ? null : (
-              <p className="rounded-xl border border-gray-200 bg-white px-3 py-4 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-400">
-                {t("live_c2c.report_prompt")}
+            matchReport ? null : baseLoading ? (
+              Array.from({ length: 5 }, (_, index) => (
+                <div
+                  key={`base-skeleton-${index}`}
+                  aria-hidden="true"
+                  className="h-16 animate-pulse rounded-xl border border-gray-200 bg-gray-100 dark:border-slate-700 dark:bg-slate-800"
+                />
+              ))
+            ) : baseError ? (
+              <p
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+              >
+                {t("live_c2c.base_report_error")}
               </p>
+            ) : baseRows === null || baseRows.length === 0 ? (
+              <p role="status" className="rounded-xl border border-gray-200 bg-white px-3 py-4 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-400">
+                {t("live_c2c.no_active_rsos")}
+              </p>
+            ) : (
+              baseRows.map((row, index) => {
+                const isExpanded = expandedRowId === row.employee_id;
+                return (
+                  <article
+                    key={row.employee_id}
+                    className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <button
+                      type="button"
+                      aria-expanded={isExpanded}
+                      aria-label={t(isExpanded ? "live_c2c.hide_details" : "live_c2c.show_details")}
+                      onClick={() => setExpandedRowId(isExpanded ? null : row.employee_id)}
+                      className="flex min-h-11 w-full items-center justify-between gap-3 p-3 text-left cursor-pointer"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {formatNumber(index + 1)}. {row.rso_name || "—"}
+                        </span>
+                        <span className="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">
+                          {row.dms_code ?? "—"} · {row.rso_itop_number ?? "—"}
+                        </span>
+                      </span>
+                      <ChevronDown
+                        aria-hidden="true"
+                        className={`size-4 shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                    {isExpanded && (
+                      <dl className="grid grid-cols-1 gap-3 border-t border-gray-200 px-3 py-3 text-sm sm:grid-cols-2 dark:border-slate-700">
+                        {["house_code", "productivity_c2c_tgt", "productivity_trans_tgt"].map((column) => (
+                          <div key={column} className="min-w-0">
+                            <dt className="text-xs text-gray-500 dark:text-gray-400">
+                              {t(`live_c2c.report_columns.${column}`)}
+                            </dt>
+                            <dd className="mt-1 break-words text-gray-900 dark:text-gray-100">
+                              {baseReportCellText(column as (typeof BASE_REPORT_COLUMNS)[number], row, index, formatNumber)}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </article>
+                );
+              })
             )
           ) : reportRows.length === 0 ? (
             <p role="status" className="rounded-xl border border-gray-200 bg-white px-3 py-4 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-400">
@@ -773,10 +931,10 @@ export default function LiveC2CReportPage() {
           tabIndex={0}
           className="hidden max-w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-700 lg:block"
         >
-          <table className="w-full min-w-[2100px] border-collapse bg-white text-left text-sm text-gray-800 dark:bg-slate-900 dark:text-gray-100">
+          <table className={`w-full ${hasPreviewReport ? "min-w-[2100px]" : "min-w-[900px]"} border-collapse bg-white text-left text-sm text-gray-800 dark:bg-slate-900 dark:text-gray-100`}>
             <thead className="bg-gray-50 dark:bg-slate-800">
               <tr>
-                {REPORT_COLUMNS.map((column) => (
+                {(hasPreviewReport ? REPORT_COLUMNS : BASE_REPORT_COLUMNS).map((column) => (
                   <th
                     key={column}
                     scope="col"
@@ -799,11 +957,47 @@ export default function LiveC2CReportPage() {
                   </tr>
                 ))
               ) : reportRows === null ? (
-                <tr>
-                  <td colSpan={REPORT_COLUMNS.length} className="border border-gray-200 px-2 py-1 text-center text-gray-500 dark:border-slate-700 dark:text-gray-400">
-                    {matchReport ? "" : t("live_c2c.report_prompt")}
-                  </td>
-                </tr>
+                matchReport ? (
+                  <tr>
+                    <td colSpan={REPORT_COLUMNS.length} className="border border-gray-200 px-2 py-1 text-center text-gray-500 dark:border-slate-700 dark:text-gray-400">
+                    </td>
+                  </tr>
+                ) : baseLoading ? (
+                  Array.from({ length: 5 }, (_, rowIndex) => (
+                    <tr key={`base-skeleton-${rowIndex}`} aria-hidden="true">
+                      {BASE_REPORT_COLUMNS.map((column) => (
+                        <td key={column} className="border border-gray-200 px-2 py-1 dark:border-slate-700">
+                          <div className="h-4 w-4/5 animate-pulse rounded bg-gray-100 dark:bg-slate-800" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : baseError ? (
+                  <tr>
+                    <td
+                      colSpan={BASE_REPORT_COLUMNS.length}
+                      className="border border-gray-200 px-2 py-1 text-center text-red-600 dark:border-slate-700 dark:text-red-300"
+                    >
+                      {t("live_c2c.base_report_error")}
+                    </td>
+                  </tr>
+                ) : baseRows === null || baseRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={BASE_REPORT_COLUMNS.length} className="border border-gray-200 px-2 py-1 text-center text-gray-500 dark:border-slate-700 dark:text-gray-400">
+                      {t("live_c2c.no_active_rsos")}
+                    </td>
+                  </tr>
+                ) : (
+                  baseRows.map((row, index) => (
+                    <tr key={row.employee_id} className="even:bg-gray-50 dark:even:bg-slate-800/50">
+                      {BASE_REPORT_COLUMNS.map((column) => (
+                        <td key={column} className="whitespace-nowrap border border-gray-200 px-2 py-1 dark:border-slate-700">
+                          {baseReportCellText(column, row, index, formatNumber)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )
               ) : reportRows.length === 0 ? (
                 <tr>
                   <td colSpan={REPORT_COLUMNS.length} className="border border-gray-200 px-2 py-1 text-center text-gray-500 dark:border-slate-700 dark:text-gray-400">
