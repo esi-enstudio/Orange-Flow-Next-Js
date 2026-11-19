@@ -16,6 +16,7 @@ that repeat the table header, and the sheet shrinks to its content height when
 the last page does not fill it.
 """
 import io
+import math
 from contextlib import contextmanager
 from datetime import date
 
@@ -101,6 +102,8 @@ GROUPS = [
 
 # Name / code columns read left-aligned; every numeric column is centred.
 LEFT_COLS = [1, 2]
+RED_CELL = "#dc2626"
+GREEN_CELL = "#16a34a"
 
 
 @contextmanager
@@ -186,6 +189,50 @@ def _total_cells(rows: list[dict]) -> list[str]:
     ]
 
 
+def _is_at_least(value, threshold: float) -> bool:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return math.isfinite(numeric) and numeric >= threshold
+
+
+def _is_at_most(value, threshold: float) -> bool:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return math.isfinite(numeric) and numeric <= threshold
+
+
+def _row_cell_colors(row: dict) -> dict[int, str]:
+    colors = {6: RED_CELL, 12: RED_CELL}
+    for column, key in ((8, "c2c_achievement_pct"), (14, "trans_achievement_pct")):
+        if _is_at_least(row.get(key), 100):
+            colors[column] = GREEN_CELL
+    for column, key in ((9, "c2c_remaining"), (15, "trans_remaining")):
+        if _is_at_most(row.get(key), 0):
+            colors[column] = GREEN_CELL
+    return colors
+
+
+def _total_cell_colors(rows: list[dict]) -> dict[int, str]:
+    colors = {6: RED_CELL, 12: RED_CELL}
+    c2c_target = _sum(rows, "productivity_c2c_tgt")
+    trans_target = _sum(rows, "productivity_trans_tgt")
+    c2c_total = _sum(rows, "total_c2c")
+    trans_total = _sum(rows, "total_trans")
+    if c2c_target > 0 and c2c_total / c2c_target * 100 >= 100:
+        colors[8] = GREEN_CELL
+    if trans_target > 0 and trans_total / trans_target * 100 >= 100:
+        colors[14] = GREEN_CELL
+    if _sum(rows, "c2c_remaining") <= 0:
+        colors[9] = GREEN_CELL
+    if _sum(rows, "trans_remaining") <= 0:
+        colors[15] = GREEN_CELL
+    return colors
+
+
 def _draw_header(draw, x, y, house_name, house_code, today: date) -> int:
     generated = now_naive().strftime("%d %B %Y, %I:%M %p")
     draw.text((x + 16, y + 48), "Live C2C Report",
@@ -234,6 +281,8 @@ def _render_image(house_name: str, house_code: str, rows: list[dict], today: dat
     labels = list(LABELS)
     body = [_row_cells(index, row) for index, row in enumerate(rows, start=1)]
     total = _total_cells(rows)
+    body_colors = [_row_cell_colors(row) for row in rows]
+    total_colors = _total_cell_colors(rows)
 
     f_head = load_font(F_HEAD, True)
     f_cell = load_font(F_CELL, True)
@@ -250,6 +299,7 @@ def _render_image(house_name: str, house_code: str, rows: list[dict], today: dat
     rest_fit = max(1, (PAGE_H - CARD_PAD * 2 - SECTION_TITLE_H
                        - GROUP_H - head_h - row_h - FOOTER_H) // row_h)
     chunks = _chunk_rows(body, first_fit, rest_fit)
+    color_chunks = _chunk_rows(body_colors, first_fit, rest_fit)
     total_pages = len(chunks)
 
     pages: list[bytes] = []
@@ -284,6 +334,7 @@ def _render_image(house_name: str, house_code: str, rows: list[dict], today: dat
             total_span=TOTAL_SPAN,
             f_head=f_head,
             f_cell=f_cell,
+            cell_colors=color_chunks[page_no] + ([total_colors] if is_last else []),
         )
 
         if total_pages > 1:

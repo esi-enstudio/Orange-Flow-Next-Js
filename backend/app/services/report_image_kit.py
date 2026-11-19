@@ -355,6 +355,7 @@ def draw_table(
     cell_ink: str | None = None,
     live_dot: str | None = None,
     cell_color_map: dict[int, dict[str, str]] | None = None,
+    cell_colors: list[dict[int, str]] | None = None,
 ) -> int:
     """Draw a bordered table starting at (x, y). Returns the height used.
 
@@ -366,6 +367,8 @@ def draw_table(
     ``cell_color_map`` maps a column index to a ``{cell text: colour}`` lookup so
     a column can colour its values by value (e.g. a status column: green for
     "Achieved", red for "Behind"); values with no entry keep the normal ink.
+    ``cell_colors`` maps each rendered row, including an optional total row, to
+    per-column colours when identical displayed values need different tones.
     """
     n = len(labels)
     if n == 0:
@@ -421,6 +424,8 @@ def draw_table(
                 mapped = cell_color_map.get(ci)
                 if mapped and txt in mapped:
                     cell_color = mapped[txt]
+            if cell_colors is not None and ri < len(cell_colors):
+                cell_color = cell_colors[ri].get(ci, cell_color)
             disp = ellipsize(draw, txt, font, cw - 8)
             if ci in left_cols:
                 draw.text((tx + 5, yy + row_h / 2), disp, font=font, fill=cell_color, anchor="lm")

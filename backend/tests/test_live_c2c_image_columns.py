@@ -15,6 +15,8 @@ from app.services.live_c2c_whatsapp_image import (
     _chunk_rows,
     _pct,
     _row_cells,
+    _row_cell_colors,
+    _total_cell_colors,
     _total_cells,
 )
 
@@ -150,3 +152,102 @@ def test_table_uses_larger_fonts(monkeypatch):
 
     assert font_sizes
     assert min(font_sizes) > 13
+
+
+def test_row_and_total_tones_match_live_c2c_frontend_rules():
+    from app.services.live_c2c_whatsapp_image import GREEN_CELL, RED_CELL
+
+    row = _row(
+        c2c_achievement_pct=100,
+        c2c_remaining=0,
+        trans_achievement_pct=99,
+        trans_remaining=-1,
+        other_route_trans=0,
+    )
+    assert _row_cell_colors(row) == {
+        6: RED_CELL,
+        8: GREEN_CELL,
+        9: GREEN_CELL,
+        12: RED_CELL,
+        15: GREEN_CELL,
+    }
+
+    total_row = _row(
+        productivity_c2c_tgt=100,
+        total_c2c=110,
+        c2c_remaining=-10,
+        productivity_trans_tgt=4,
+        total_trans=2,
+        trans_remaining=2,
+    )
+    total_colors = _total_cell_colors([total_row])
+    assert total_colors == {
+        6: RED_CELL,
+        8: GREEN_CELL,
+        9: GREEN_CELL,
+        12: RED_CELL,
+    }
+
+
+def test_renderer_applies_live_c2c_tones_to_data_and_total_rows(monkeypatch):
+    from datetime import date
+
+    from app.services import live_c2c_whatsapp_image as image_builder
+    from app.services.report_image_kit import draw_table as render_table
+
+    rendered_colors = []
+
+    def capture_table_colors(*args, **kwargs):
+        rendered_colors.append(kwargs["cell_colors"])
+        return render_table(*args, **kwargs)
+
+    monkeypatch.setattr(image_builder, "draw_table", capture_table_colors)
+    row = _row(
+        c2c_achievement_pct=100,
+        c2c_remaining=0,
+        trans_achievement_pct=50,
+        trans_remaining=2,
+    )
+    image_builder._render_image("House", "H001", [row], date(2026, 11, 19))
+
+    assert len(rendered_colors) == 1
+    assert rendered_colors[0][0] == _row_cell_colors(row)
+    assert rendered_colors[0][1] == _total_cell_colors([row])
+
+
+def test_table_drawer_applies_row_specific_colors_to_totals():
+    from app.services.live_c2c_whatsapp_image import GREEN_CELL, RED_CELL
+    from app.services.report_image_kit import draw_table, load_font
+
+    class DrawCapture:
+        def __init__(self):
+            self.texts = []
+
+        def rectangle(self, *args, **kwargs):
+            pass
+
+        def line(self, *args, **kwargs):
+            pass
+
+        def text(self, xy, text, font, fill, anchor):
+            self.texts.append((text, fill))
+
+        def textlength(self, text, font):
+            return len(text)
+
+    draw = DrawCapture()
+    draw_table(
+        draw,
+        0,
+        0,
+        100,
+        ["Value"],
+        [["1"]],
+        total_row=["2"],
+        f_head=load_font(12, True),
+        f_cell=load_font(12),
+        cell_colors=[{0: RED_CELL}, {0: GREEN_CELL}],
+    )
+
+    assert ("1", RED_CELL) in draw.texts
+    assert ("2", GREEN_CELL) in draw.texts
