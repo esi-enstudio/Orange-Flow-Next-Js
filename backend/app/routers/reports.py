@@ -515,20 +515,19 @@ async def get_live_c2c_rsos(
         },
     }
 
-@router.get("/reports/live-c2c/rsos")
-async def get_live_c2c_base_report(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_any_permission(["reports.view", "itopup.view"])),
-    house_id: int = Depends(require_house_context),
-):
-    _assert_house_access(current_user, house_id)
-    house = await db.scalar(select(House).where(House.id == house_id))
-    if house is None:
-        raise HTTPException(status_code=404, detail="live_c2c_house_not_found")
-
+def _live_c2c_month_start() -> date:
+    """First day of the current BST month."""
     today = now_naive().date()
-    target_date = date(today.year, today.month, 1)
+    return date(today.year, today.month, 1)
 
+
+async def _load_live_c2c_rsos_and_targets(
+    db: AsyncSession,
+    *,
+    house_id: int,
+    target_date: date,
+) -> tuple[list[Employee], dict[int, tuple[float, float]]]:
+    """Active RSOs of a house plus that month's productivity targets."""
     rso_result = await db.execute(
         select(Employee)
         .where(
@@ -538,7 +537,7 @@ async def get_live_c2c_base_report(
         )
         .order_by(Employee.dms_code, Employee.id)
     )
-    rsos = rso_result.scalars().all()
+    rsos = list(rso_result.scalars().all())
 
     target_result = await db.execute(
         select(RSOTarget).where(
@@ -553,6 +552,26 @@ async def get_live_c2c_base_report(
         )
         for target in target_result.scalars().all()
     }
+    return rsos, targets
+
+
+@router.get("/reports/live-c2c/rsos")
+async def get_live_c2c_base_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_any_permission(["reports.view", "itopup.view"])),
+    house_id: int = Depends(require_house_context),
+):
+    _assert_house_access(current_user, house_id)
+    house = await db.scalar(select(House).where(House.id == house_id))
+    if house is None:
+        raise HTTPException(status_code=404, detail="live_c2c_house_not_found")
+
+    target_date = _live_c2c_month_start()
+    rsos, targets = await _load_live_c2c_rsos_and_targets(
+        db,
+        house_id=house_id,
+        target_date=target_date,
+    )
 
     return {
         "success": True,
@@ -749,31 +768,12 @@ async def preview_live_c2c_import(
         )
         report = []
         if preview.can_import:
-            today = now_naive().date()
-            target_date = date(today.year, today.month, 1)
-            rso_result = await db.execute(
-                select(Employee)
-                .where(
-                    Employee.house_id == house_id,
-                    Employee.employee_type == "rso",
-                    Employee.status == "Active",
-                )
-                .order_by(Employee.dms_code, Employee.id)
+            target_date = _live_c2c_month_start()
+            rsos, targets = await _load_live_c2c_rsos_and_targets(
+                db,
+                house_id=house_id,
+                target_date=target_date,
             )
-            rsos = rso_result.scalars().all()
-            target_result = await db.execute(
-                select(RSOTarget).where(
-                    RSOTarget.house_id == house_id,
-                    RSOTarget.target_date == target_date,
-                )
-            )
-            targets = {
-                target.employee_id: (
-                    target.productivity_c2c_tgt,
-                    target.productivity_trans_tgt,
-                )
-                for target in target_result.scalars().all()
-            }
             report = build_live_c2c_productivity_report(
                 house_code=house.code,
                 employees=rsos,

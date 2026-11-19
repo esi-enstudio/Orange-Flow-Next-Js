@@ -1,5 +1,6 @@
 import httpx
-from datetime import date
+import pytest
+from datetime import date, datetime
 from fastapi import FastAPI
 
 from app.models.employee import Employee
@@ -9,7 +10,15 @@ from app.models.rso_target import RSOTarget
 from app.models.user import User
 from app.routers import reports
 from app.routers.deps import get_current_user, get_db
-from app.utils.timezone import now_naive
+
+# Frozen clock so the month-boundary rule is deterministic even if the suite
+# happens to run across a month rollover.
+FROZEN_NOW = datetime(2026, 11, 19, 12, 0, 0)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_live_c2c_clock(monkeypatch):
+    monkeypatch.setattr("app.routers.reports.now_naive", lambda: FROZEN_NOW)
 
 
 async def _user_with_permissions(db, house, permissions):
@@ -51,7 +60,7 @@ def _client(db, user):
 
 
 def _current_month() -> date:
-    today = now_naive().date()
+    today = FROZEN_NOW.date()
     return date(today.year, today.month, 1)
 
 
@@ -100,6 +109,10 @@ async def test_base_report_lists_active_rsos_with_current_month_targets(db, hous
         RSOTarget(
             house_id=house.id, employee_id=babul.id, target_date=_current_month(),
             productivity_c2c_tgt=120.0, productivity_trans_tgt=60.0,
+        ),
+        RSOTarget(
+            house_id=house.id, employee_id=babul.id, target_date=_previous_month(),
+            productivity_c2c_tgt=999.0, productivity_trans_tgt=999.0,
         ),
         RSOTarget(
             house_id=house.id, employee_id=amina.id, target_date=_previous_month(),
@@ -199,6 +212,47 @@ async def test_base_report_keeps_rows_with_missing_identity_fields(db, house):
             "productivity_trans_tgt": 0.0,
         },
     ]
+
+
+async def test_base_report_accepts_itopup_view_only_permission(db, house):
+    employee = Employee(
+        house_id=house.id, employee_name="Topup Only", dms_code="DMS-ITOP",
+        itop_number="01700000009", employee_type="rso", status="Active",
+    )
+    db.add(employee)
+    await db.commit()
+    user = await _user_with_permissions(db, house, ("itopup.view",))
+
+    async with _client(db, user) as client:
+        response = await client.get(
+            "/api/reports/live-c2c/rsos",
+            headers={"X-House-ID": str(house.id)},
+        )
+
+    assert response.status_code == 200
+    assert [row["employee_id"] for row in response.json()["data"]["rows"]] == [employee.id]
+
+
+async def test_base_report_returns_404_for_missing_house(db):
+    role = Role(name="Super Admin")
+    user = User(
+        username="base-report-super-admin",
+        hashed_password="x",
+        name="Super Admin",
+        status="Active",
+    )
+    user.roles.append(role)
+    db.add(user)
+    await db.commit()
+
+    async with _client(db, user) as client:
+        response = await client.get(
+            "/api/reports/live-c2c/rsos",
+            headers={"X-House-ID": "999999"},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "live_c2c_house_not_found"
 
 
 async def test_base_report_requires_report_permission(db, house):

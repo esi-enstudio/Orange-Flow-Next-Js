@@ -52,7 +52,7 @@ interface LiveC2CProductivityRow {
 
 interface LiveC2CBaseReportRow {
   employee_id: number;
-  house_code: string;
+  house_code: string | null;
   dms_code: string | null;
   rso_name: string;
   rso_itop_number: string | null;
@@ -65,7 +65,7 @@ function isBaseReportRow(value: unknown): value is LiveC2CBaseReportRow {
   const row = value as Record<string, unknown>;
   return (
     typeof row.employee_id === "number"
-    && typeof row.house_code === "string"
+    && (typeof row.house_code === "string" || row.house_code === null)
     && (typeof row.dms_code === "string" || row.dms_code === null)
     && typeof row.rso_name === "string"
     && (typeof row.rso_itop_number === "string" || row.rso_itop_number === null)
@@ -260,7 +260,10 @@ export default function LiveC2CReportPage() {
   const canExportMismatches = hasPermission("live_c2c.export");
   const selectedHouse = houses.find((house) => house.id === selectedHouseId) ?? null;
   const processing = readingWorkbook || previewing;
-  const showReportArea = reportRows !== null || previewing || matchReport === null;
+  const showReportArea =
+    reportRows !== null
+    || previewing
+    || (matchReport === null && selectedHouseId !== null && !housesLoading);
   const formatNumber = (value: number) =>
     new Intl.NumberFormat(language === "bn" ? "bn-BD" : "en-US", {
       maximumFractionDigits: 2,
@@ -835,7 +838,7 @@ export default function LiveC2CReportPage() {
                           {formatNumber(index + 1)}. {row.rso_name || "—"}
                         </span>
                         <span className="mt-1 block truncate text-xs text-gray-500 dark:text-gray-400">
-                          {row.dms_code ?? "—"} · {row.rso_itop_number ?? "—"}
+                          {row.dms_code || "—"} · {row.rso_itop_number || "—"}
                         </span>
                       </span>
                       <ChevronDown
