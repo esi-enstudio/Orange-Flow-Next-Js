@@ -1802,7 +1802,7 @@ export default function EmployeesPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_status')}</label>
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_status')} <span className="text-red-500">*</span></label>
                     <div className="relative group">
                       <div className={cn(
                         "absolute left-3 top-1/2 -translate-y-1/2 transition-colors pointer-events-none",
@@ -1840,7 +1840,7 @@ export default function EmployeesPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_emp_type')}</label>
+                    <label className="text-[11px] font-bold text-gray-500 uppercase">{t('employees.field_emp_type')} <span className="text-red-500">*</span></label>
                     <div className="relative group">
                       <div className={cn(
                         "absolute left-3 top-1/2 -translate-y-1/2 transition-colors pointer-events-none",
