@@ -11,6 +11,7 @@ import {
   Lock, ChevronDown, ChevronUp, CalendarDays, Wifi, WifiOff, ListChecks, Zap,
   Sunrise, Sunset, Eye, FileText, FileType2, Image as ImageIcon,
   RectangleHorizontal, RectangleVertical,
+  Plug,
 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -269,12 +270,12 @@ const formatPhoneForDisplay = (stored: string): string => {
   return digits;
 };
 
-export default function WhatsAppReportDeliveryModal({
+export default function ReportDeliveryModal({
   open,
   houseId,
   reportType,
   reportParams,
-  title = "WhatsApp Report Delivery",
+  title = "Report Delivery",
   subtitle = "Auto-send the report daily at a fixed time",
   supportsOrientation = false,
   onClose,
@@ -460,8 +461,26 @@ export default function WhatsAppReportDeliveryModal({
   }, [anyOverlayOpen]);
 
   const whatsappReady = status?.connected === true;
-  const telegramReady = tgStatus?.success === true;
+  const telegramReady = tgStatus?.success === true && !!tgStatus?.chat_id;
   const formLocked = form.channel === "telegram" ? !telegramReady : !whatsappReady;
+  const availableChannels = useMemo<Array<"whatsapp" | "telegram">>(() => {
+    const channels: Array<"whatsapp" | "telegram"> = [];
+    if (whatsappReady) channels.push("whatsapp");
+    if (telegramReady) channels.push("telegram");
+    return channels;
+  }, [whatsappReady, telegramReady]);
+  const channelsResolved = status !== null || tgStatus !== null;
+  const canOpenConnections = hasPermission("connections.view");
+
+  // Only offer channels this house has actually connected. Never silently
+  // convert an existing schedule that is being edited.
+  useEffect(() => {
+    if (!channelsResolved || editingId !== null) return;
+    if (availableChannels.length === 0) return;
+    if (!availableChannels.includes(form.channel)) {
+      setForm((current) => ({ ...current, channel: availableChannels[0] }));
+    }
+  }, [channelsResolved, availableChannels, editingId, form.channel]);
 
   const refreshNow = useCallback(async () => {
     setRefreshing(true);
@@ -1925,34 +1944,77 @@ export default function WhatsAppReportDeliveryModal({
                 <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
                   Delivery channel
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, channel: "whatsapp" }))}
+                {!channelsResolved ? (
+                  <div className="grid grid-cols-2 gap-2" aria-hidden="true">
+                    <div className="h-11 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800" />
+                    <div className="h-11 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800" />
+                  </div>
+                ) : availableChannels.length === 0 ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+                    <div className="flex items-start gap-2">
+                      <Plug className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-amber-900 dark:text-amber-200">
+                          {t("connectionsPage.modal.none_title")}
+                        </p>
+                        <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                          {t("connectionsPage.modal.none_hint")}
+                        </p>
+                        {canOpenConnections && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeModal();
+                              router.push("/connections");
+                            }}
+                            className="mt-2 inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-500/40 dark:bg-slate-900 dark:text-amber-200 dark:hover:bg-amber-500/10"
+                          >
+                            <Plug className="size-3.5" />
+                            {t("connectionsPage.modal.open_connections")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
                     className={cn(
-                      "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
-                      form.channel === "whatsapp"
-                        ? "border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 font-medium"
-                        : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+                      "grid gap-2",
+                      availableChannels.length > 1 ? "grid-cols-2" : "grid-cols-1"
                     )}
                   >
-                    <MessageCircle className="w-4 h-4" />
-                    WhatsApp
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, channel: "telegram" }))}
-                    className={cn(
-                      "flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm min-h-[44px] transition-colors",
-                      form.channel === "telegram"
-                        ? "border-sky-400 dark:border-sky-500 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 font-medium"
-                        : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400"
+                    {availableChannels.includes("whatsapp") && (
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, channel: "whatsapp" }))}
+                        className={cn(
+                          "flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm min-h-[44px] transition-colors",
+                          form.channel === "whatsapp"
+                            ? "border-green-400 bg-green-50 font-medium text-green-700 dark:border-green-500 dark:bg-green-500/10 dark:text-green-300"
+                            : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-slate-700 dark:text-gray-400 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        WhatsApp
+                      </button>
                     )}
-                  >
-                    <Send className="w-4 h-4" />
-                    Telegram
-                  </button>
-                </div>
+                    {availableChannels.includes("telegram") && (
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, channel: "telegram" }))}
+                        className={cn(
+                          "flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm min-h-[44px] transition-colors",
+                          form.channel === "telegram"
+                            ? "border-sky-400 bg-sky-50 font-medium text-sky-700 dark:border-sky-500 dark:bg-sky-500/10 dark:text-sky-300"
+                            : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-slate-700 dark:text-gray-400 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        <Send className="w-4 h-4" />
+                        Telegram
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {status?.qr && (
@@ -2011,11 +2073,11 @@ export default function WhatsAppReportDeliveryModal({
                           </p>
                         </div>
                         <button
-                          onClick={() => router.push("/telegram")}
+                          onClick={() => router.push("/connections")}
                           className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 shrink-0"
                         >
-                          <Pencil className="w-4 h-4" />
-                          Open Telegram page
+                          <Plug className="w-4 h-4" />
+                          Open Connections
                         </button>
                       </div>
                     )}

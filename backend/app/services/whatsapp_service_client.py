@@ -245,12 +245,15 @@ class WhatsAppServiceClient:
     async def login_pairing_code(self, jwt_token: str, phone_number: str) -> dict:
         """Login with pairing code (alternative to QR)."""
         self._check_enabled()
+        phone = phone_number.strip()
+        if len(phone) == 11 and phone.startswith("01") and phone.isascii() and phone.isdigit():
+            phone = f"880{phone[1:]}"
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     f"{self.base_url}/devices/me/login-code",
                     headers={"Authorization": f"Bearer {jwt_token}"},
-                    json={"phone_number": phone_number},
+                    json={"phone": phone},
                 )
                 self._raise(resp)
                 body = resp.json()

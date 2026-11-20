@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, has_permission
+from app.routers.deps import get_db, has_any_permission, has_permission
 from app.models.house import House
 from app.models.user import User
 from app.models.whatsapp_connection import WhatsappConnection, whatsapp_connection_houses
@@ -364,7 +364,9 @@ async def delete_connection(
 async def connection_status(
     connection_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("whatsapp.view")),
+    current_user: User = Depends(
+        has_any_permission(["whatsapp.view", "connections.view"])
+    ),
 ):
     conn = await _accessible_connection(db, connection_id, current_user)
 
@@ -524,8 +526,8 @@ async def disconnect(
             WaTarget(conn),
             lambda token: whatsapp_service_client.disconnect_device(token),
         )
-    except WhatsAppServiceError:
-        pass
+    except WhatsAppServiceError as e:
+        raise HTTPException(status_code=502, detail=f"{e.code}: {e.message}")
 
     old_status = conn.wa_status
     conn.wa_status = "disconnected"
@@ -545,3 +547,80 @@ async def disconnect(
         request=request,
     )
     return {"success": True, "data": {"status": "disconnected"}}
+
+
+@router.post("/whatsapp/connections/{connection_id}/reset")
+async def reset_connection(
+    connection_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("whatsapp.setup")),
+):
+    """Replace the shared device while preserving its house assignments."""
+    conn = await _accessible_connection(db, connection_id, current_user)
+
+    first_house = conn.houses[0] if conn.houses else None
+    try:
+        api_key = await whatsapp_service_client.create_api_key(
+            customer_name=conn.name,
+            customer_email=(first_house.email or "").strip()
+            if first_house
+            else "shared@orange-flow.local",
+            customer_phone=(first_house.poc_mobile or "").strip()
+            if first_house
+            else "N/A",
+            max_devices=1,
+        )
+        device_data = await whatsapp_service_client.create_device(
+            api_key=api_key,
+            device_name=conn.name,
+        )
+    except WhatsAppServiceError as e:
+        raise HTTPException(status_code=502, detail=f"{e.code}: {e.message}")
+
+    old_values = {
+        "wa_device_id": conn.wa_device_id,
+        "wa_status": conn.wa_status,
+    }
+    if conn.wa_device_id:
+        try:
+            await whatsapp_service_client.delete_device(conn.wa_device_id)
+        except WhatsAppServiceError as e:
+            logger.warning(
+                "Gateway device delete failed for connection %s: %s",
+                conn.id,
+                e,
+            )
+
+    conn.wa_api_key = api_key
+    conn.wa_device_id = device_data["device_id"]
+    conn.wa_device_secret = device_data["device_secret"]
+    conn.wa_jwt_token = device_data["token"]
+    conn.wa_status = "disconnected"
+    conn.wa_last_error = None
+    conn.wa_phone_number = None
+    conn.wa_last_connected_at = None
+    await db.commit()
+
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="whatsapp",
+        action="connection.reset",
+        record_id=conn.id,
+        record_identifier=conn.name,
+        old_values=old_values,
+        new_values={
+            "wa_device_id": conn.wa_device_id,
+            "wa_status": "disconnected",
+        },
+        request=request,
+    )
+    return {
+        "success": True,
+        "data": {
+            "status": "reset",
+            "message": "Connect the new device to WhatsApp",
+        },
+    }

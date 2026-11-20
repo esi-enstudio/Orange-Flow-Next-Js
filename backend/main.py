@@ -133,6 +133,7 @@ from app.routers.whatsapp_contacts import router as whatsapp_contacts_router
 from app.routers.whatsapp_gateway import router as whatsapp_gateway_router
 from app.routers.whatsapp_connections import router as whatsapp_connections_router
 from app.routers.telegram_bots import router as telegram_bots_router
+from app.routers.connections import router as connections_router
 from app.routers.transactions import router as transactions_router
 from app.routers.ga_report_builder import router as ga_report_builder_router
 from app.routers.ga_query import router as ga_query_router
@@ -214,6 +215,7 @@ app.include_router(whatsapp_contacts_router)
 app.include_router(whatsapp_gateway_router)
 app.include_router(whatsapp_connections_router)
 app.include_router(telegram_bots_router)
+app.include_router(connections_router)
 app.include_router(transactions_router)
 app.include_router(ga_report_builder_router)
 app.include_router(ga_query_router)

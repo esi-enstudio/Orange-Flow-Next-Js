@@ -52,6 +52,7 @@ class LiveC2CAutomationConfig(Base):
     oauth_state_hash = Column(String(64), nullable=True)
     oauth_state_expires_at = Column(DateTime, nullable=True)
     oauth_state_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    oauth_return_path = Column(String(100), nullable=True)
 
     source_group_jid = Column(String(128), nullable=True)
     source_group_name = Column(String(200), nullable=True)

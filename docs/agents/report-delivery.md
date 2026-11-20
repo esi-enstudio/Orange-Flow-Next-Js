@@ -48,12 +48,14 @@ A reusable module for scheduling and sending report images (PNG) to WhatsApp gro
 
 **Permission:** `live_activations.schedule` (used for all report types)
 
+**Provider gate:** the modal only offers WhatsApp and Telegram when the active house has that app connected (read from `/api/whatsapp/status` and `/api/telegram/status`). When neither is connected it shows a bilingual empty state with a link to `/connections` (only for users holding `connections.view`) and keeps send/save disabled. Channel state is owned by the Connections hub (`/connections`, `GET /api/connections`); never duplicate connection state in the modal.
+
 #### Frontend
 
-**Reusable Component** (`frontend/src/components/WhatsAppReportDeliveryModal.tsx`):
+**Reusable Component** (`frontend/src/components/ReportDeliveryModal.tsx`):
 
 ```tsx
-<WhatsAppReportDeliveryModal
+<ReportDeliveryModal
   open={isOpen}
   houseId={houseId}
   reportType="active_lso"          // Required: which report to send
@@ -93,9 +95,9 @@ SCALE_AWARE_BUILDERS["xxx"] = build_xxx_report_image
 
 4. **Use in frontend:**
 ```tsx
-import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
+import ReportDeliveryModal from "@/components/ReportDeliveryModal";
 
-<WhatsAppReportDeliveryModal
+<ReportDeliveryModal
   reportType="xxx"
   title="XXX Report Delivery"
   subtitle="Auto-send XXX report"
@@ -118,7 +120,7 @@ import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModa
 | `backend/app/services/live_c2c_report_rows.py` | Live C2C report rows shared by the page API and the image builder |
 | `backend/app/services/active_sso_whatsapp_image.py` | Active SSO PNG builder |
 | `backend/app/routers/whatsapp_schedules.py` | API endpoints |
-| `frontend/src/components/WhatsAppReportDeliveryModal.tsx` | Reusable React component |
+| `frontend/src/components/ReportDeliveryModal.tsx` | Reusable React component |
 | `backend/main.py` (lines 300-322) | Background scheduler loop |
 
 ## Live C2C Inbound Automation

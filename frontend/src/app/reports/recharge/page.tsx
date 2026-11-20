@@ -25,7 +25,7 @@ import { exportRechargeReport } from "@/lib/export-recharge";
 import { printReportImage } from "@/lib/print-report-image";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
-import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
+import ReportDeliveryModal from "@/components/ReportDeliveryModal";
 import {
   Card,
   CardContent,
@@ -1213,7 +1213,7 @@ export default function RechargeDashboardPage() {
           modal follows it (and remounts via `key` so no stale preview/schedule
           list survives a switch). */}
       {hasPermission("reports.whatsapp_share") && (
-        <WhatsAppReportDeliveryModal
+        <ReportDeliveryModal
           key={reportType}
           open={showReportDelivery}
           houseId={selectedHouseId ? Number(selectedHouseId) : null}

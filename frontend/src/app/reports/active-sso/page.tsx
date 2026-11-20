@@ -39,7 +39,7 @@ import { AccessDenied } from "@/components/ui/AccessDenied";
 import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/date-picker";
 import { useLanguage } from "@/i18n/useLanguage";
-import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
+import ReportDeliveryModal from "@/components/ReportDeliveryModal";
 import { printReportImage } from "@/lib/print-report-image";
 
 // ------------------------------------------------------------------ types
@@ -1547,7 +1547,7 @@ export default function ActiveSsoReportPage() {
       )}
 
       {/* WhatsApp Report Delivery Modal — house-wide Active SSO report */}
-      <WhatsAppReportDeliveryModal
+      <ReportDeliveryModal
         open={wsModalOpen}
         houseId={appliedFilters.houseId ? Number(appliedFilters.houseId) : null}
         reportType="active_sso"
@@ -1557,7 +1557,7 @@ export default function ActiveSsoReportPage() {
       />
 
       {/* WhatsApp Report Delivery Modal — the opened RSO's inactive retailer list only */}
-      <WhatsAppReportDeliveryModal
+      <ReportDeliveryModal
         open={retailerShare.open}
         houseId={appliedFilters.houseId ? Number(appliedFilters.houseId) : null}
         reportType="active_sso_inactive_retailers"

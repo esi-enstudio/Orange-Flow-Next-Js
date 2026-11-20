@@ -56,6 +56,7 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/v1/deploy", "administration"),
     ("/api/v1/documents", "documents"),
     ("/api/v1/report-builder", "report_builder"),
+    ("/api/v1/live-c2c-automation/gmail", "connections"),
     ("/api/v1/live-c2c-automation", "reports"),
     # audit trail is a system-wide admin surface (gated by `audit.view`)
     ("/api/v1/activity-logs", "administration"),
@@ -138,8 +139,9 @@ PATH_TO_MODULE: List[Tuple[str, Optional[str]]] = [
     ("/api/ev-kit", "sim_management"),
     ("/api/sim-products", "sim_management"),
 
-    ("/api/whatsapp", "whatsapp"),
-    ("/api/telegram", "telegram"),
+    ("/api/whatsapp", "connections"),
+    ("/api/telegram", "connections"),
+    ("/api/connections", "connections"),
 
     # Dashboard helpers (base module -> always allowed).
     ("/api/stats", "dashboard"),
@@ -241,8 +243,7 @@ MODULE_LEAF_ROUTES: dict = {
         "/zoom-in/allocation",
         "/zoom-in/eligible-bts",
     ),
-    "whatsapp": ("/whatsapp",),
-    "telegram": ("/telegram",),
+    "connections": ("/connections",),
 }
 
 # Every grantable page route -> owning top-level module (derived once at import).
@@ -400,9 +401,13 @@ LEAF_TO_API_PREFIXES: dict = {
         "/api/zoom-in/bts-by-thana",
     ),
 
-    # ---- whatsapp / telegram ----
-    "/whatsapp": ("/api/whatsapp", "/api/whatsapp-schedules"),
-    "/telegram": ("/api/telegram",),
+    # ---- app connections ----
+    "/connections": (
+        "/api/connections",
+        "/api/whatsapp",
+        "/api/telegram",
+        "/api/v1/live-c2c-automation/gmail",
+    ),
 }
 
 # Endpoints that belong to a whole module (no single page) — open whenever ANY

@@ -13,7 +13,13 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.routers.deps import get_db, has_permission, has_any_permission, get_house_context
+from app.routers.deps import (
+    get_db,
+    has_permission,
+    has_any_permission,
+    get_house_context,
+    require_house_context,
+)
 from app.models.house import House
 from app.models.user import User
 from app.models.telegram_bot import TelegramBot, telegram_bot_houses
@@ -443,6 +449,112 @@ async def test_delivery(
             "bot": bot.name,
         },
     }
+
+
+@router.post("/telegram/connect")
+async def connect_telegram(
+    payload: TestDeliveryPayload,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("telegram.connect")),
+):
+    """Verify a chat with a test message and link it to the house.
+
+    The Connections hub uses this instead of the admin-only test-delivery
+    endpoint, so a house operator with ``telegram.connect`` can finish setup.
+    """
+    house = await db.scalar(select(House).where(House.id == payload.house_id))
+    if not house:
+        raise HTTPException(status_code=404, detail="House not found")
+    if not is_admin_user(current_user):
+        if house.id not in await _user_house_ids(current_user):
+            raise HTTPException(status_code=403, detail="You do not have access to this house")
+
+    bot = await telegram_service.resolve_house_tg_bot(db, house)
+    if not bot:
+        raise HTTPException(
+            status_code=400,
+            detail="This house is not assigned to any Telegram bot yet.",
+        )
+
+    try:
+        await telegram_service.send_message(
+            token=bot.bot_token,
+            chat_id=payload.chat_id,
+            text=(
+                f"✅ Orange Flow connected\n"
+                f"House: {house.name}\n"
+                f"Bot: @{bot.bot_username or bot.name}"
+            ),
+        )
+    except TelegramError as e:
+        bot.status = "invalid"
+        bot.last_error = e.description
+        await db.commit()
+        raise HTTPException(status_code=502, detail=f"{e.description}")
+
+    old_chat = house.telegram_chat_id
+    house.telegram_chat_id = payload.chat_id
+    house.telegram_chat_name = payload.chat_name or payload.chat_id
+    await db.commit()
+
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="telegram",
+        action="house.link_chat",
+        record_id=house.id,
+        record_identifier=house.name,
+        old_values={"chat_id": old_chat},
+        new_values={"chat_id": payload.chat_id, "bot": bot.name, "source": "connections"},
+        request=request,
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "house_id": house.id,
+            "chat_id": house.telegram_chat_id,
+            "chat_name": house.telegram_chat_name,
+            "bot": bot.name,
+        },
+    }
+
+
+@router.delete("/telegram/disconnect")
+async def disconnect_telegram(
+    request: Request,
+    house_id: int = Depends(require_house_context),
+    current_user: User = Depends(has_permission("telegram.connect")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unlink the house's Telegram chat (the bot binding is kept)."""
+    house = await db.scalar(select(House).where(House.id == house_id))
+    if not house:
+        raise HTTPException(status_code=404, detail="House not found")
+    if not house.telegram_chat_id:
+        return {"success": True, "data": {"status": "disconnected"}}
+
+    old_chat = house.telegram_chat_id
+    old_name = house.telegram_chat_name
+    house.telegram_chat_id = None
+    house.telegram_chat_name = None
+    await db.commit()
+
+    await log_activity(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        module="telegram",
+        action="house.unlink_chat",
+        record_id=house.id,
+        record_identifier=house.name,
+        old_values={"chat_id": old_chat, "chat_name": old_name},
+        new_values={"chat_id": None},
+        request=request,
+    )
+    return {"success": True, "data": {"status": "disconnected"}}
 
 
 @router.get("/telegram/status")

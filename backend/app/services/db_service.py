@@ -2171,10 +2171,16 @@ async def _migrate_bts_own_plan_module():
         _migration_warning("bts standalone plan module", e)
 
 
-# Legacy grant keys remapped onto the new `commission` module.
+# Legacy grant keys remapped onto surviving nav modules.
 _COMMISSION_KEY_REMAP = {
     "commercial_sales": "commission",
     "/commercial/commission": "commission",
+}
+_CONNECTION_KEY_REMAP = {
+    "whatsapp": "connections",
+    "telegram": "connections",
+    "/whatsapp": "/connections",
+    "/telegram": "/connections",
 }
 # Keys with no surviving page — dropped (that page never existed).
 _DROPPED_COMMERCIAL_KEYS = ("/commercial/expenses",)
@@ -2185,6 +2191,8 @@ def _rewrite_allowed_modules(modules: list) -> list:
 
     - `commercial_sales`       -> `commission` (the group's only real page)
     - `/commercial/commission` -> `commission` (page moved to /commission)
+    - `whatsapp` / `telegram`  -> `connections`
+    - `/whatsapp` / `/telegram` -> `/connections`
     - `/commercial/expenses`   -> dropped (that page never existed)
 
     Order is preserved and duplicates are collapsed.
@@ -2193,20 +2201,20 @@ def _rewrite_allowed_modules(modules: list) -> list:
     for key in modules:
         if key in _DROPPED_COMMERCIAL_KEYS:
             continue
-        key = _COMMISSION_KEY_REMAP.get(key, key)
+        key = _COMMISSION_KEY_REMAP.get(
+            key, _CONNECTION_KEY_REMAP.get(key, key)
+        )
         if key not in out:
             out.append(key)
     return out
 
 
-async def _migrate_commission_own_plan_module():
-    """Commission became its own module (`commission`) and moved /commercial/commission
-    -> /commission. The `commercial_sales` group it lived in no longer exists.
+async def _migrate_legacy_module_keys():
+    """Remap retired module/page grants to their surviving nav modules.
 
-    Rewrite every plan's `allowed_modules` so no subscriber silently loses the
-    page: module key and page-leaf grants are both remapped onto `commission`,
-    and the now-meaningless `commercial_sales` / `/commercial/expenses` keys are
-    pruned. Legacy NULL (unrestricted) plans are left untouched. Idempotent.
+    Preserve access for plans that still grant the retired commercial, WhatsApp
+    or Telegram module/page keys. Legacy NULL (unrestricted) plans are untouched.
+    Idempotent.
     """
     try:
         async with engine.begin() as conn:
@@ -2236,11 +2244,11 @@ async def _migrate_commission_own_plan_module():
                 updated += 1
             if updated:
                 logger.info(
-                    f"Migration: remapped allowed_modules to the new 'commission' module "
+                    "Migration: remapped legacy allowed_modules "
                     f"for {updated} plan(s)"
                 )
     except Exception as e:
-        _migration_warning("commission standalone plan module", e)
+        _migration_warning("legacy plan module keys", e)
 
 
 async def _migrate_seed_rule_contexts():
@@ -3039,7 +3047,7 @@ async def init_db():
         await _migrate_billing_fail_closed()
         await _migrate_subscriptions_off_deleted_plans()
         await _migrate_bts_own_plan_module()
-        await _migrate_commission_own_plan_module()
+        await _migrate_legacy_module_keys()
         try:
             # permissions.json is the source of truth: a deploy that adds a
             # permission key must not need a manual /admin/sync-permissions.

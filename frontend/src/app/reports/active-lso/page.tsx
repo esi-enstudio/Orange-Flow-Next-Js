@@ -47,7 +47,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/i18n/useLanguage";
 import { exportActiveLsoReport } from "@/lib/export-active-lso";
 import { printReportImage } from "@/lib/print-report-image";
-import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
+import ReportDeliveryModal from "@/components/ReportDeliveryModal";
 import { DateRangePicker } from "@/components/date-picker";
 
 // ------------------------------------------------------------------ types
@@ -1655,7 +1655,7 @@ export default function ActiveLsoReportPage() {
       )}
 
       {/* WhatsApp Report Delivery Modal — house-wide Active LSO report */}
-      <WhatsAppReportDeliveryModal
+      <ReportDeliveryModal
         open={wsModalOpen}
         houseId={filters.houseId ? Number(filters.houseId) : null}
         reportType="active_lso"
@@ -1665,7 +1665,7 @@ export default function ActiveLsoReportPage() {
       />
 
       {/* WhatsApp Report Delivery Modal — the opened RSO's inactive retailer list only */}
-      <WhatsAppReportDeliveryModal
+      <ReportDeliveryModal
         open={retailerShare.open}
         houseId={appliedFilters.houseId ? Number(appliedFilters.houseId) : null}
         reportType="active_lso_inactive_retailers"

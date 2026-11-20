@@ -30,8 +30,6 @@ import {
   CalendarDays,
   Warehouse,
   BadgeDollarSign,
-  MessageCircle,
-  Send,
   CreditCard,
   Receipt,
   Crown,
@@ -42,6 +40,7 @@ import {
   Boxes,
   History,
   SlidersHorizontal,
+  Plug,
 } from "lucide-react";
 
 export interface NavItem {
@@ -422,21 +421,12 @@ export const navItems: NavItem[] = [
     ]
   },
   {
-    title: "WhatsApp",
-    translationKey: "nav.whatsapp",
-    moduleKey: "whatsapp",
-    href: "/whatsapp",
-    icon: MessageCircle,
-    color: "text-green-500",
-    permission: "whatsapp.view",
-  },
-  {
-    title: "Telegram",
-    translationKey: "nav.telegram",
-    moduleKey: "telegram",
-    href: "/telegram",
-    icon: Send,
-    color: "text-sky-500",
-    permission: "telegram.view",
+    title: "Connections",
+    translationKey: "nav.connections",
+    moduleKey: "connections",
+    href: "/connections",
+    icon: Plug,
+    color: "text-indigo-500",
+    permission: "connections.view",
   },
 ];

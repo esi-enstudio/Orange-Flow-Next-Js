@@ -141,6 +141,14 @@ def test_live_c2c_leaf_uses_reports_api_scope():
     )
 
 
+def test_legacy_connection_plan_keys_map_to_connections():
+    from app.services.db_service import _rewrite_allowed_modules
+
+    assert _rewrite_allowed_modules(
+        ["whatsapp", "/telegram", "connections", "/connections"]
+    ) == ["connections", "/connections"]
+
+
 def test_every_leaf_has_an_api_prefix_mapping():
     missing = [leaf for leaf in ALL_LEAF_ROUTES if not LEAF_TO_API_PREFIXES.get(leaf)]
     assert not missing, f"leaves without API prefix mapping: {missing}"

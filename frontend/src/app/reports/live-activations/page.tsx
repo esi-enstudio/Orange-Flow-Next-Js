@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import LiveActivationDetailModal from "./LiveActivationDetailModal";
-import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
+import ReportDeliveryModal from "@/components/ReportDeliveryModal";
 import { exportLiveReport } from "@/lib/export-ga-live-report";
 import {
   PieChart, Pie, Cell,
@@ -1630,7 +1630,7 @@ export default function GaLiveReportPage() {
       />
 
       {/* ────── WhatsApp Report Delivery Modal ────── */}
-      <WhatsAppReportDeliveryModal
+      <ReportDeliveryModal
         open={wsModalOpen}
         houseId={effectiveHouseId}
         reportType="ga_live"

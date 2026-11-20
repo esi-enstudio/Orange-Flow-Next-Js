@@ -23,7 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { exportActivationsReport } from "@/lib/export-activations";
 import { printReportImage } from "@/lib/print-report-image";
-import WhatsAppReportDeliveryModal from "@/components/WhatsAppReportDeliveryModal";
+import ReportDeliveryModal from "@/components/ReportDeliveryModal";
 import { toast } from "react-hot-toast";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import {
@@ -1319,7 +1319,7 @@ export default function ActivationDashboardPage() {
 
       {/* WhatsApp Report Delivery Modal */}
       {hasPermission("reports.whatsapp_share") && (
-        <WhatsAppReportDeliveryModal
+        <ReportDeliveryModal
           open={showReportDelivery}
           houseId={selectedHouseId ? Number(selectedHouseId) : null}
           reportType="activation"

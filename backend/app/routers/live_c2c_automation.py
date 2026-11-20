@@ -120,6 +120,29 @@ def _redirect_to_live_c2c(status: str) -> RedirectResponse:
     )
 
 
+def _safe_return_path(value: str | None) -> str | None:
+    """Accept only a local absolute path (no scheme, no protocol-relative URL)."""
+    if not value:
+        return None
+    value = value.strip()
+    if not value.startswith("/") or value.startswith("//"):
+        return None
+    if len(value) > 100 or "\\" in value or "\n" in value or "\r" in value:
+        return None
+    return value
+
+
+def _redirect_after_oauth(return_path: str | None, status: str) -> RedirectResponse:
+    path = _safe_return_path(return_path)
+    if path is None:
+        return _redirect_to_live_c2c(status)
+    separator = "&" if "?" in path else "?"
+    return RedirectResponse(
+        f"{settings.APP_URL.rstrip('/')}{path}{separator}{urlencode({'automation': status})}",
+        status_code=303,
+    )
+
+
 def _house_email(house: House) -> str:
     try:
         return str(TypeAdapter(EmailStr).validate_python(house.email or ""))
@@ -536,8 +559,11 @@ async def update_live_c2c_automation(
 @router.post("/gmail/authorize")
 async def authorize_gmail(
     request: Request,
+    return_path: str | None = None,
     house_id: int = Depends(require_house_context),
-    current_user: User = Depends(has_permission("live_c2c.automation_manage")),
+    current_user: User = Depends(
+        has_any_permission(["live_c2c.automation_manage", "gmail.connect"])
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     house = await db.scalar(select(House).where(House.id == house_id))
@@ -565,6 +591,7 @@ async def authorize_gmail(
     config.oauth_state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
     config.oauth_state_expires_at = now_naive() + OAUTH_STATE_TTL
     config.oauth_state_user_id = current_user.id
+    config.oauth_return_path = _safe_return_path(return_path)
     config.updated_by = current_user.id
     try:
         authorization_url = build_gmail_authorization_url(config, state)
@@ -607,7 +634,10 @@ async def _authorized_oauth_user(
         return None
     if not any(
         is_admin_role([role.name.lower()])
-        or any(permission.name == "live_c2c.automation_manage" for permission in role.permissions)
+        or any(
+            permission.name in ("live_c2c.automation_manage", "gmail.connect")
+            for permission in role.permissions
+        )
         for role in user.roles
     ):
         return None
@@ -643,13 +673,15 @@ async def gmail_oauth_callback(
     if config is None:
         return _redirect_to_live_c2c("gmail_error")
     user_id = config.oauth_state_user_id
+    return_path = config.oauth_return_path
     config.oauth_state_hash = None
     config.oauth_state_expires_at = None
     config.oauth_state_user_id = None
+    config.oauth_return_path = None
     await db.commit()
     user = await _authorized_oauth_user(db, user_id, config.house_id) if user_id else None
     if user is None:
-        return _redirect_to_live_c2c("gmail_error")
+        return _redirect_after_oauth(return_path, "gmail_error")
     if error or not code:
         config.gmail_error = "gmail_authorization_denied"
         await log_activity(
@@ -665,7 +697,7 @@ async def gmail_oauth_callback(
             commit=False,
         )
         await db.commit()
-        return _redirect_to_live_c2c("gmail_error")
+        return _redirect_after_oauth(return_path, "gmail_error")
     try:
         await exchange_gmail_code(db, config, code)
     except LiveC2CGmailError as exc:
@@ -684,7 +716,7 @@ async def gmail_oauth_callback(
             commit=False,
         )
         await db.commit()
-        return _redirect_to_live_c2c("gmail_error")
+        return _redirect_after_oauth(return_path, "gmail_error")
     await log_activity(
         db,
         user_id=user.id,
@@ -695,14 +727,16 @@ async def gmail_oauth_callback(
         new_values={"gmail_address": config.gmail_address, "gmail_status": "connected"},
         request=request,
     )
-    return _redirect_to_live_c2c("gmail_connected")
+    return _redirect_after_oauth(return_path, "gmail_connected")
 
 
 @router.post("/gmail/disconnect")
 async def disconnect_gmail(
     request: Request,
     house_id: int = Depends(require_house_context),
-    current_user: User = Depends(has_permission("live_c2c.automation_manage")),
+    current_user: User = Depends(
+        has_any_permission(["live_c2c.automation_manage", "gmail.connect"])
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     config = await _load_config(db, house_id)
@@ -724,6 +758,7 @@ async def disconnect_gmail(
     config.oauth_state_hash = None
     config.oauth_state_expires_at = None
     config.oauth_state_user_id = None
+    config.oauth_return_path = None
     config.updated_by = current_user.id
     await log_activity(
         db,

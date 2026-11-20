@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Loader2, RefreshCw, Smartphone, CheckCircle2,
@@ -9,6 +9,8 @@ import {
 import apiClient from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
+import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/i18n/useLanguage";
 
 interface Props {
   open: boolean;
@@ -25,14 +27,29 @@ interface StatusData {
   error?: string;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  const detail = (
+    error as { response?: { data?: { detail?: unknown } } }
+  )?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  return error instanceof Error ? error.message : fallback;
+}
+
 export default function WhatsAppConnectModal({ open, houseId, onClose, onConnected }: Props) {
+  const { hasPermission } = useAuth();
+  const { t } = useLanguage();
+  const canSetup = hasPermission("whatsapp.setup");
+  const canConnect = hasPermission("whatsapp.connect");
+  const canDisconnect = hasPermission("whatsapp.disconnect");
   const [status, setStatus] = useState<StatusData | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [phoneInput, setPhoneInput] = useState("");
-  const [showPairing, setShowPairing] = useState(false);
 
-  const houseHeader = houseId ? { "X-House-ID": String(houseId) } : {};
+  const houseHeader = useMemo(
+    () => (houseId ? { "X-House-ID": String(houseId) } : {}),
+    [houseId],
+  );
 
   const checkStatus = useCallback(async () => {
     if (!houseId) return;
@@ -42,7 +59,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
     } catch {
       setStatus({ connected: false, state: "error", error: "Service unreachable" });
     }
-  }, [houseId]);
+  }, [houseId, houseHeader]);
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -92,8 +109,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
         if (attempts >= maxAttempts) stopPolling();
       }
     }, 3000);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [houseId, onConnected, stopPolling]);
+  }, [houseId, houseHeader, onConnected, stopPolling]);
 
   useEffect(() => {
     if (!open || !houseId) return;
@@ -106,7 +122,6 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
       stopPolling();
       setStatus(null);
       setPhoneInput("");
-      setShowPairing(false);
     }
   }, [open, stopPolling]);
 
@@ -116,8 +131,8 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
       await apiClient.post("/whatsapp/setup", null, { headers: houseHeader });
       toast.success("WhatsApp device created");
       await checkStatus();
-    } catch (e) {
-      toast.error((e as Error).message || "Setup failed");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Setup failed"));
     } finally {
       setActionLoading(false);
     }
@@ -137,8 +152,8 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
         return { ...base, connected: false, state: "connecting", qr: qrCode ?? undefined };
       });
       startPolling();
-    } catch (e) {
-      toast.error((e as Error).message || "Connect failed");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Connect failed"));
     } finally {
       setActionLoading(false);
     }
@@ -158,8 +173,8 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
       );
       toast.success("Pairing code sent. Check your phone.");
       startPolling();
-    } catch (e) {
-      toast.error((e as Error).message || "Pairing failed");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Pairing failed"));
     } finally {
       setActionLoading(false);
     }
@@ -172,8 +187,8 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
       await apiClient.post("/whatsapp/disconnect", null, { headers: houseHeader });
       toast.success("WhatsApp disconnected");
       await checkStatus();
-    } catch (e) {
-      toast.error((e as Error).message || "Disconnect failed");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Disconnect failed"));
     } finally {
       setActionLoading(false);
     }
@@ -186,14 +201,14 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
       await apiClient.post("/whatsapp/reset", null, { headers: houseHeader });
       toast.success("WhatsApp reset. Run setup again.");
       await checkStatus();
-    } catch (e) {
-      toast.error((e as Error).message || "Reset failed");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Reset failed"));
     } finally {
       setActionLoading(false);
     }
   };
 
-  const isConfigured = status?.state !== "not_configured";
+  const isConfigured = status !== null && status.state !== "not_configured";
   const isConnected = status?.connected === true;
 
   return (
@@ -288,7 +303,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
               )}
 
               {/* Pairing Code Alternative */}
-              {status?.state === "connecting" && !status?.qr && (
+              {canConnect && status?.state === "connecting" && !status?.qr && (
                 <div className="rounded-2xl border border-gray-200 dark:border-slate-700 p-4 space-y-3">
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                     Or use pairing code instead of QR
@@ -297,7 +312,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
                     type="tel"
                     value={phoneInput}
                     onChange={(e) => setPhoneInput(e.target.value)}
-                    placeholder="Phone number (e.g. 8801712345678)"
+                    placeholder={t("connectionsPage.whatsapp.pairing_phone_placeholder")}
                     className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500/40"
                   />
                   <button
@@ -313,7 +328,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
 
               {/* Action Buttons */}
               <div className="space-y-2">
-                {!isConfigured ? (
+                {!isConfigured && canSetup ? (
                   <button
                     onClick={handleSetup}
                     disabled={actionLoading}
@@ -322,7 +337,11 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
                     {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
                     Setup WhatsApp for this House
                   </button>
-                ) : !isConnected ? (
+                ) : !isConfigured ? (
+                  <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                    {t("connectionsPage.whatsapp.setup_admin_required")}
+                  </p>
+                ) : !isConnected && canConnect ? (
                   <button
                     onClick={handleConnect}
                     disabled={actionLoading || status?.state === "connecting"}
@@ -333,7 +352,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
                       : <Wifi className="w-4 h-4" />}
                     {status?.state === "connecting" ? "Scanning..." : "Connect (Generate QR)"}
                   </button>
-                ) : (
+                ) : isConnected && canDisconnect ? (
                   <button
                     onClick={handleDisconnect}
                     disabled={actionLoading}
@@ -342,7 +361,7 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
                     {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <WifiOff className="w-4 h-4" />}
                     Disconnect
                   </button>
-                )}
+                ) : null}
 
                 {isConfigured && (
                   <div className="flex gap-2">
@@ -354,14 +373,16 @@ export default function WhatsAppConnectModal({ open, houseId, onClose, onConnect
                       <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
                       Refresh
                     </button>
-                    <button
-                      onClick={handleReset}
-                      disabled={actionLoading}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                      Reset
-                    </button>
+                    {canSetup && (
+                      <button
+                        onClick={handleReset}
+                        disabled={actionLoading}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        Reset
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

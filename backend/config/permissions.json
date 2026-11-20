@@ -528,7 +528,20 @@
       "display_name": "Telegram Bots",
       "permissions": [
         "telegram.view",
-        "telegram.manage"
+        "telegram.manage",
+        "telegram.connect"
+      ]
+    },
+    "gmail": {
+      "display_name": "Gmail",
+      "permissions": [
+        "gmail.connect"
+      ]
+    },
+    "connections": {
+      "display_name": "Connections",
+      "permissions": [
+        "connections.view"
       ]
     },
     "otp": {
@@ -639,6 +652,10 @@
     {
       "name": "Distributor",
       "permissions": [
+        "connections.view",
+        "whatsapp.connect",
+        "telegram.connect",
+        "gmail.connect",
         "houses.view",
         "houses.letterhead_view",
         "houses.letterhead_edit",
@@ -723,6 +740,10 @@
     {
       "name": "Manager",
       "permissions": [
+        "connections.view",
+        "whatsapp.connect",
+        "telegram.connect",
+        "gmail.connect",
         "reports.view",
         "live_c2c.import",
         "live_c2c.export",
