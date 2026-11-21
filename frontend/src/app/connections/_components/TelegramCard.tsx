@@ -97,6 +97,14 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
     setDeleteBotTarget(null);
   };
 
+  const openBotCreateModal = () => {
+    setEditingBotId(null);
+    setBotName("");
+    setBotToken("");
+    setSelectedHouseIds([houseId]);
+    setBotFormOpen(true);
+  };
+
   const loadBots = useCallback(async () => {
     if (!canManage) return;
     setBotsLoading(true);
@@ -266,7 +274,13 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
           canAct || canManage ? (
             <button
               type="button"
-              onClick={() => setManagementOpen(true)}
+              onClick={() => {
+                if (!connected && !hasBot && canManage) {
+                  openBotCreateModal();
+                } else {
+                  setManagementOpen(true);
+                }
+              }}
               className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
             >
               <Link2 className="size-4" />
@@ -369,13 +383,7 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
           <div className="flex items-center justify-between gap-2 mb-3">
             <button
               type="button"
-              onClick={() => {
-                setEditingBotId(null);
-                setBotName("");
-                setBotToken("");
-                setSelectedHouseIds([]);
-                setBotFormOpen(true);
-              }}
+              onClick={openBotCreateModal}
               className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
             >
               <Plus className="size-3.5" />
@@ -638,37 +646,39 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
                   className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-mono text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                 />
               </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                  {t("telegramPage.assign_houses")} ({selectedHouseIds.length})
-                </label>
-                <div className="max-h-52 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 pr-1">
-                  {houses.map((h) => (
-                    <label
-                      key={h.id}
-                      className={cn(
-                        "flex items-center gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors min-h-[44px]",
-                        selectedHouseIds.includes(h.id)
-                          ? "border-sky-400 dark:border-sky-500 bg-sky-50 dark:bg-sky-500/10"
-                          : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedHouseIds.includes(h.id)}
-                        onChange={() => toggleHouse(h.id)}
-                        className="accent-sky-600 w-4 h-4"
-                      />
-                      <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                        {h.name}
-                      </span>
-                      <span className="ml-auto text-[10px] font-mono text-gray-400 shrink-0">
-                        {h.code}
-                      </span>
-                    </label>
-                  ))}
+              {editingBotId && (
+                <div>
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
+                    {t("telegramPage.assign_houses")} ({selectedHouseIds.length})
+                  </label>
+                  <div className="max-h-52 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 pr-1">
+                    {houses.map((h) => (
+                      <label
+                        key={h.id}
+                        className={cn(
+                          "flex items-center gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors min-h-[44px]",
+                          selectedHouseIds.includes(h.id)
+                            ? "border-sky-400 dark:border-sky-500 bg-sky-50 dark:bg-sky-500/10"
+                            : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedHouseIds.includes(h.id)}
+                          onChange={() => toggleHouse(h.id)}
+                          className="accent-sky-600 w-4 h-4"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                          {h.name}
+                        </span>
+                        <span className="ml-auto text-[10px] font-mono text-gray-400 shrink-0">
+                          {h.code}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-800 flex justify-end gap-2">
