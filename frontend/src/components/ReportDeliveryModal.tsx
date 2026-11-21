@@ -1972,7 +1972,7 @@ export default function ReportDeliveryModal({
               )}
 
               {/* Create / edit form */}
-              <div className="space-y-5">
+              <div className="space-y-5" hidden={availableChannels.length === 0}>
                 <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                   {editingId ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                   {editingId ? "Edit schedule" : "New schedule"}
@@ -2026,7 +2026,7 @@ export default function ReportDeliveryModal({
                 )}
 
                 <div className={cn("space-y-4", formLocked && "opacity-50 pointer-events-none select-none")}>
-                  {form.channel === "whatsapp" && renderRecipientPicker()}
+                  {form.channel === "whatsapp" && whatsappReady && renderRecipientPicker()}
 
                   {/* Send as */}
                   {renderSendAsSelector()}
@@ -2216,13 +2216,6 @@ export default function ReportDeliveryModal({
                 {!editingId && renderSummary()}
 
                 {/* Actions */}
-                {missingRequirements.length > 0 && (
-                  <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400 space-y-0.5">
-                    {missingRequirements.map((m) => (
-                      <p key={m}>• {m}</p>
-                    ))}
-                  </div>
-                )}
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 mt-2">
                   {editingId && (
                     <button
@@ -2264,10 +2257,10 @@ export default function ReportDeliveryModal({
               </div>
 
               {/* Existing schedules */}
-              {renderSchedules()}
+              {availableChannels.length > 0 && renderSchedules()}
 
               {/* Delivery history */}
-              {renderDeliveryHistory()}
+              {availableChannels.length > 0 && renderDeliveryHistory()}
             </div>
           </motion.div>
         </motion.div>

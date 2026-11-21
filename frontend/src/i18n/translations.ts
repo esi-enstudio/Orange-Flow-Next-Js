@@ -5392,7 +5392,7 @@ export const translations = {
       },
       modal: {
         none_title: "No app connected for this house",
-        none_hint: "Connect WhatsApp or Telegram for this house to share reports.",
+        none_hint: "Connect an app for this house to share reports.",
         open_connections: "Open Connections",
       },
       actions: {
@@ -12783,7 +12783,7 @@ employees: "Employees",
       },
       modal: {
         none_title: "এই হাউসের জন্য কোনো অ্যাপ সংযুক্ত নেই",
-        none_hint: "রিপোর্ট শেয়ার করতে এই হাউসের জন্য হোয়াটসঅ্যাপ বা টেলিগ্রাম সংযোগ করুন।",
+        none_hint: "রিপোর্ট শেয়ার করতে এই হাউসের জন্য একটি অ্যাপ সংযুক্ত করুন।",
         open_connections: "কানেকশন খুলুন",
       },
       actions: {

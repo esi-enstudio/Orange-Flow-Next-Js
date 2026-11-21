@@ -48,7 +48,7 @@ A reusable module for scheduling and sending report images (PNG) to WhatsApp gro
 
 **Permission:** `live_activations.schedule` (used for all report types)
 
-**Provider gate:** the modal only offers WhatsApp and Telegram when the active house has that app connected (read from `/api/whatsapp/status` and `/api/telegram/status`). When neither is connected it shows a bilingual empty state with a link to `/connections` (only for users holding `connections.view`) and keeps send/save disabled. Channel state is owned by the Connections hub (`/connections`, `GET /api/connections`); never duplicate connection state in the modal.
+**Provider gate:** the modal only offers WhatsApp and Telegram when the active house has that app connected (read from `/api/whatsapp/status` and `/api/telegram/status`). When neither is connected it shows a bilingual empty state with a provider-neutral hint and a link to `/connections` (only for users holding `connections.view`); the new/edit delivery form, saved schedules, and delivery history are hidden. Channel state is owned by the Connections hub (`/connections`, `GET /api/connections`); never duplicate connection state in the modal.
 
 #### Frontend
 
