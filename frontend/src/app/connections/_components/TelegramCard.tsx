@@ -23,8 +23,8 @@ import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import type { HouseConnectionState } from "@/hooks/useHouseConnections";
 import { CONNECTION_PROVIDERS } from "@/lib/connectionProviders";
 import { ProviderCard } from "./ProviderCard";
-import { cn } from "@/lib/utils";
 import { ConnectionManagementDialog } from "./ConnectionManagementDialog";
+import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
 
 interface Props {
   state?: HouseConnectionState;
@@ -70,6 +70,7 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
   // ── Modals ──
   const [managementOpen, setManagementOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [botFormOpen, setBotFormOpen] = useState(false);
   const [deleteBotTarget, setDeleteBotTarget] = useState<TgBot | null>(null);
 
@@ -89,6 +90,16 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
   const [chatId, setChatId] = useState("");
   const [houseChatIds, setHouseChatIds] = useState<Record<number, string>>({});
   const [testingHouse, setTestingHouse] = useState<number | null>(null);
+
+  const telegramErrorMessage = (error: unknown, fallback: string) => {
+    const detail = (
+      error as { response?: { data?: { detail?: unknown } } }
+    )?.response?.data?.detail;
+    if (typeof detail !== "string") return fallback;
+    return detail.toLowerCase().includes("chat not found")
+      ? t("telegramPage.chat_not_found_hint")
+      : detail;
+  };
 
   const closeManagement = () => {
     setManagementOpen(false);
@@ -122,7 +133,7 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
     if (!canManage) return;
     setHousesLoading(true);
     try {
-      const res = await apiClient.get("/houses", { params: { per_page: 100 } });
+      const res = await apiClient.get("/houses/accessible");
       const data = res.data?.data ?? res.data ?? [];
       setHouses(Array.isArray(data) ? data : []);
     } catch {
@@ -157,10 +168,9 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
       setHouseChatIds((current) => ({ ...current, [targetHouseId]: "" }));
       onChanged();
     } catch (error: unknown) {
-      const detail =
-        (error as { response?: { data?: { detail?: unknown } } })?.response
-          ?.data?.detail;
-      toast.error(typeof detail === "string" ? detail : t("connectionsPage.action_failed"));
+      toast.error(
+        telegramErrorMessage(error, t("connectionsPage.action_failed"))
+      );
     } finally {
       setTestingHouse(null);
     }
@@ -178,19 +188,19 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
       toast.success(t("connectionsPage.telegram.test_sent"));
       onChanged();
     } catch (error: unknown) {
-      const detail =
-        (error as { response?: { data?: { detail?: unknown } } })?.response
-          ?.data?.detail;
-      toast.error(typeof detail === "string" ? detail : t("connectionsPage.action_failed"));
+      toast.error(
+        telegramErrorMessage(error, t("connectionsPage.action_failed"))
+      );
     } finally {
       setTestingHouse(null);
     }
   };
 
   const disconnect = async () => {
-    setConfirmOpen(false);
+    setDisconnecting(true);
     try {
       await apiClient.delete("/telegram/disconnect", { headers });
+      setConfirmOpen(false);
       toast.success(t("connectionsPage.actions.disconnect"));
       onChanged();
     } catch (error: unknown) {
@@ -198,16 +208,12 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
         (error as { response?: { data?: { detail?: unknown } } })?.response
           ?.data?.detail;
       toast.error(typeof detail === "string" ? detail : t("connectionsPage.action_failed"));
+    } finally {
+      setDisconnecting(false);
     }
   };
 
   // ── Bot CRUD ──
-  const toggleHouse = (id: number) => {
-    setSelectedHouseIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
   const saveBot = async () => {
     if (!botName.trim()) return toast.error(t("telegramPage.bot_name_required"));
     if (!editingBotId && !botToken.trim()) return toast.error(t("telegramPage.bot_token_required"));
@@ -222,12 +228,20 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
         await apiClient.patch(`/telegram/bots/${editingBotId}`, payload);
         toast.success(t("telegramPage.updated"));
       } else {
-        await apiClient.post("/telegram/bots", {
+        const response = await apiClient.post<{ data: TgBot }>("/telegram/bots", {
           name: botName.trim(),
           bot_token: botToken.trim(),
           house_ids: selectedHouseIds,
         });
+        const createdBot = response.data.data;
+        setEditingBotId(createdBot.id);
+        setBotName(createdBot.name);
+        setBotToken("");
+        setSelectedHouseIds(createdBot.houses.map((house) => house.id));
         toast.success(t("telegramPage.created"), { duration: 6000 });
+        await loadBots();
+        onChanged();
+        return;
       }
       setBotFormOpen(false);
       await loadBots();
@@ -586,7 +600,7 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
         confirmText={t("connectionsPage.actions.disconnect")}
         cancelText={t("connectionsPage.actions.cancel")}
         type="danger"
-        loading={confirmOpen}
+        loading={disconnecting}
       />
 
       {/* Bot form modal */}
@@ -648,35 +662,25 @@ export function TelegramCard({ state, houseId, onChanged }: Props) {
               </div>
               {editingBotId && (
                 <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">
-                    {t("telegramPage.assign_houses")} ({selectedHouseIds.length})
-                  </label>
-                  <div className="max-h-52 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 pr-1">
-                    {houses.map((h) => (
-                      <label
-                        key={h.id}
-                        className={cn(
-                          "flex items-center gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors min-h-[44px]",
-                          selectedHouseIds.includes(h.id)
-                            ? "border-sky-400 dark:border-sky-500 bg-sky-50 dark:bg-sky-500/10"
-                            : "border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedHouseIds.includes(h.id)}
-                          onChange={() => toggleHouse(h.id)}
-                          className="accent-sky-600 w-4 h-4"
-                        />
-                        <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                          {h.name}
-                        </span>
-                        <span className="ml-auto text-[10px] font-mono text-gray-400 shrink-0">
-                          {h.code}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  <EntitySelector
+                    label={t("telegramPage.assign_houses")}
+                    items={houses.map((house) => ({
+                      id: house.id,
+                      label: house.name,
+                      sublabel: house.code,
+                    }))}
+                    selectedIds={selectedHouseIds}
+                    onChange={(ids) => setSelectedHouseIds(ids.map(Number))}
+                    disabled={housesLoading}
+                    placeholder={t("connectionsPage.select_house")}
+                    searchPlaceholder={t("connectionsPage.search_house")}
+                    emptyMessage={t("connectionsPage.no_house_options")}
+                    noResultsMessage={t("connectionsPage.no_house_matches")}
+                    selectAllLabel={t("common.select_all")}
+                    clearLabel={t("common.clear")}
+                    selectedLabel={t("telegramPage.selected")}
+                    portal
+                  />
                 </div>
               )}
             </div>

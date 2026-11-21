@@ -417,9 +417,10 @@ async def test_delivery(
             ),
         )
     except TelegramError as e:
-        bot.status = "invalid"
-        bot.last_error = e.description
-        await db.commit()
+        if e.code == 401:
+            bot.status = "invalid"
+            bot.last_error = e.description
+            await db.commit()
         raise HTTPException(status_code=502, detail=f"{e.description}")
 
     old_chat = house.telegram_chat_id
@@ -488,9 +489,10 @@ async def connect_telegram(
             ),
         )
     except TelegramError as e:
-        bot.status = "invalid"
-        bot.last_error = e.description
-        await db.commit()
+        if e.code == 401:
+            bot.status = "invalid"
+            bot.last_error = e.description
+            await db.commit()
         raise HTTPException(status_code=502, detail=f"{e.description}")
 
     old_chat = house.telegram_chat_id
@@ -590,7 +592,8 @@ async def telegram_status(
             "chat_name": house.telegram_chat_name,
         }
     except TelegramError as e:
-        bot.status = "invalid"
-        bot.last_error = e.description
-        await db.commit()
+        if e.code == 401:
+            bot.status = "invalid"
+            bot.last_error = e.description
+            await db.commit()
         return {"success": False, "state": "unreachable", "error": e.description}

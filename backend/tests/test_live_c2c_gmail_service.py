@@ -67,6 +67,7 @@ def _google_response(request):
 def test_gmail_authorization_url_uses_configured_account_and_one_time_state(monkeypatch):
     service = _service()
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_REDIRECT_URI", "https://app.example/callback")
     config = LiveC2CAutomationConfig(gmail_address="House.Mail@example.com")
 

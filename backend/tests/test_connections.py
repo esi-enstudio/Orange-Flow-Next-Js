@@ -155,6 +155,12 @@ async def test_returns_every_provider_for_the_active_house(
     )
     monkeypatch.setattr(telegram_service, "get_me", fake_get_me)
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "https://api.example.test/api/v1/live-c2c-automation/gmail/callback",
+    )
 
     user = await _user_with_permissions(db, ["connections.view"], [house])
     await api_client.make_user_override(user)
@@ -172,6 +178,29 @@ async def test_returns_every_provider_for_the_active_house(
     assert data["telegram"]["account"] == "@house_bot"
     assert data["gmail"]["connected"] is True
     assert data["gmail"]["account"] == "house@example.com"
+
+
+@pytest.mark.asyncio
+async def test_gmail_is_unavailable_when_oauth_configuration_is_incomplete(
+    api_client, db, house, monkeypatch
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", None)
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "https://api.example.test/api/v1/live-c2c-automation/gmail/callback",
+    )
+    user = await _user_with_permissions(db, ["connections.view"], [house])
+    await api_client.make_user_override(user)
+
+    response = await api_client.get(
+        "/api/connections", headers={"X-House-ID": str(house.id)}
+    )
+
+    assert response.status_code == 200
+    gmail = next(item for item in response.json()["data"] if item["provider"] == "gmail")
+    assert gmail["available"] is False
 
 
 @pytest.mark.asyncio
@@ -674,6 +703,66 @@ async def test_telegram_connect_links_chat_and_writes_activity_log(
     )
     assert log is not None
     assert log.module == "telegram"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "permission"),
+    [
+        ("/api/telegram/test-delivery", "telegram.manage"),
+        ("/api/telegram/connect", "telegram.connect"),
+    ],
+)
+async def test_chat_not_found_does_not_invalidate_shared_telegram_bot(
+    api_client, db, house, monkeypatch, path, permission
+):
+    bot = TelegramBot(name="House bot", bot_token="x" * 40, bot_username="house_bot")
+    bot.houses.append(house)
+    db.add(bot)
+    await db.commit()
+
+    async def fail_to_send(token, chat_id, text):
+        raise telegram_service.TelegramError("Bad Request: chat not found", code=400)
+
+    monkeypatch.setattr(telegram_service, "send_message", fail_to_send)
+
+    user = await _user_with_permissions(db, [permission], [house])
+    await api_client.make_user_override(user)
+
+    response = await api_client.post(
+        path,
+        json={"house_id": house.id, "chat_id": "-100123456"},
+        headers={"X-House-ID": str(house.id)},
+    )
+
+    assert response.status_code == 502
+    await db.refresh(bot)
+    assert bot.status == "active"
+    assert bot.last_error is None
+
+
+@pytest.mark.asyncio
+async def test_telegram_api_error_retains_unauthorized_code(monkeypatch):
+    class Response:
+        status_code = 401
+
+        def json(self):
+            return {
+                "ok": False,
+                "error_code": 401,
+                "description": "Unauthorized",
+            }
+
+    class Client:
+        async def post(self, url, json):
+            return Response()
+
+    monkeypatch.setattr(telegram_service, "_get_client", lambda: Client())
+
+    with pytest.raises(telegram_service.TelegramError) as error:
+        await telegram_service.get_me("invalid-token")
+
+    assert error.value.code == 401
 
 
 @pytest.mark.asyncio

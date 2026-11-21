@@ -480,6 +480,7 @@ async def test_gmail_oauth_state_is_hashed_one_time_and_permission_rechecked(
     monkeypatch,
 ):
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setattr(
         settings,
         "GOOGLE_OAUTH_REDIRECT_URI",
@@ -536,6 +537,36 @@ async def test_gmail_oauth_state_is_hashed_one_time_and_permission_rechecked(
 
 
 @pytest.mark.asyncio
+async def test_gmail_authorize_rejects_incomplete_oauth_configuration(
+    api_client, db, house, monkeypatch
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", None)
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "https://api.example.test/api/v1/live-c2c-automation/gmail/callback",
+    )
+    user = await _user_with_permissions(db, house, ["gmail.connect"])
+    await api_client.make_user_override(user)
+    house_id = house.id
+
+    response = await api_client.post(
+        "/api/v1/live-c2c-automation/gmail/authorize",
+        headers={"X-House-ID": str(house_id)},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "gmail_oauth_not_configured"
+    config_count = await db.scalar(
+        select(func.count()).select_from(LiveC2CAutomationConfig).where(
+            LiveC2CAutomationConfig.house_id == house_id
+        )
+    )
+    assert config_count == 0
+
+
+@pytest.mark.asyncio
 async def test_gmail_oauth_callback_rejects_removed_house_access(
     api_client,
     db,
@@ -543,6 +574,7 @@ async def test_gmail_oauth_callback_rejects_removed_house_access(
     monkeypatch,
 ):
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setattr(
         settings,
         "GOOGLE_OAUTH_REDIRECT_URI",

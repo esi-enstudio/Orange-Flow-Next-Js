@@ -48,7 +48,12 @@ async def _call(method: str, token: str, payload: Optional[dict] = None) -> dict
     except Exception as e:
         raise TelegramError(f"Telegram service unreachable: {e}", code=503)
     if not data.get("ok"):
-        raise TelegramError(data.get("description", "Unknown Telegram error"))
+        error_code = data.get("error_code")
+        code = error_code if isinstance(error_code, int) else resp.status_code
+        raise TelegramError(
+            data.get("description", "Unknown Telegram error"),
+            code=code,
+        )
     return data.get("result", {})
 
 

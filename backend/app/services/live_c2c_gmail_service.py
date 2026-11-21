@@ -74,7 +74,7 @@ def build_gmail_authorization_url(
     config: LiveC2CAutomationConfig,
     state: str,
 ) -> str:
-    client_id, redirect_uri, _ = _oauth_config()
+    client_id, redirect_uri, _ = _oauth_config(include_secret=True)
     if not state:
         raise LiveC2CGmailError("gmail_oauth_state_missing")
     if not config.gmail_address:

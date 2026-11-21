@@ -174,7 +174,14 @@ async def _telegram_state(db: AsyncSession, house: House) -> HouseConnectionStat
 
 
 async def _gmail_state(db: AsyncSession, house: House) -> HouseConnectionState:
-    available = bool(getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", None))
+    available = all(
+        getattr(settings, setting, None)
+        for setting in (
+            "GOOGLE_OAUTH_CLIENT_ID",
+            "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_OAUTH_REDIRECT_URI",
+        )
+    )
     state = HouseConnectionState(
         provider="gmail",
         connected=False,

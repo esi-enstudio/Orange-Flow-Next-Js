@@ -12,6 +12,24 @@ import { CONNECTION_PROVIDERS } from "@/lib/connectionProviders";
 import { ProviderCard } from "./ProviderCard";
 import { ConnectionManagementDialog } from "./ConnectionManagementDialog";
 
+const GMAIL_ERROR_KEYS: Record<string, string> = {
+  gmail_oauth_not_configured: "connectionsPage.gmail.errors.oauth_not_configured",
+  live_c2c_house_email_invalid: "connectionsPage.gmail.errors.house_email_invalid",
+  gmail_house_email_missing: "connectionsPage.gmail.errors.house_email_missing",
+  live_c2c_source_is_not_gmail: "connectionsPage.gmail.errors.source_conflict",
+  gmail_authorization_denied: "connectionsPage.gmail.errors.authorization_denied",
+  gmail_account_mismatch: "connectionsPage.gmail.errors.account_mismatch",
+  gmail_refresh_token_missing: "connectionsPage.gmail.errors.refresh_token_missing",
+  gmail_access_token_missing: "connectionsPage.gmail.errors.invalid_google_response",
+  gmail_profile_invalid: "connectionsPage.gmail.errors.invalid_google_response",
+  gmail_authorization_code_missing: "connectionsPage.gmail.errors.invalid_google_response",
+  gmail_invalid_response: "connectionsPage.gmail.errors.invalid_google_response",
+  gmail_request_failed: "connectionsPage.gmail.errors.google_request_failed",
+  gmail_revoke_failed: "connectionsPage.gmail.errors.revoke_failed",
+  gmail_history_expired: "connectionsPage.gmail.errors.history_expired",
+  gmail_connection_not_ready: "connectionsPage.gmail.errors.reconnect_required",
+};
+
 interface Props {
   state?: HouseConnectionState;
   houseId: number;
@@ -30,6 +48,35 @@ export function GmailCard({ state, houseId, onChanged }: Props) {
   const available = state?.available !== false;
   const headers = { "X-House-ID": String(houseId) };
 
+  const gmailErrorText = (code: string) => {
+    const key = GMAIL_ERROR_KEYS[code];
+    return key
+      ? t(key)
+      : `${t("connectionsPage.gmail.connect_error")} (${code})`;
+  };
+
+  const gmailErrorFromResponse = (error: unknown) => {
+    const data = (
+      error as {
+        response?: {
+          data?: { error_code?: unknown; detail?: unknown };
+        };
+      }
+    )?.response?.data;
+    const detail = data?.detail;
+    const detailCode =
+      typeof detail === "object" && detail !== null && "code" in detail
+        ? detail.code
+        : undefined;
+    const code = data?.error_code ?? detailCode;
+    if (typeof code === "string") {
+      return gmailErrorText(code);
+    }
+    return typeof detail === "string"
+      ? detail
+      : t("connectionsPage.action_failed");
+  };
+
   const closeManagement = () => {
     setManagementOpen(false);
     setConfirmOpen(false);
@@ -46,8 +93,8 @@ export function GmailCard({ state, houseId, onChanged }: Props) {
       const url = res.data?.authorization_url;
       if (typeof url !== "string" || !url) throw new Error("missing authorization url");
       window.location.href = url;
-    } catch {
-      toast.error(t("connectionsPage.action_failed"));
+    } catch (error: unknown) {
+      toast.error(gmailErrorFromResponse(error));
       setBusy(null);
     }
   };
@@ -62,9 +109,7 @@ export function GmailCard({ state, houseId, onChanged }: Props) {
       setConfirmOpen(false);
       onChanged();
     } catch (error: unknown) {
-      const detail =
-        (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-      toast.error(typeof detail === "string" ? detail : t("connectionsPage.action_failed"));
+      toast.error(gmailErrorFromResponse(error));
     } finally {
       setBusy(null);
     }
@@ -96,7 +141,9 @@ export function GmailCard({ state, houseId, onChanged }: Props) {
         onClose={closeManagement}
         title={t("connectionsPage.gmail.name")}
         description={t("connectionsPage.gmail.description")}
-        errorMessage={state?.error}
+        errorMessage={
+          available && state?.error ? gmailErrorText(state.error) : undefined
+        }
       >
         {!available ? (
           <div className="space-y-1 text-sm text-gray-500 dark:text-gray-400">
@@ -118,12 +165,14 @@ export function GmailCard({ state, houseId, onChanged }: Props) {
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {t("connectionsPage.gmail.connect_hint")}
+              {state?.account
+                ? t("connectionsPage.gmail.connect_hint", { email: state.account })
+                : t("connectionsPage.gmail.errors.house_email_missing")}
             </p>
             <button
               type="button"
               onClick={connect}
-              disabled={busy !== null}
+              disabled={busy !== null || !state?.account}
               className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy === "connect" ? (
