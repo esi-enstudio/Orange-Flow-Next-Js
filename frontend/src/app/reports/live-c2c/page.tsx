@@ -2,7 +2,8 @@
 
 import axios from "axios";
 import Link from "next/link";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   BarChart3,
   ChevronDown,
@@ -10,8 +11,10 @@ import {
   Download,
   FileSpreadsheet,
   Home,
+  Loader2,
   Share2,
   Store,
+  X,
 } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import ReportDeliveryModal from "@/components/ReportDeliveryModal";
@@ -447,6 +450,147 @@ function candidateLabel(
   return code ? `${name} — ${code}` : name;
 }
 
+interface LiveC2CUploadModalProps {
+  open: boolean;
+  processing: boolean;
+  title: string;
+  description: string;
+  closeLabel: string;
+  errorMessage?: string;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+function LiveC2CUploadModal({
+  open,
+  processing,
+  title,
+  description,
+  closeLabel,
+  errorMessage,
+  onClose,
+  children,
+}: LiveC2CUploadModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  const canCloseRef = useRef(!processing);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    canCloseRef.current = !processing;
+  }, [processing]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+
+    const close = () => {
+      if (canCloseRef.current) onCloseRef.current();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [open]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !processing) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="live-c2c-upload-title"
+        aria-describedby="live-c2c-upload-description"
+        tabIndex={-1}
+        className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-gray-200 bg-white shadow-2xl outline-none dark:border-slate-700 dark:bg-slate-900 sm:max-h-[90dvh] sm:max-w-2xl sm:rounded-3xl"
+      >
+        <div className="flex items-start gap-3 border-b border-gray-100 px-4 py-4 dark:border-slate-800 sm:px-6">
+          <div className="min-w-0 flex-1">
+            <h2
+              id="live-c2c-upload-title"
+              className="text-lg font-bold text-gray-900 dark:text-gray-100"
+            >
+              {title}
+            </h2>
+            <p
+              id="live-c2c-upload-description"
+              className="mt-1 text-sm text-gray-500 dark:text-gray-400"
+            >
+              {description}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={processing}
+            aria-label={closeLabel}
+            className="flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-slate-800"
+          >
+            <X aria-hidden="true" className="size-5" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+          {errorMessage && (
+            <p
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+            >
+              {errorMessage}
+            </p>
+          )}
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function LiveC2CReportPage() {
   const { hasPermission, loading: authLoading } = useAuth();
   const { language, t } = useLanguage();
@@ -457,6 +601,7 @@ export default function LiveC2CReportPage() {
   const [housesError, setHousesError] = useState(false);
   const [selectedHouseId, setSelectedHouseId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null);
@@ -472,8 +617,7 @@ export default function LiveC2CReportPage() {
   const [savedSummary, setSavedSummary] = useState<{ saved: number; skipped: number } | null>(null);
   const [savingToDb, setSavingToDb] = useState(false);
   const [baseReportRefreshKey, setBaseReportRefreshKey] = useState(0);
-  // Once a report has been generated the worksheet picker is done with; it only
-  // comes back when a new workbook or house is chosen.
+  // Keep the generated report visible after the save confirmation expires.
   const [reportGenerated, setReportGenerated] = useState(false);
 
   const [exporting, setExporting] = useState(false);
@@ -605,6 +749,10 @@ export default function LiveC2CReportPage() {
       } else {
         names = await listLiveC2CWorksheetNames(await file.arrayBuffer());
       }
+      if (names.length === 0) {
+        setUploadError("missing_worksheet");
+        return;
+      }
       setSelectedFile(file);
       setSheetNames(names);
     } catch (error) {
@@ -711,6 +859,10 @@ export default function LiveC2CReportPage() {
         // Show the stored snapshot (earlier uploads included) instead of this file only.
         setReportRows(null);
         setBaseReportRefreshKey((key) => key + 1);
+        setSelectedFile(null);
+        setSheetNames([]);
+        setSelectedSheetName(null);
+        setUploadModalOpen(false);
       } catch (error) {
         const code = getImportErrorCode(error);
         setUploadError(code === "upload_failed" ? "save_failed" : code);
@@ -827,25 +979,15 @@ export default function LiveC2CReportPage() {
 
               <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
                 {canImport && (
-                  <>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".xlsx,.xlsb,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.binary.macroEnabled.12"
-                      aria-label={t("live_c2c.upload_button")}
-                      onChange={handleFileChange}
-                      className="sr-only"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={processing || housesLoading || housesError}
-                      className="inline-flex h-11 min-w-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:flex-none"
-                    >
-                      <FileSpreadsheet aria-hidden="true" className="size-[18px]" />
-                      {t(readingWorkbook ? "live_c2c.processing" : "live_c2c.upload_button")}
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => setUploadModalOpen(true)}
+                    disabled={processing || housesLoading || housesError}
+                    className="inline-flex h-11 min-w-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:flex-none"
+                  >
+                    <FileSpreadsheet aria-hidden="true" className="size-[18px]" />
+                    {t("live_c2c.upload_button")}
+                  </button>
                 )}
 
                 {canShare && (
@@ -861,67 +1003,11 @@ export default function LiveC2CReportPage() {
                     <span>{t("live_c2c.share_button")}</span>
                   </button>
                 )}
-
-                {selectedFile && (
-                  <span className="min-h-11 max-w-full content-center truncate text-sm text-gray-600 dark:text-gray-300">
-                    {selectedFile.name}
-                  </span>
-                )}
               </div>
             </>
           )}
         </div>
 
-        {selectedFile && sheetNames.length > 0 && !reportGenerated && (
-          <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3 sm:flex-row sm:items-end dark:border-slate-700 dark:bg-slate-900">
-            <div className="w-full sm:max-w-sm">
-              <EntitySelector
-                label={t("live_c2c.sheet_label")}
-                items={sheetNames.map((name) => ({ id: name, label: name }))}
-                selectedIds={selectedSheetName ? [selectedSheetName] : []}
-                onChange={(ids) => {
-                  const sheetName = ids[0];
-                  setSelectedSheetName(typeof sheetName === "string" ? sheetName : null);
-                }}
-                placeholder={t("live_c2c.select_sheet")}
-                searchPlaceholder={t("live_c2c.search_sheets")}
-                emptyMessage={t("live_c2c.no_sheets")}
-                noResultsMessage={t("live_c2c.no_matching_sheets")}
-                disabled={processing}
-                required
-                single
-                showSelectAll={false}
-                clearLabel={t("live_c2c.clear_selection")}
-              />
-            </div>
-            <p className="min-h-11 content-center text-sm text-gray-600 dark:text-gray-300">
-              {t("live_c2c.required_columns")}
-            </p>
-            <button
-              type="button"
-              onClick={handleGenerateReport}
-              disabled={processing || !selectedSheetName}
-              className="inline-flex h-11 min-w-11 items-center justify-center rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer sm:ml-auto"
-            >
-              {t(
-                savingToDb
-                  ? "live_c2c.saving"
-                  : previewing
-                    ? "live_c2c.generating"
-                    : "live_c2c.generate_report",
-              )}
-            </button>
-          </div>
-        )}
-
-        {uploadError && (
-          <p
-            role="alert"
-            className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
-          >
-            {t(`live_c2c.errors.${uploadError}`)}
-          </p>
-        )}
         {matchReport && matchReport.can_import && matchReport.summary.duplicate_rows > 0 && (
           <p
             role="status"
@@ -1127,7 +1213,7 @@ export default function LiveC2CReportPage() {
           className="space-y-2 lg:hidden"
         >
           {previewing ? (
-            Array.from({ length: 5 }, (_, index) => (
+            Array.from({ length: 10 }, (_, index) => (
               <div
                 key={`mobile-skeleton-${index}`}
                 aria-hidden="true"
@@ -1136,7 +1222,7 @@ export default function LiveC2CReportPage() {
             ))
           ) : reportRows === null ? (
             baseLoading ? (
-              Array.from({ length: 5 }, (_, index) => (
+              Array.from({ length: 10 }, (_, index) => (
                 <div
                   key={`base-skeleton-${index}`}
                   aria-hidden="true"
@@ -1304,7 +1390,7 @@ export default function LiveC2CReportPage() {
             </thead>
             <tbody>
               {previewing ? (
-                Array.from({ length: 5 }, (_, rowIndex) => (
+                Array.from({ length: 10 }, (_, rowIndex) => (
                   <tr key={`skeleton-${rowIndex}`} aria-hidden="true">
                     {REPORT_COLUMNS.map((column) => (
                       <td key={column} className="border border-gray-200 px-2 py-1 dark:border-slate-700">
@@ -1315,7 +1401,7 @@ export default function LiveC2CReportPage() {
                 ))
               ) : reportRows === null ? (
                 baseLoading ? (
-                  Array.from({ length: 5 }, (_, rowIndex) => (
+                  Array.from({ length: 10 }, (_, rowIndex) => (
                     <tr key={`base-skeleton-${rowIndex}`} aria-hidden="true">
                       {REPORT_COLUMNS.map((column) => (
                         <td key={column} className="border border-gray-200 px-2 py-1 dark:border-slate-700">
@@ -1399,6 +1485,172 @@ export default function LiveC2CReportPage() {
         </div>
         )}
       </section>
+
+      <LiveC2CUploadModal
+        open={uploadModalOpen}
+        processing={processing}
+        title={t("live_c2c.upload_modal_title")}
+        description={t("live_c2c.upload_modal_description")}
+        closeLabel={t("common.close")}
+        errorMessage={
+          uploadError ? t(`live_c2c.errors.${uploadError}`) : undefined
+        }
+        onClose={() => setUploadModalOpen(false)}
+      >
+        <>
+          <div className="space-y-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xlsb,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.binary.macroEnabled.12"
+              aria-label={t("live_c2c.choose_file")}
+              onChange={handleFileChange}
+              className="sr-only"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={processing || housesLoading || housesError}
+              className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700"
+            >
+              {readingWorkbook ? (
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet aria-hidden="true" className="size-4" />
+              )}
+              {t(readingWorkbook ? "live_c2c.processing" : "live_c2c.choose_file")}
+            </button>
+            {selectedFile && (
+              <p
+                title={selectedFile.name}
+                className="flex min-w-0 items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:bg-slate-800 dark:text-gray-200"
+              >
+                <FileSpreadsheet aria-hidden="true" className="size-4 shrink-0 text-primary-600 dark:text-primary-400" />
+                <span className="min-w-0 truncate">{selectedFile.name}</span>
+              </p>
+            )}
+          </div>
+
+          {selectedFile && sheetNames.length > 0 && (
+            <>
+              <div className="space-y-3 rounded-xl border border-gray-200 p-3 dark:border-slate-700">
+                <EntitySelector
+                  label={t("live_c2c.sheet_label")}
+                  items={sheetNames.map((name) => ({ id: name, label: name }))}
+                  selectedIds={selectedSheetName ? [selectedSheetName] : []}
+                  onChange={(ids) => {
+                    const sheetName = ids[0];
+                    setSelectedSheetName(typeof sheetName === "string" ? sheetName : null);
+                  }}
+                  placeholder={t("live_c2c.select_sheet")}
+                  searchPlaceholder={t("live_c2c.search_sheets")}
+                  emptyMessage={t("live_c2c.no_sheets")}
+                  noResultsMessage={t("live_c2c.no_matching_sheets")}
+                  disabled={processing}
+                  required
+                  single
+                  showSelectAll={false}
+                  clearLabel={t("live_c2c.clear_selection")}
+                />
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  {t("live_c2c.required_columns")}
+                </p>
+              </div>
+
+              {matchReport?.house_mismatch && (
+                <section
+                  role="alert"
+                  className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10"
+                >
+                  <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                    {t("live_c2c.house_mismatch.title")}
+                  </h3>
+                  <p className="mt-1 text-sm text-amber-800 dark:text-amber-100">
+                    {matchReport.matching_house
+                      ? t("live_c2c.house_mismatch.matched_house_message", {
+                          matched_house: `${matchReport.matching_house.name} (${matchReport.matching_house.code})`,
+                          selected_house: selectedHouse
+                            ? `${selectedHouse.name} (${selectedHouse.code})`
+                            : "",
+                        })
+                      : t("live_c2c.house_mismatch.message", {
+                          house: selectedHouse
+                            ? `${selectedHouse.name} (${selectedHouse.code})`
+                            : "",
+                        })}
+                  </p>
+                </section>
+              )}
+
+              {matchReport && !matchReport.can_import && !matchReport.house_mismatch && (
+                <section
+                  role="alert"
+                  aria-label={t("live_c2c.diagnostics.title")}
+                  className="space-y-2 rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-500/30 dark:bg-red-500/10"
+                >
+                  <p className="text-sm font-semibold text-red-800 dark:text-red-200">
+                    {t("live_c2c.diagnostics.blocked")}
+                  </p>
+                  <p className="text-sm text-red-700 dark:text-red-200">
+                    {t("live_c2c.diagnostics.issue_count")}: {matchReport.summary.issue_count}
+                  </p>
+                  {canExportMismatches && matchReport.issues.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleExportMismatches}
+                      disabled={exporting}
+                      className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/40 dark:bg-slate-900 dark:text-red-200 dark:hover:bg-slate-800"
+                    >
+                      {exporting ? (
+                        <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                      ) : (
+                        <Download aria-hidden="true" className="size-4" />
+                      )}
+                      {t(exporting ? "live_c2c.diagnostics.exporting" : "live_c2c.diagnostics.export")}
+                    </button>
+                  )}
+                  <ul className="max-h-32 space-y-1 overflow-y-auto text-sm text-red-800 dark:text-red-200">
+                    {matchReport.issues.slice(0, 5).map((issue) => (
+                      <li key={`${issue.side}-${issue.value}`} className="break-words">
+                        {issue.value}
+                        {" — "}
+                        {t(`live_c2c.diagnostics.side_${issue.side}`)}
+                        {" · "}
+                        {t("live_c2c.diagnostics.row_count", { count: issue.row_count })}
+                      </li>
+                    ))}
+                  </ul>
+                  {matchReport.truncated && (
+                    <p className="text-xs text-red-700 dark:text-red-200">
+                      {t("live_c2c.diagnostics.truncated")}
+                    </p>
+                  )}
+                </section>
+              )}
+
+              <button
+                type="button"
+                onClick={handleGenerateReport}
+                disabled={processing || !selectedSheetName}
+                className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {processing ? (
+                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet aria-hidden="true" className="size-4" />
+                )}
+                {t(
+                  savingToDb
+                    ? "live_c2c.saving"
+                    : previewing
+                      ? "live_c2c.generating"
+                      : "live_c2c.generate_and_save",
+                )}
+              </button>
+            </>
+          )}
+        </>
+      </LiveC2CUploadModal>
 
       <ReportDeliveryModal
         open={wsModalOpen}
