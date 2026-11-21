@@ -58,13 +58,9 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
     Number.isInteger(parsedConnectionId) && parsedConnectionId > 0
       ? parsedConnectionId
       : null;
-  const hasSharedConnection = sharedConnectionId !== null;
   const cardState =
-    hasSharedConnection &&
-    (state?.status === "not_configured" || state?.status === "disconnected")
-      ? { ...state, status: "ready" as const }
-      : state?.status === "not_configured"
-      ? { ...state, status: "disconnected" as const }
+    state?.status === "disconnected"
+      ? { ...state, status: "not_configured" as const }
       : state;
   const headers = { "X-House-ID": String(houseId) };
 
@@ -388,11 +384,13 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
         presentation={CONNECTION_PROVIDERS.whatsapp}
         state={cardState}
         action={
-          canConnect || canDisconnect || canManage ? (
+          (connected
+            ? canConnect || canDisconnect || canManage
+            : canConnect) ? (
             <button
               type="button"
               onClick={() => {
-                if (connected || hasSharedConnection || !canConnect) {
+                if (connected) {
                   setManagementOpen(true);
                 } else {
                   void startConnection();
@@ -408,7 +406,7 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
               )}
               {preparingConnect
                 ? t("connectionsPage.whatsapp.preparing")
-                : connected || hasSharedConnection
+                : connected
                   ? t("connectionsPage.actions.manage")
                   : t("connectionsPage.actions.connect")}
             </button>
