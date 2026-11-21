@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn, getProfilePicUrl } from "@/lib/utils";
@@ -34,6 +34,20 @@ function navHrefs(items: any[]): string[] {
 function activeNavHref(items: any[], pathname: string): string | null {
   const matches = navHrefs(items).filter((href) => isPathMatch(href, pathname));
   return matches.sort((a, b) => b.length - a.length)[0] ?? null;
+}
+
+/** Titles from the top-level item down to the one that owns `href`, so the
+ * sidebar can open on the exact panel the current page lives in. */
+function navTrail(items: any[], href: string | null): string[] | null {
+  if (!href) return null;
+  for (const item of items) {
+    if (item.href === href) return [item.title];
+    if (item.children) {
+      const trail = navTrail(item.children, href);
+      if (trail) return [item.title, ...trail];
+    }
+  }
+  return null;
 }
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
@@ -107,6 +121,26 @@ function filterChildren(children: any[], parentModuleKey: string): any[] {
       pathname === "/houses/letterhead" && Number.isSafeInteger(employeeId) && employeeId > 0
     );
   }, [pathname]);
+
+  // Opening the sidebar should land on the panel that owns the page the user is
+  // on, not the root menu list. `filteredNavItems` is rebuilt whenever the auth
+  // context re-renders, so the targets are kept in a ref and only read on the
+  // closed → open transition; otherwise browsing panels manually would be reset.
+  const navSnapshot = useRef({ items: filteredNavItems, activeHref });
+  useEffect(() => {
+    navSnapshot.current = { items: filteredNavItems, activeHref };
+  });
+
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (isOpen && !wasOpen.current) {
+      const trail = navTrail(navSnapshot.current.items, navSnapshot.current.activeHref);
+      // A direct top-level page has a trail of length 1 and no panel to open.
+      setOpenMenu(trail && trail.length > 1 ? trail[0] : null);
+      setOpenNested(trail && trail.length > 2 ? trail[1] : null);
+    }
+    wasOpen.current = !!isOpen;
+  }, [isOpen]);
 
   const selectedMenu = filteredNavItems.find(item => item.title === openMenu);
   const selectedNested = selectedMenu?.children?.find(

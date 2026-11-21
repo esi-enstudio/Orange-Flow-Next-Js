@@ -8,7 +8,7 @@ import {
   X, Send, Clock, MessageCircle, Loader2, RefreshCw,
   Plus, Trash2, Power, CalendarCheck, AlertCircle, Smartphone,
   Pencil, CheckCircle2, User, Search, Copy, History, BellRing,
-  Lock, ChevronDown, ChevronUp, CalendarDays, Wifi, WifiOff, ListChecks, Zap,
+  ChevronDown, ChevronUp, CalendarDays, Wifi, ListChecks, Zap,
   Sunrise, Sunset, Eye, FileText, FileType2, Image as ImageIcon,
   RectangleHorizontal, RectangleVertical,
   Plug,
@@ -1030,52 +1030,25 @@ export default function ReportDeliveryModal({
   // ── Render helpers ───────────────────────────────────────────────
 
   const renderStatusBanner = () => {
-    const connected = whatsappReady;
+    // No app connected for this house: show nothing instead of a warning banner.
+    if (!whatsappReady) return null;
     return (
-      <div
-        className={cn(
-          "rounded-2xl border p-4 flex flex-col sm:flex-row items-center gap-4",
-          connected
-            ? "border-green-200 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10"
-            : "border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10"
-        )}
-      >
+      <div className="rounded-2xl border p-4 flex flex-col sm:flex-row items-center gap-4 border-green-200 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10">
         <div className="flex-1 min-w-0 text-center sm:text-left">
-          <p
-            className={cn(
-              "font-semibold flex items-center justify-center sm:justify-start gap-2",
-              connected ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"
-            )}
-          >
-            {!status ? (
-              <><Loader2 className="w-4 h-4 animate-spin hidden sm:block" /> Checking WhatsApp service...</>
-            ) : connected ? (
-              <><CheckCircle2 className="w-4 h-4 shrink-0 hidden sm:block" /> WhatsApp connected</>
-            ) : (
-              <><AlertCircle className="w-4 h-4 shrink-0 hidden sm:block" /> {status?.error ?? "WhatsApp not connected"}</>
-            )}
+          <p className="font-semibold flex items-center justify-center sm:justify-start gap-2 text-green-700 dark:text-green-400">
+            <CheckCircle2 className="w-4 h-4 shrink-0 hidden sm:block" /> WhatsApp connected
           </p>
-          {connected ? (
-            <div className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
-              {status?.phone_number && (
-                <p className="font-mono text-xs">{status.phone_number}</p>
-              )}
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {status?.last_connected_at
-                  ? `Last synced ${fmtLogTime(status.last_connected_at)}`
-                  : "Reports will be delivered from this linked WhatsApp account."}
-                {status?.connection ? ` · ${status.connection}` : ""}
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {status?.qr
-                ? "Scan the QR code below with WhatsApp (Linked Devices) to link this account."
-                : status?.state === "not_configured"
-                  ? "Connect a WhatsApp account to select groups and schedule report delivery."
-                  : "Connect WhatsApp to schedule automated report delivery."}
+          <div className="mt-1 space-y-0.5 text-sm text-gray-600 dark:text-gray-300">
+            {status?.phone_number && (
+              <p className="font-mono text-xs">{status.phone_number}</p>
+            )}
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {status?.last_connected_at
+                ? `Last synced ${fmtLogTime(status.last_connected_at)}`
+                : "Reports will be delivered from this linked WhatsApp account."}
+              {status?.connection ? ` · ${status.connection}` : ""}
             </p>
-          )}
+          </div>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0 w-full sm:w-auto">
           <button
@@ -1088,45 +1061,15 @@ export default function ReportDeliveryModal({
           </button>
           <button
             onClick={() => setShowConnectModal(true)}
-            className={cn(
-              "flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium min-h-[40px] w-full sm:w-auto",
-              connected
-                ? "border border-gray-200 dark:border-slate-600 text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-slate-800"
-                : "bg-green-600 text-white hover:bg-green-700"
-            )}
+            className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium min-h-[40px] w-full sm:w-auto border border-gray-200 dark:border-slate-600 text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-slate-800"
           >
-            {connected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
-            {connected ? "Manage" : "Connect WhatsApp"}
+            <Wifi className="w-4 h-4" />
+            Manage
           </button>
         </div>
       </div>
     );
   };
-
-  const renderLockBanner = () => (
-    <div className="rounded-xl border border-dashed border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
-      <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-          {form.channel === "telegram" ? "Telegram not configured" : "WhatsApp not connected"}
-        </p>
-        <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
-          {form.channel === "telegram"
-            ? "Link a Telegram group for this house to schedule report delivery."
-            : "Connect a WhatsApp account to select groups and schedule report delivery."}
-        </p>
-      </div>
-      {form.channel === "whatsapp" && (
-        <button
-          onClick={() => setShowConnectModal(true)}
-          className="flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700"
-        >
-          <Wifi className="w-4 h-4" />
-          Connect WhatsApp
-        </button>
-      )}
-    </div>
-  );
 
   const renderRecipientPicker = () => {
     const tab = waTargetTab;
@@ -2034,8 +1977,6 @@ export default function ReportDeliveryModal({
                   {editingId ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                   {editingId ? "Edit schedule" : "New schedule"}
                 </p>
-
-                {formLocked && form.channel !== "telegram" && renderLockBanner()}
 
                 {/* Connection status — always interactive, never dimmed */}
                 {form.channel === "whatsapp" ? (

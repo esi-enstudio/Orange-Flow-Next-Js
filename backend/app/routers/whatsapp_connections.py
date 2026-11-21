@@ -22,7 +22,7 @@ from app.services.whatsapp_service_client import (
 )
 from app.services.whatsapp_token import WaTarget, with_target_token
 from app.utils.activity_logger import log_activity
-from app.utils.access_control import is_admin_user
+from app.utils.access_control import is_admin_role, is_admin_user
 from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,16 @@ router = APIRouter(prefix="/api", tags=["WhatsApp Connections"])
 
 async def _user_house_ids(current_user: User) -> set[int]:
     return {h.id for h in current_user.houses}
+
+
+def _user_has_permission(current_user: User, permission: str) -> bool:
+    """True when the user is an admin role or holds ``permission`` directly."""
+    for role in current_user.roles:
+        if is_admin_role([role.name.lower()]):
+            return True
+        if any(perm.name == permission for perm in role.permissions):
+            return True
+    return False
 
 
 async def _accessible_connection(
@@ -54,6 +64,11 @@ async def _accessible_connection(
         raise HTTPException(status_code=404, detail="WhatsApp connection not found")
 
     if is_admin_user(current_user):
+        return conn
+
+    # The creator keeps access to a device they just linked, even before any
+    # house is assigned to it (QR-first flow).
+    if conn.created_by == current_user.id:
         return conn
 
     user_hids = await _user_house_ids(current_user)
@@ -124,6 +139,7 @@ def _serialize(conn: WhatsappConnection) -> dict:
             conn.wa_last_connected_at.isoformat() if conn.wa_last_connected_at else None
         ),
         "created_at": conn.created_at.isoformat() if conn.created_at else None,
+        "created_by": conn.created_by,
         "houses": [
             {"id": h.id, "name": h.name, "code": h.code} for h in conn.houses
         ],
@@ -135,7 +151,9 @@ def _serialize(conn: WhatsappConnection) -> dict:
 
 class ConnectionCreatePayload(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    house_ids: list[int] = Field(min_length=1)
+    # QR-first flow: the device is linked before any house is chosen, so a
+    # draft connection may start without house assignments.
+    house_ids: list[int] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod
@@ -143,13 +161,6 @@ class ConnectionCreatePayload(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("name is required")
-        return v
-
-    @field_validator("house_ids")
-    @classmethod
-    def _unique_houses(cls, v: list[int]) -> list[int]:
-        if not v:
-            raise ValueError("at least one house is required")
         return v
 
 
@@ -179,7 +190,9 @@ class ConnectionPairingPayload(BaseModel):
 @router.get("/whatsapp/connections")
 async def list_connections(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("whatsapp.view")),
+    current_user: User = Depends(
+        has_any_permission(["whatsapp.view", "whatsapp.connect"])
+    ),
 ):
     """List shared connections visible to the user."""
     query = (
@@ -192,7 +205,12 @@ async def list_connections(
 
     if not is_admin_user(current_user):
         user_hids = await _user_house_ids(current_user)
-        conns = [c for c in conns if user_hids.intersection(c.house_ids)]
+        conns = [
+            c
+            for c in conns
+            if c.created_by == current_user.id
+            or user_hids.intersection(c.house_ids)
+        ]
 
     return {"success": True, "data": [_serialize(c) for c in conns]}
 
@@ -202,18 +220,26 @@ async def create_connection(
     payload: ConnectionCreatePayload,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("whatsapp.manage")),
+    current_user: User = Depends(
+        has_any_permission(["whatsapp.manage", "whatsapp.connect"])
+    ),
 ):
-    """Create a shared WhatsApp device and assign houses to it."""
+    """Create a shared WhatsApp device and assign houses to it.
+
+    ``house_ids`` may be empty when the user links the device first (QR) and
+    chooses the houses afterwards.
+    """
     houses = await _validate_assignment_houses(db, payload.house_ids, current_user)
     await _reject_double_binding(db, [h.id for h in houses], None)
 
+    first_house = houses[0] if houses else None
     try:
-        first_house = houses[0]
         api_key = await whatsapp_service_client.create_api_key(
             customer_name=payload.name,
-            customer_email=(first_house.email or "").strip() or "shared@orange-flow.local",
-            customer_phone=(first_house.poc_mobile or "").strip() or "N/A",
+            customer_email=((first_house.email or "").strip() if first_house else "")
+            or "shared@orange-flow.local",
+            customer_phone=((first_house.poc_mobile or "").strip() if first_house else "")
+            or "N/A",
             max_devices=1,
         )
         device_data = await whatsapp_service_client.create_device(
@@ -291,10 +317,21 @@ async def assign_houses(
     payload: ConnectionHousesPayload,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(has_permission("whatsapp.manage")),
+    current_user: User = Depends(
+        has_any_permission(["whatsapp.manage", "whatsapp.connect"])
+    ),
 ):
     """Replace the house assignment list of a connection."""
     conn = await _accessible_connection(db, connection_id, current_user)
+
+    if not (
+        _user_has_permission(current_user, "whatsapp.manage")
+        or conn.created_by == current_user.id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the connection owner or an administrator can change its houses",
+        )
 
     houses = await _validate_assignment_houses(db, payload.house_ids, current_user)
     await _reject_double_binding(db, [h.id for h in houses], conn.id)

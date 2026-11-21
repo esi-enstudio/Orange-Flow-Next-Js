@@ -17,6 +17,7 @@ interface Props {
   connectionId: number | null;
   onClose: () => void;
   onConnected?: () => void;
+  onContinue?: () => void;
 }
 
 interface StatusData {
@@ -35,7 +36,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-export default function WhatsAppConnectionModal({ open, connectionId, onClose, onConnected }: Props) {
+export default function WhatsAppConnectionModal({ open, connectionId, onClose, onConnected, onContinue }: Props) {
   const { hasPermission } = useAuth();
   const { t } = useLanguage();
   const canConnect = hasPermission("whatsapp.connect");
@@ -45,19 +46,27 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
   const [actionLoading, setActionLoading] = useState(false);
   const [phoneInput, setPhoneInput] = useState("");
   const [showPairing, setShowPairing] = useState(false);
+  const autoStartedRef = useRef<number | null>(null);
 
   const base = `/whatsapp/connections/${connectionId}`;
 
-  const checkStatus = useCallback(async () => {
-    if (!connectionId) return;
+  const checkStatus = useCallback(async (): Promise<StatusData | null> => {
+    if (!connectionId) return null;
     try {
       const res = await apiClient.get(`${base}/status`);
-      setStatus(res.data);
+      const data: StatusData = res.data;
+      setStatus(data);
+      return data;
     } catch {
-      setStatus({ connected: false, state: "error", error: "Service unreachable" });
+      const fallback: StatusData = {
+        connected: false,
+        state: "error",
+        error: t("connectionsPage.whatsapp.modal.service_unreachable"),
+      };
+      setStatus(fallback);
+      return fallback;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId]);
+  }, [base, connectionId, t]);
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -96,7 +105,7 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
         }));
         if (data.connected) {
           stopPolling();
-          toast.success("WhatsApp connected successfully!");
+          toast.success(t("connectionsPage.whatsapp.modal.connected_success"));
           onConnected?.();
         }
       } catch {
@@ -109,21 +118,17 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
   }, [connectionId, onConnected, stopPolling]);
 
   useEffect(() => {
-    if (!open || !connectionId) return;
-    setLoading(true);
-    checkStatus().finally(() => setLoading(false));
-  }, [open, connectionId, checkStatus]);
-
-  useEffect(() => {
     if (!open) {
       stopPolling();
       setStatus(null);
       setPhoneInput("");
       setShowPairing(false);
+      autoStartedRef.current = null;
     }
   }, [open, stopPolling]);
 
-  const handleConnect = async () => {
+  const beginQr = useCallback(async () => {
+    if (!connectionId) return;
     setActionLoading(true);
     try {
       // Gateway returns the QR only in this response; capture before refresh
@@ -137,38 +142,69 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
       });
       startPolling();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Connect failed"));
+      toast.error(
+        getErrorMessage(error, t("connectionsPage.whatsapp.modal.connect_failed"))
+      );
     } finally {
       setActionLoading(false);
     }
-  };
+  }, [base, checkStatus, connectionId, startPolling, t]);
+
+  const beginQrRef = useRef(beginQr);
+  useEffect(() => {
+    beginQrRef.current = beginQr;
+  }, [beginQr]);
+
+  // QR-first: opening the dialog for an unlinked device starts the QR flow
+  // immediately instead of asking the user to press Connect a second time.
+  useEffect(() => {
+    if (!open || !connectionId) return;
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      const data = await checkStatus();
+      if (cancelled) return;
+      setLoading(false);
+      if (!data?.connected && canConnect && autoStartedRef.current !== connectionId) {
+        autoStartedRef.current = connectionId;
+        await beginQrRef.current();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connectionId, canConnect, checkStatus]);
 
   const handlePairingCode = async () => {
     if (!phoneInput.trim()) {
-      toast.error("Enter phone number");
+      toast.error(t("connectionsPage.whatsapp.modal.enter_phone"));
       return;
     }
     setActionLoading(true);
     try {
       await apiClient.post(`${base}/connect/pairing`, { phone_number: phoneInput.trim() });
-      toast.success("Pairing code sent. Check your phone.");
+      toast.success(t("connectionsPage.whatsapp.modal.pairing_sent"));
       startPolling();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Pairing failed"));
+      toast.error(
+        getErrorMessage(error, t("connectionsPage.whatsapp.modal.pairing_failed"))
+      );
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleDisconnect = async () => {
-    if (!confirm("Disconnect this shared WhatsApp connection? All assigned houses will be affected.")) return;
+    if (!confirm(t("connectionsPage.whatsapp.modal.disconnect_confirm"))) return;
     setActionLoading(true);
     try {
       await apiClient.post(`${base}/disconnect`);
-      toast.success("WhatsApp disconnected");
+      toast.success(t("connectionsPage.whatsapp.modal.disconnect_success"));
       await checkStatus();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "Disconnect failed"));
+      toast.error(
+        getErrorMessage(error, t("connectionsPage.whatsapp.modal.disconnect_failed"))
+      );
     } finally {
       setActionLoading(false);
     }
@@ -205,8 +241,12 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                 )} />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-gray-900 dark:text-gray-100">Shared WhatsApp</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 truncate">One number for all assigned houses</p>
+                <h3 className="font-bold text-gray-900 dark:text-gray-100">
+                  {t("connectionsPage.whatsapp.modal.shared_title")}
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                  {t("connectionsPage.whatsapp.modal.shared_subtitle")}
+                </p>
               </div>
               <button
                 onClick={onClose}
@@ -238,10 +278,15 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                     <p className={cn("font-semibold text-sm",
                       isConnected ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"
                     )}>
-                      {loading ? "Checking..." : isConnected
-                        ? `Connected${status?.phone_number ? ` (${status.phone_number})` : ""}`
-                        : status?.state === "connecting" ? "Waiting for QR scan..."
-                          : status?.error || "Not connected"}
+                      {loading
+                        ? t("connectionsPage.whatsapp.modal.checking")
+                        : isConnected
+                          ? `${t("connectionsPage.whatsapp.modal.connected_label")}${
+                              status?.phone_number ? ` (${status.phone_number})` : ""
+                            }`
+                          : status?.state === "connecting"
+                            ? t("connectionsPage.whatsapp.modal.waiting_scan")
+                            : status?.error || t("connectionsPage.whatsapp.modal.not_connected")}
                     </p>
                   </div>
                 </div>
@@ -257,7 +302,7 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                     className="w-52 h-52 rounded-xl"
                   />
                   <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-                    Open WhatsApp → Linked Devices → Link a Device → Scan this QR code
+                    {t("connectionsPage.whatsapp.modal.qr_hint")}
                   </p>
                 </div>
               )}
@@ -266,7 +311,7 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
               {canConnect && showPairing && !isConnected && !status?.qr && (
                 <div className="rounded-2xl border border-gray-200 dark:border-slate-700 p-4 space-y-3">
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Or use pairing code instead of QR
+                    {t("connectionsPage.whatsapp.modal.pairing_alt")}
                   </p>
                   <input
                     type="tel"
@@ -281,7 +326,7 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                     className="w-full flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50"
                   >
                     {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-                    Send Pairing Code
+                    {t("connectionsPage.whatsapp.modal.send_pairing")}
                   </button>
                 </div>
               )}
@@ -291,14 +336,16 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                 {!isConnected && canConnect ? (
                   <>
                     <button
-                      onClick={handleConnect}
+                      onClick={beginQr}
                       disabled={actionLoading || status?.state === "connecting"}
                       className="w-full flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50"
                     >
                       {actionLoading || status?.state === "connecting"
                         ? <Loader2 className="w-4 h-4 animate-spin" />
                         : <Wifi className="w-4 h-4" />}
-                      {status?.state === "connecting" ? "Scanning..." : "Connect (Generate QR)"}
+                      {status?.state === "connecting"
+                        ? t("connectionsPage.whatsapp.modal.scanning")
+                        : t("connectionsPage.whatsapp.modal.connect_generate_qr")}
                     </button>
                     {!showPairing && (
                       <button
@@ -307,7 +354,7 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                         className="w-full flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
                       >
                         <Link2 className="w-4 h-4" />
-                        Use Pairing Code
+                        {t("connectionsPage.whatsapp.modal.use_pairing")}
                       </button>
                     )}
                   </>
@@ -318,9 +365,19 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                     className="w-full flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl border border-red-200 dark:border-red-500/40 text-red-600 dark:text-red-400 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50"
                   >
                     {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <WifiOff className="w-4 h-4" />}
-                    Disconnect
+                    {t("connectionsPage.actions.disconnect")}
                   </button>
                 ) : null}
+
+                {isConnected && onContinue && (
+                  <button
+                    onClick={onContinue}
+                    className="w-full flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-700"
+                  >
+                    <Link2 className="w-4 h-4" />
+                    {t("connectionsPage.whatsapp.choose_houses")}
+                  </button>
+                )}
 
                 <button
                   onClick={checkStatus}
@@ -328,7 +385,7 @@ export default function WhatsAppConnectionModal({ open, connectionId, onClose, o
                   className="w-full flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
                 >
                   <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-                  Refresh
+                  {t("connectionsPage.refresh")}
                 </button>
               </div>
             </div>

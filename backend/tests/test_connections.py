@@ -65,17 +65,25 @@ async def api_client(db):
         app.dependency_overrides.clear()
 
 
+_operator_seq = 0
+
+
 async def _user_with_permissions(db, permissions, houses=()):
-    role = Role(name="Connections operator")
+    global _operator_seq
+    _operator_seq += 1
+    suffix = _operator_seq
+    role = Role(name=f"Connections operator {suffix}")
     role.permissions = []
     for name in permissions:
-        permission = Permission(name=name)
-        db.add(permission)
-        await db.flush()
+        permission = await db.scalar(select(Permission).where(Permission.name == name))
+        if permission is None:
+            permission = Permission(name=name)
+            db.add(permission)
+            await db.flush()
         role.permissions.append(permission)
 
     user = User(
-        username=f"connections-{len(permissions)}-{id(db)}",
+        username=f"connections-user-{suffix}",
         hashed_password="x",
         name="Connections operator",
         status="Active",
@@ -411,6 +419,182 @@ async def test_shared_whatsapp_disconnect_does_not_report_success_on_gateway_err
     assert response.status_code == 502
     await db.refresh(connection)
     assert connection.wa_status == "connected"
+
+
+@pytest.mark.asyncio
+async def test_connect_user_can_create_draft_connection_and_reach_qr(
+    api_client, db, house, monkeypatch
+):
+    """The Connections hub connects first (QR) and assigns houses afterwards.
+
+    A house-less draft must be creatable with only ``whatsapp.connect`` and the
+    creator must be able to read its status and start the QR login.
+    """
+    created = {}
+
+    async def fake_create_api_key(**kwargs):
+        created["api_key_args"] = kwargs
+        return "draft-api-key"
+
+    async def fake_create_device(api_key, device_name):
+        return {
+            "device_id": "draft-device",
+            "device_secret": "draft-secret",
+            "token": "draft-jwt",
+        }
+
+    async def fake_device_status(token):
+        assert token == "draft-jwt"
+        return {"connected": False}
+
+    async def fake_login_qr(token):
+        assert token == "draft-jwt"
+        return {"QRCode": "data:image/png;base64,qr"}
+
+    monkeypatch.setattr(
+        whatsapp_service_client, "create_api_key", fake_create_api_key
+    )
+    monkeypatch.setattr(
+        whatsapp_service_client, "create_device", fake_create_device
+    )
+    monkeypatch.setattr(
+        whatsapp_service_client, "get_device_status", fake_device_status
+    )
+    monkeypatch.setattr(whatsapp_service_client, "login_qr", fake_login_qr)
+
+    user = await _user_with_permissions(
+        db, ["whatsapp.connect", "connections.view"], [house]
+    )
+    await api_client.make_user_override(user)
+
+    response = await api_client.post(
+        "/api/whatsapp/connections",
+        json={"name": "WhatsApp draft", "house_ids": []},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["houses"] == []
+    assert data["created_by"] == user.id
+    # House-less drafts must not crash the gateway customer payload.
+    assert created["api_key_args"]["customer_email"]
+
+    connection_id = data["id"]
+    status = await api_client.get(
+        f"/api/whatsapp/connections/{connection_id}/status"
+    )
+    assert status.status_code == 200
+    assert status.json()["connected"] is False
+
+    qr = await api_client.post(
+        f"/api/whatsapp/connections/{connection_id}/connect"
+    )
+    assert qr.status_code == 200
+    assert qr.json()["data"]["QRCode"] == "data:image/png;base64,qr"
+
+
+@pytest.mark.asyncio
+async def test_connect_user_can_assign_own_houses_to_own_draft(api_client, db, house):
+    user = await _user_with_permissions(db, ["whatsapp.connect"], [house])
+    connection = WhatsappConnection(
+        name="WhatsApp draft",
+        wa_jwt_token="draft-jwt",
+        wa_status="connected",
+        created_by=user.id,
+    )
+    db.add(connection)
+    await db.commit()
+    await db.refresh(connection)
+    await api_client.make_user_override(user)
+
+    response = await api_client.put(
+        f"/api/whatsapp/connections/{connection.id}/houses",
+        json={"house_ids": [house.id]},
+    )
+
+    assert response.status_code == 200
+    assert [h["id"] for h in response.json()["data"]["houses"]] == [house.id]
+    await db.refresh(connection)
+    assert connection.house_ids == [house.id]
+
+
+@pytest.mark.asyncio
+async def test_connect_user_cannot_reassign_another_creators_connection(
+    api_client, db, house
+):
+    owner = await _user_with_permissions(db, ["whatsapp.connect"], [house])
+    connection = WhatsappConnection(
+        name="Someone else's WhatsApp",
+        wa_jwt_token="shared-jwt",
+        wa_status="connected",
+        created_by=owner.id,
+    )
+    connection.houses.append(house)
+    db.add(connection)
+    await db.commit()
+    await db.refresh(connection)
+
+    intruder = await _user_with_permissions(db, ["whatsapp.connect"], [house])
+    await api_client.make_user_override(intruder)
+
+    response = await api_client.put(
+        f"/api/whatsapp/connections/{connection.id}/houses",
+        json={"house_ids": [house.id]},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_manage_user_can_still_assign_houses(api_client, db, house):
+    connection = WhatsappConnection(
+        name="Admin WhatsApp",
+        wa_jwt_token="shared-jwt",
+        wa_status="connected",
+    )
+    connection.houses.append(house)
+    db.add(connection)
+    await db.commit()
+    await db.refresh(connection)
+
+    user = await _user_with_permissions(
+        db, ["whatsapp.manage", "whatsapp.connect"], [house]
+    )
+    await api_client.make_user_override(user)
+
+    response = await api_client.put(
+        f"/api/whatsapp/connections/{connection.id}/houses",
+        json={"house_ids": [house.id]},
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_connections_list_shows_own_draft_to_connect_user(api_client, db, house):
+    user = await _user_with_permissions(db, ["whatsapp.connect"], [house])
+    own_draft = WhatsappConnection(
+        name="My draft",
+        wa_jwt_token="own-jwt",
+        wa_status="disconnected",
+        created_by=user.id,
+    )
+    other = await _user_with_permissions(db, ["whatsapp.connect"], [house])
+    foreign = WhatsappConnection(
+        name="Foreign",
+        wa_jwt_token="foreign-jwt",
+        wa_status="disconnected",
+        created_by=other.id,
+    )
+    db.add_all([own_draft, foreign])
+    await db.commit()
+    await api_client.make_user_override(user)
+
+    response = await api_client.get("/api/whatsapp/connections")
+
+    assert response.status_code == 200
+    names = [item["name"] for item in response.json()["data"]]
+    assert names == ["My draft"]
 
 
 @pytest.mark.asyncio

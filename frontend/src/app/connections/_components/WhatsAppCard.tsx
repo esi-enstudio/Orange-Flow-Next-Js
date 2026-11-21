@@ -1,31 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  Loader2,
-  RotateCcw,
-  Unlink,
-  Power,
-  Smartphone,
-  Link2,
-  Phone,
-  Settings,
-  Plus,
-  Trash2,
-  X,
-  AlertCircle,
-} from "lucide-react";
+import { Loader2, RotateCcw, Unlink, Link2 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import { toast } from "react-hot-toast";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
-import WhatsAppConnectModal from "@/components/WhatsAppConnectModal";
 import WhatsAppConnectionModal from "@/components/WhatsAppConnectionModal";
 import type { HouseConnectionState } from "@/hooks/useHouseConnections";
 import { CONNECTION_PROVIDERS } from "@/lib/connectionProviders";
 import { ProviderCard } from "./ProviderCard";
 import { ConnectionManagementDialog } from "./ConnectionManagementDialog";
+
+const iconActionBase =
+  "flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl border transition-colors disabled:cursor-not-allowed disabled:opacity-60";
 
 interface Props {
   state?: HouseConnectionState;
@@ -46,18 +35,22 @@ interface WaConnection {
   status: string;
   last_error: string | null;
   last_connected_at: string | null;
+  created_by: number | null;
   houses: { id: number; name: string; code: string }[];
 }
 
-const btnBase =
-  "inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60";
+function errorMessage(error: unknown, fallback: string): string {
+  const detail = (
+    error as { response?: { data?: { detail?: unknown } } }
+  )?.response?.data?.detail;
+  return typeof detail === "string" && detail.trim() ? detail : fallback;
+}
 
 export function WhatsAppCard({ state, houseId, onChanged }: Props) {
   const { hasPermission, user } = useAuth();
   const { t } = useLanguage();
   const canConnect = hasPermission("whatsapp.connect");
   const canDisconnect = hasPermission("whatsapp.disconnect");
-  const canSetup = hasPermission("whatsapp.setup");
   const canManage = hasPermission("whatsapp.manage");
   const connected = state?.connected === true;
   const parsedConnectionId = Number(state?.reference);
@@ -77,58 +70,56 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
 
   // ── Modals ──
   const [managementOpen, setManagementOpen] = useState(false);
-  const [connectOpen, setConnectOpen] = useState(false);
   const [sharedConnectOpen, setSharedConnectOpen] = useState(false);
   const [qrConnectionId, setQrConnectionId] = useState<number | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState<"disconnect" | "reset" | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState<"disconnect" | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
-  const [runningAction, setRunningAction] = useState<"disconnect" | "reset" | null>(null);
-  const [connFormOpen, setConnFormOpen] = useState(false);
-  const [connDeleteTarget, setConnDeleteTarget] = useState<WaConnection | null>(null);
+  const [runningAction, setRunningAction] = useState<"disconnect" | null>(null);
+  const [preparingConnect, setPreparingConnect] = useState(false);
+  const [housePickerOpen, setHousePickerOpen] = useState(false);
+  const [housePickerConnection, setHousePickerConnection] = useState<WaConnection | null>(null);
+  const [savingHouses, setSavingHouses] = useState(false);
 
   // ── Shared connections (admin) ──
   const [connections, setConnections] = useState<WaConnection[]>([]);
-  const [connsLoading, setConnsLoading] = useState(false);
   const [houses, setHouses] = useState<House[]>([]);
   const [housesLoading, setHousesLoading] = useState(false);
-  const [editingConnId, setEditingConnId] = useState<number | null>(null);
-  const [connName, setConnName] = useState("");
   const [selectedHouseIds, setSelectedHouseIds] = useState<number[]>([]);
-  const [savingConn, setSavingConn] = useState(false);
-  const [deletingConnId, setDeletingConnId] = useState<number | null>(null);
-  const [pendingAssignmentRefresh, setPendingAssignmentRefresh] = useState(false);
-  const [skipHouseAssignmentConnectionId, setSkipHouseAssignmentConnectionId] =
-    useState<number | null>(null);
+  const [assignHouseIds, setAssignHouseIds] = useState<number[]>([]);
+  const [savingAssign, setSavingAssign] = useState(false);
 
   const closeManagement = () => {
     setManagementOpen(false);
-    setConnectOpen(false);
     setSharedConnectOpen(false);
     setQrConnectionId(null);
     setConfirmOpen(null);
-    setConnFormOpen(false);
-    setConnDeleteTarget(null);
-    if (pendingAssignmentRefresh) {
-      setPendingAssignmentRefresh(false);
-      onChanged();
-    }
   };
 
   const loadConnections = useCallback(async () => {
-    if (!canManage) return;
-    setConnsLoading(true);
+    if (!canManage && !canConnect) return;
     try {
       const res = await apiClient.get("/whatsapp/connections");
       setConnections(res.data?.data ?? []);
     } catch {
       toast.error(t("connectionsPage.load_failed"));
-    } finally {
-      setConnsLoading(false);
     }
-  }, [canManage, t]);
+  }, [canConnect, canManage, t]);
+
+  const canListHouses = hasPermission("houses.view");
 
   const loadHouses = useCallback(async () => {
-    if (!canManage) return null;
+    if (!canManage && !canConnect) return null;
+    // Roles that may connect but lack houses.view (e.g. Manager) can only
+    // assign their own houses, so use those instead of the houses endpoint.
+    if (!canListHouses) {
+      const ownHouses: House[] = (user?.houses ?? []).map((house) => ({
+        id: house.id,
+        name: house.name,
+        code: house.code,
+      }));
+      setHouses(ownHouses);
+      return ownHouses;
+    }
     setHousesLoading(true);
     try {
       const res = await apiClient.get("/houses", { params: { per_page: 100 } });
@@ -142,16 +133,37 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
     } finally {
       setHousesLoading(false);
     }
-  }, [canManage, t]);
+  }, [canConnect, canListHouses, canManage, t, user?.houses]);
 
   useEffect(() => {
-    if (canManage) {
+    if (canManage || canConnect) {
       void loadConnections();
       void loadHouses();
     }
-  }, [canManage, loadConnections, loadHouses]);
+  }, [canConnect, canManage, loadConnections, loadHouses]);
 
-  const startConnection = () => {
+  /** Open the house picker for a connection that is ready to serve houses. */
+  const openHousePicker = useCallback(
+    async (connection: WaConnection) => {
+      setManagementOpen(false);
+      setHousePickerConnection(connection);
+      setSelectedHouseIds(
+        connection.houses.length > 0
+          ? connection.houses.map((house) => house.id)
+          : [houseId]
+      );
+      setHousePickerOpen(true);
+      if (houses.length === 0) await loadHouses();
+    },
+    [houseId, houses.length, loadHouses]
+  );
+
+  /**
+   * QR-first connect: reuse the user's unassigned draft, otherwise create a
+   * house-less connection, then open the scan dialog. Houses are chosen after
+   * the device is linked.
+   */
+  const startConnection = async () => {
     if (!canConnect) {
       setManagementOpen(true);
       return;
@@ -163,59 +175,54 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
       return;
     }
 
-    if (canManage) {
-      const houseName = user?.houses?.find((house) => house.id === houseId)?.name;
-      setEditingConnId(null);
-      setConnName(
-        `${t("connectionsPage.whatsapp.name")} - ${houseName ?? houseId}`
+    setPreparingConnect(true);
+    try {
+      let available = connections;
+      try {
+        const res = await apiClient.get("/whatsapp/connections");
+        available = res.data?.data ?? [];
+        setConnections(available);
+      } catch {
+        /* fall back to the cached list */
+      }
+
+      let connection =
+        available.find(
+          (item) => item.houses.length === 0 && item.created_by === user?.id
+        ) ?? null;
+
+      if (!connection) {
+        const houseName = user?.houses?.find((house) => house.id === houseId)?.name;
+        const res = await apiClient.post("/whatsapp/connections", {
+          name: `${t("connectionsPage.whatsapp.name")} - ${houseName ?? houseId}`,
+          house_ids: [],
+        });
+        connection = res.data?.data ?? null;
+        if (!connection?.id) {
+          throw new Error(t("connectionsPage.whatsapp.start_failed"));
+        }
+        setConnections((previous) => [
+          ...previous.filter((item) => item.id !== connection!.id),
+          connection!,
+        ]);
+      }
+
+      setQrConnectionId(connection.id);
+      setSharedConnectOpen(true);
+    } catch (error: unknown) {
+      toast.error(
+        errorMessage(error, t("connectionsPage.whatsapp.start_failed"))
       );
-      setSelectedHouseIds([houseId]);
-      setConnFormOpen(true);
-      return;
-    }
-
-    setConnectOpen(true);
-  };
-
-  const editConnection = (connection: WaConnection) => {
-    setEditingConnId(connection.id);
-    setConnName(connection.name);
-    setSelectedHouseIds(connection.houses.map((house) => house.id));
-    setConnFormOpen(true);
-  };
-
-  const closeConnectionForm = () => {
-    setConnFormOpen(false);
-    if (pendingAssignmentRefresh) {
-      setPendingAssignmentRefresh(false);
-      onChanged();
+    } finally {
+      setPreparingConnect(false);
     }
   };
 
   const handleSharedConnected = async () => {
     const activeConnectionId = qrConnectionId ?? sharedConnectionId;
-    const skipHouseAssignment =
-      activeConnectionId !== null &&
-      activeConnectionId === skipHouseAssignmentConnectionId;
     setSharedConnectOpen(false);
     setQrConnectionId(null);
-    if (skipHouseAssignment) setSkipHouseAssignmentConnectionId(null);
-
-    if (!canManage || !activeConnectionId || skipHouseAssignment) {
-      onChanged();
-      return;
-    }
-
-    let availableHouses = houses;
-    if (availableHouses.length === 0) {
-      const loadedHouses = await loadHouses();
-      if (!loadedHouses) {
-        onChanged();
-        return;
-      }
-      availableHouses = loadedHouses;
-    }
-    if (availableHouses.length <= 1) {
+    if (!activeConnectionId) {
       onChanged();
       return;
     }
@@ -238,32 +245,79 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
       }
     }
 
+    // Do not refresh the page state here: it unmounts this card (and the
+    // house picker) while the user is still choosing houses.
     if (!activeConnection) {
-      toast.error(t("connectionsPage.load_failed"));
       onChanged();
       return;
     }
+    await openHousePicker(activeConnection);
+  };
 
-    setPendingAssignmentRefresh(true);
-    editConnection(activeConnection);
+  const saveConnectionHouses = async () => {
+    if (!housePickerConnection) return;
+    if (selectedHouseIds.length === 0) {
+      toast.error(t("connectionsPage.whatsapp.need_house"));
+      return;
+    }
+    setSavingHouses(true);
+    try {
+      await apiClient.put(
+        `/whatsapp/connections/${housePickerConnection.id}/houses`,
+        { house_ids: selectedHouseIds }
+      );
+      toast.success(t("connectionsPage.whatsapp.houses_saved"));
+      setHousePickerOpen(false);
+      setHousePickerConnection(null);
+      await loadConnections();
+      onChanged();
+    } catch (error: unknown) {
+      toast.error(errorMessage(error, t("connectionsPage.save_failed")));
+    } finally {
+      setSavingHouses(false);
+    }
+  };
+
+  /** Persist the house selection made inside the manage dialog. */
+  const saveAssignedHouses = async () => {
+    if (!sharedConnectionId) return;
+    if (assignHouseIds.length === 0) {
+      toast.error(t("connectionsPage.whatsapp.need_house"));
+      return;
+    }
+    setSavingAssign(true);
+    try {
+      await apiClient.put(`/whatsapp/connections/${sharedConnectionId}/houses`, {
+        house_ids: assignHouseIds,
+      });
+      toast.success(t("connectionsPage.whatsapp.houses_saved"));
+      await loadConnections();
+      onChanged();
+    } catch (error: unknown) {
+      toast.error(errorMessage(error, t("connectionsPage.save_failed")));
+    } finally {
+      setSavingAssign(false);
+    }
+  };
+
+  const toggleAssignHouse = (id: number) => {
+    setAssignHouseIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   };
 
   // ── Actions ──
-  const run = async (action: "disconnect" | "reset") => {
+  const disconnect = async () => {
     setConfirmOpen(null);
-    setRunningAction(action);
+    setRunningAction("disconnect");
     try {
       const path = sharedConnectionId
-        ? `/whatsapp/connections/${sharedConnectionId}/${action}`
-        : `/whatsapp/${action}`;
+        ? `/whatsapp/connections/${sharedConnectionId}/disconnect`
+        : "/whatsapp/disconnect";
       await apiClient.post(path, null, {
         headers: sharedConnectionId ? undefined : headers,
       });
-      toast.success(
-        action === "reset"
-          ? t("connectionsPage.whatsapp.reset_success")
-          : t("connectionsPage.actions.disconnect")
-      );
+      toast.success(t("connectionsPage.whatsapp.modal.disconnect_success"));
       onChanged();
     } catch (error: unknown) {
       const detail =
@@ -303,75 +357,29 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
     );
   };
 
-  const saveConnection = async () => {
-    if (!connName.trim()) {
-      toast.error(t("whatsappPage.connection_name"));
-      return;
-    }
-    if (selectedHouseIds.length === 0) {
-      toast.error(t("whatsappPage.select_house_error"));
-      return;
-    }
-    setSavingConn(true);
-    try {
-      if (editingConnId) {
-        await apiClient.put(`/whatsapp/connections/${editingConnId}/houses`, {
-          house_ids: selectedHouseIds,
-        });
-        await apiClient.patch(`/whatsapp/connections/${editingConnId}`, {
-          name: connName.trim(),
-        });
-        toast.success(t("whatsappPage.updated"));
-      } else {
-        const response = await apiClient.post("/whatsapp/connections", {
-          name: connName.trim(),
-          house_ids: selectedHouseIds,
-        });
-        const createdConnectionId = response.data?.data?.id;
-        if (!Number.isInteger(createdConnectionId) || createdConnectionId <= 0) {
-          throw new Error(t("connectionsPage.save_failed"));
-        }
-        setSkipHouseAssignmentConnectionId(createdConnectionId);
-        setQrConnectionId(createdConnectionId);
-        setSharedConnectOpen(true);
-        toast.success(t("whatsappPage.created"), { duration: 5000 });
-      }
-      setConnFormOpen(false);
-      setPendingAssignmentRefresh(false);
-      await loadConnections();
-      onChanged();
-    } catch (error: unknown) {
-      const detail =
-        (error as { response?: { data?: { detail?: unknown } } })?.response?.data
-          ?.detail;
-      toast.error(
-        typeof detail === "string" ? detail : t("connectionsPage.save_failed")
-      );
-    } finally {
-      setSavingConn(false);
-    }
-  };
+  const activeSharedConnection =
+    sharedConnectionId !== null
+      ? connections.find((connection) => connection.id === sharedConnectionId) ?? null
+      : null;
+  const canAssignHouses =
+    activeSharedConnection !== null &&
+    (canManage || activeSharedConnection.created_by === user?.id);
+  const assignedHouseKey = activeSharedConnection
+    ? activeSharedConnection.houses
+        .map((house) => house.id)
+        .sort((a, b) => a - b)
+        .join(",")
+    : "";
 
-  const deleteConnection = async () => {
-    if (!connDeleteTarget) return;
-    setDeletingConnId(connDeleteTarget.id);
-    try {
-      await apiClient.delete(`/whatsapp/connections/${connDeleteTarget.id}`);
-      toast.success(t("whatsappPage.deleted"));
-      setConnDeleteTarget(null);
-      await loadConnections();
-      onChanged();
-    } catch (error: unknown) {
-      const detail =
-        (error as { response?: { data?: { detail?: unknown } } })?.response?.data
-          ?.detail;
-      toast.error(
-        typeof detail === "string" ? detail : t("connectionsPage.delete_failed")
-      );
-    } finally {
-      setDeletingConnId(null);
-    }
-  };
+  // Seed the house checkboxes from the connection every time the dialog opens
+  // (and whenever the saved assignment changes).
+  useEffect(() => {
+    if (!managementOpen) return;
+    setAssignHouseIds(
+      activeSharedConnection?.houses.map((house) => house.id) ?? []
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managementOpen, assignedHouseKey]);
 
   // ── Render ──
   return (
@@ -380,22 +388,29 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
         presentation={CONNECTION_PROVIDERS.whatsapp}
         state={cardState}
         action={
-          canConnect || canDisconnect || canSetup || canManage ? (
+          canConnect || canDisconnect || canManage ? (
             <button
               type="button"
               onClick={() => {
                 if (connected || hasSharedConnection || !canConnect) {
                   setManagementOpen(true);
                 } else {
-                  startConnection();
+                  void startConnection();
                 }
               }}
+              disabled={preparingConnect}
               className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-green-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Link2 className="size-4" />
-              {connected || hasSharedConnection
-                ? t("connectionsPage.actions.manage")
-                : t("connectionsPage.actions.connect")}
+              {preparingConnect ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Link2 className="size-4" />
+              )}
+              {preparingConnect
+                ? t("connectionsPage.whatsapp.preparing")
+                : connected || hasSharedConnection
+                  ? t("connectionsPage.actions.manage")
+                  : t("connectionsPage.actions.connect")}
             </button>
           ) : null
         }
@@ -409,353 +424,272 @@ export function WhatsAppCard({ state, houseId, onChanged }: Props) {
         errorMessage={state?.error}
       >
         <div className="space-y-5">
-          {connected ? (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {!connected && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t("connectionsPage.whatsapp.connect_hint")}
+              </p>
               {canConnect && (
                 <button
                   type="button"
-                  onClick={reconnect}
-                  disabled={confirmOpen !== null || reconnecting || runningAction !== null}
-                  className={`${btnBase} w-full border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-400 dark:hover:bg-green-500/20`}
+                  onClick={() => void startConnection()}
+                  disabled={preparingConnect}
+                  className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-green-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {reconnecting ? (
+                  {preparingConnect ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
-                    <RotateCcw className="size-4" />
+                    <Link2 className="size-4" />
                   )}
-                  {t("connectionsPage.actions.reconnect")}
-                </button>
-              )}
-              {canDisconnect && (
-                <button
-                  type="button"
-                  onClick={() => setConfirmOpen("disconnect")}
-                  disabled={confirmOpen !== null || runningAction !== null}
-                  className={`${btnBase} w-full border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-500/40 dark:bg-slate-900 dark:text-red-400 dark:hover:bg-red-500/10`}
-                >
-                  <Unlink className="size-4" />
-                  {t("connectionsPage.actions.disconnect")}
-                </button>
-              )}
-              {canSetup && (
-                <button
-                  type="button"
-                  onClick={() => setConfirmOpen("reset")}
-                  disabled={confirmOpen !== null || runningAction !== null}
-                  className={`${btnBase} w-full border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800`}
-                >
-                  <Power className="size-4" />
-                  {t("connectionsPage.actions.reset")}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {state?.status === "not_configured" && !canSetup && !sharedConnectionId
-                  ? t("connectionsPage.whatsapp.setup_admin_required")
-                  : t("connectionsPage.whatsapp.connect_hint")}
-              </p>
-              {canConnect && (state?.status !== "not_configured" || canSetup) && (
-                <button
-                  type="button"
-                  onClick={startConnection}
-                  className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-green-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-green-700"
-                >
-                  <Link2 className="size-4" />
-                  {t("connectionsPage.actions.connect")}
+                  {preparingConnect
+                    ? t("connectionsPage.whatsapp.preparing")
+                    : t("connectionsPage.actions.connect")}
                 </button>
               )}
             </div>
           )}
 
-      {/* Admin: shared connections (whatsapp.manage) */}
-      {canManage && (
-        <section className="space-y-3 rounded-xl border border-gray-200 p-3 dark:border-slate-700">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-            {t("whatsappPage.shared_section")}
-          </h3>
-            <div className="mb-3 flex justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                setEditingConnId(null);
-                setConnName("");
-                setSelectedHouseIds([]);
-                setConnFormOpen(true);
-              }}
-              className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
-            >
-              <Plus className="size-3.5" />
-              {t("whatsappPage.create_connection")}
-            </button>
-          </div>
-          {connsLoading ? (
-            <div className="h-24 rounded-xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
-          ) : connections.length === 0 ? (
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">
-              {t("whatsappPage.no_connections")}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {connections.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-800/50"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-green-100 dark:bg-green-500/20 flex items-center justify-center text-green-600 dark:text-green-400 shrink-0">
-                      <Smartphone className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        {c.name}
-                      </p>
-                      {c.phone_number && (
-                        <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-                          <Phone className="w-3 h-3" /> {c.phone_number}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                      c.status === "connected"
-                        ? "bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400"
-                        : "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-300"
-                    }`}
-                  >
-                    {c.status === "connected" ? t("connectionsPage.status.connected") : t("connectionsPage.status.disconnected")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingConnId(c.id);
-                      setConnName(c.name);
-                      setSelectedHouseIds(c.houses.map((h) => h.id));
-                      setConnFormOpen(true);
-                    }}
-                    className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-primary-600 dark:hover:text-primary-400"
-                    title={t("whatsappPage.manage_houses")}
-                    aria-label={t("whatsappPage.manage_houses")}
-                  >
-                    <Settings className="size-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConnDeleteTarget(c)}
-                    className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-red-600 dark:hover:text-red-400"
-                    title={t("whatsappPage.delete_connection")}
-                    aria-label={t("whatsappPage.delete_connection")}
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
+          {/* Shared connection: choose which of my houses use this number */}
+          {activeSharedConnection && (
+            <section className="space-y-3 rounded-xl border border-gray-200 p-3 dark:border-slate-700">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                    {t("whatsappPage.shared_section")}
+                  </h3>
+                  <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    <span className="min-w-0 truncate">
+                      {activeSharedConnection.name}
+                    </span>
+                    <span
+                      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                        activeSharedConnection.status === "connected"
+                          ? "bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400"
+                          : "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-gray-300"
+                      }`}
+                    >
+                      {activeSharedConnection.status === "connected"
+                        ? t("connectionsPage.status.connected")
+                        : t("connectionsPage.status.disconnected")}
+                    </span>
+                  </p>
+                  {activeSharedConnection.phone_number && (
+                    <p className="truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                      {activeSharedConnection.phone_number}
+                    </p>
+                  )}
                 </div>
-              ))}
-            </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {connected && canConnect && (
+                    <button
+                      type="button"
+                      onClick={reconnect}
+                      disabled={
+                        confirmOpen !== null ||
+                        reconnecting ||
+                        runningAction !== null
+                      }
+                      className={`${iconActionBase} border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-400 dark:hover:bg-green-500/20`}
+                      title={t("connectionsPage.actions.reconnect")}
+                      aria-label={t("connectionsPage.actions.reconnect")}
+                    >
+                      {reconnecting ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="size-4" />
+                      )}
+                    </button>
+                  )}
+                  {connected && canDisconnect && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmOpen("disconnect")}
+                      disabled={confirmOpen !== null || runningAction !== null}
+                      className={`${iconActionBase} border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-500/40 dark:bg-slate-900 dark:text-red-400 dark:hover:bg-red-500/10`}
+                      title={t("connectionsPage.actions.disconnect")}
+                      aria-label={t("connectionsPage.actions.disconnect")}
+                    >
+                      <Unlink className="size-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {canAssignHouses && (
+                <>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {t("connectionsPage.whatsapp.houses_desc")}
+                  </p>
+
+                  <div className="max-h-64 divide-y divide-gray-50 overflow-y-auto rounded-xl border border-gray-100 dark:divide-slate-800 dark:border-slate-800">
+                    {housesLoading ? (
+                      <div className="space-y-2 p-3">
+                        {[0, 1, 2].map((row) => (
+                          <div
+                            key={row}
+                            className="h-11 animate-pulse rounded-lg bg-gray-100 dark:bg-slate-800"
+                          />
+                        ))}
+                      </div>
+                    ) : houses.length === 0 ? (
+                      <p className="px-3 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                        {t("connectionsPage.whatsapp.no_houses")}
+                      </p>
+                    ) : (
+                      houses.map((house) => (
+                        <label
+                          key={house.id}
+                          className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-slate-800/60"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={assignHouseIds.includes(house.id)}
+                            onChange={() => toggleAssignHouse(house.id)}
+                            className="size-4 shrink-0 accent-green-600"
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-gray-700 dark:text-gray-200">
+                              {house.name}
+                            </p>
+                            <p className="font-mono text-[10px] text-gray-400">
+                              {house.code}
+                            </p>
+                          </div>
+                        </label>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {t("connectionsPage.houses_count", {
+                        count: assignHouseIds.length,
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void saveAssignedHouses()}
+                      disabled={savingAssign || assignHouseIds.length === 0}
+                      className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-green-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingAssign ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Link2 className="size-4" />
+                      )}
+                      {t("connectionsPage.actions.update")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
           )}
-          {housesLoading ? (
-            <p className="text-xs text-gray-400 text-center py-2">{t("connectionsPage.loading_houses")}</p>
-          ) : null}
-        </section>
-      )}
         </div>
       </ConnectionManagementDialog>
-
-      <WhatsAppConnectModal
-        open={connectOpen}
-        houseId={houseId}
-        onClose={() => setConnectOpen(false)}
-        onConnected={() => {
-          setConnectOpen(false);
-          onChanged();
-        }}
-      />
 
       <WhatsAppConnectionModal
         open={sharedConnectOpen}
         connectionId={qrConnectionId ?? sharedConnectionId}
         onClose={() => {
-          const createdForThisHouse =
-            qrConnectionId !== null && qrConnectionId !== sharedConnectionId;
           setSharedConnectOpen(false);
           setQrConnectionId(null);
-          if (createdForThisHouse) onChanged();
+          onChanged();
         }}
         onConnected={handleSharedConnected}
+        onContinue={handleSharedConnected}
       />
 
-      <ConfirmationModal
-        isOpen={confirmOpen === "disconnect" || confirmOpen === "reset"}
-        onClose={() => setConfirmOpen(null)}
-        onConfirm={() => {
-          const action = confirmOpen === "reset" ? "reset" : "disconnect";
-          void run(action);
+      <ConnectionManagementDialog
+        open={housePickerOpen}
+        onClose={() => {
+          setHousePickerOpen(false);
+          setHousePickerConnection(null);
+          onChanged();
         }}
-        title={
-          confirmOpen === "reset"
-            ? t(
-                sharedConnectionId
-                  ? "connectionsPage.whatsapp.shared_reset_title"
-                  : "connectionsPage.whatsapp.reset_title"
-              )
-            : t(
-                sharedConnectionId
-                  ? "connectionsPage.whatsapp.shared_disconnect_title"
-                  : "connectionsPage.whatsapp.disconnect_title"
-              )
-        }
-        message={
-          confirmOpen === "reset"
-            ? t(
-                sharedConnectionId
-                  ? "connectionsPage.whatsapp.shared_reset_desc"
-                  : "connectionsPage.whatsapp.reset_desc"
-              )
-            : t(
-                sharedConnectionId
-                  ? "connectionsPage.whatsapp.shared_disconnect_desc"
-                  : "connectionsPage.whatsapp.disconnect_desc"
-              )
-        }
-        confirmText={
-          confirmOpen === "reset"
-            ? t("connectionsPage.actions.reset")
-            : t("connectionsPage.actions.disconnect")
-        }
+        title={t("connectionsPage.whatsapp.houses_title")}
+        description={t("connectionsPage.whatsapp.houses_desc")}
+      >
+        <div className="space-y-4">
+          {housePickerConnection?.phone_number && (
+            <p className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-semibold text-green-700 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300">
+              {t("connectionsPage.status.connected")} ·{" "}
+              {housePickerConnection.phone_number}
+            </p>
+          )}
+          <div className="max-h-64 divide-y divide-gray-50 overflow-y-auto rounded-xl border border-gray-100 dark:divide-slate-800 dark:border-slate-800">
+            {housesLoading ? (
+              <div className="space-y-2 p-3">
+                {[0, 1, 2].map((row) => (
+                  <div
+                    key={row}
+                    className="h-11 animate-pulse rounded-lg bg-gray-100 dark:bg-slate-800"
+                  />
+                ))}
+              </div>
+            ) : houses.length === 0 ? (
+              <p className="px-3 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                {t("connectionsPage.whatsapp.no_houses")}
+              </p>
+            ) : (
+              houses.map((house) => (
+                <label
+                  key={house.id}
+                  className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-slate-800/60"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedHouseIds.includes(house.id)}
+                    onChange={() => toggleHouseSelection(house.id)}
+                    className="size-4 accent-green-600"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-gray-700 dark:text-gray-200">
+                      {house.name}
+                    </p>
+                    <p className="font-mono text-[10px] text-gray-400">
+                      {house.code}
+                    </p>
+                  </div>
+                </label>
+              ))
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void saveConnectionHouses()}
+            disabled={savingHouses || selectedHouseIds.length === 0}
+            className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-green-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {savingHouses ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Link2 className="size-4" />
+            )}
+            {t("connectionsPage.actions.confirm")}
+          </button>
+        </div>
+      </ConnectionManagementDialog>
+
+      <ConfirmationModal
+        isOpen={confirmOpen === "disconnect"}
+        onClose={() => setConfirmOpen(null)}
+        onConfirm={() => void disconnect()}
+        title={t(
+          sharedConnectionId
+            ? "connectionsPage.whatsapp.shared_disconnect_title"
+            : "connectionsPage.whatsapp.disconnect_title"
+        )}
+        message={t(
+          sharedConnectionId
+            ? "connectionsPage.whatsapp.shared_disconnect_desc"
+            : "connectionsPage.whatsapp.disconnect_desc"
+        )}
+        confirmText={t("connectionsPage.actions.disconnect")}
         cancelText={t("connectionsPage.actions.cancel")}
         type="danger"
         loading={runningAction !== null}
       />
 
-      {/* Connection create/edit modal */}
-      {connFormOpen && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 backdrop-blur-md p-4"
-          onClick={closeConnectionForm}
-        >
-          <div
-            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-gray-200 dark:border-slate-700 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center shrink-0">
-                <Plus className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-gray-900 dark:text-gray-100">
-                  {editingConnId ? t("whatsappPage.manage_houses") : t("whatsappPage.create_connection")}
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {t("whatsappPage.shared_desc")}
-                </p>
-              </div>
-              <button
-                onClick={closeConnectionForm}
-                className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800"
-                aria-label={t("connectionsPage.actions.close")}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">
-                  {t("whatsappPage.connection_name")}
-                </label>
-                <input
-                  type="text"
-                  value={connName}
-                  onChange={(e) => setConnName(e.target.value)}
-                  placeholder={t("whatsappPage.connection_name_placeholder")}
-                  maxLength={200}
-                  className="w-full min-h-[44px] px-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">
-                  {t("whatsappPage.assign_houses")} ({selectedHouseIds.length}/{houses.length})
-                </label>
-                <div className="max-h-64 overflow-y-auto rounded-xl border border-gray-100 dark:border-slate-800 divide-y divide-gray-50 dark:divide-slate-800">
-                  {houses.map((h) => (
-                    <label
-                      key={h.id}
-                      className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-slate-800/60 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedHouseIds.includes(h.id)}
-                        onChange={() => toggleHouseSelection(h.id)}
-                        className="w-4 h-4 accent-purple-600"
-                      />
-                      <div className="min-w-0">
-                        <p className="text-sm text-gray-700 dark:text-gray-200 truncate">
-                          {h.name}
-                        </p>
-                        <p className="text-[10px] font-mono text-gray-400">
-                          {h.code}
-                        </p>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={saveConnection}
-                disabled={savingConn || !connName.trim() || selectedHouseIds.length === 0}
-                className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {savingConn ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Link2 className="w-4 h-4" />
-                )}
-                {editingConnId
-                  ? t("whatsappPage.updated")
-                  : t("whatsappPage.create_connection")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <ConfirmationModal
-        isOpen={connDeleteTarget !== null}
-        onClose={() => setConnDeleteTarget(null)}
-        onConfirm={deleteConnection}
-        type="danger"
-        title={t("whatsappPage.delete_title")}
-        confirmText={t("whatsappPage.delete_connection")}
-        loading={deletingConnId !== null}
-      >
-        {connDeleteTarget && (
-          <>
-            <div className="w-full mt-5 rounded-2xl border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-4">
-              <div className="flex items-center gap-3 text-left">
-                <div className="w-11 h-11 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-sm">
-                  <Smartphone className="w-5 h-5 text-green-600 dark:text-green-500" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-gray-900 dark:text-gray-100 truncate">
-                    {connDeleteTarget.name}
-                  </p>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1 font-mono">
-                    <Phone className="w-3 h-3" />
-                    {connDeleteTarget.phone_number || "—"}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <p className="mt-4 pt-4 w-full border-t border-dashed border-gray-200 dark:border-slate-700 text-xs font-semibold text-red-600 dark:text-red-400 flex items-center justify-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" />
-              {t("whatsappPage.delete_irreversible")}
-            </p>
-          </>
-        )}
-      </ConfirmationModal>
     </div>
   );
 }
