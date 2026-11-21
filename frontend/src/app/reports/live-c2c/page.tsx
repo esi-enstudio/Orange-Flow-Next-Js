@@ -20,6 +20,7 @@ import PageGuideModal from "@/components/PageGuideModal";
 import ReportDeliveryModal from "@/components/ReportDeliveryModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import EntitySelector from "@/app/zoom-in/_components/EntitySelector";
+import LiveC2CAutomationCard from "./_components/LiveC2CAutomationCard";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
@@ -596,6 +597,9 @@ export default function LiveC2CReportPage() {
   const { language, t } = useLanguage();
   const canView = hasPermission("reports.view") || hasPermission("itopup.view");
   const canImport = hasPermission("live_c2c.import");
+  const canManageAutomation = hasPermission("live_c2c.automation_manage");
+  const canViewAutomation =
+    canManageAutomation || hasPermission("live_c2c.automation_view");
   const [houses, setHouses] = useState<AccessibleHouse[]>([]);
   const [housesLoading, setHousesLoading] = useState(true);
   const [housesError, setHousesError] = useState(false);
@@ -1485,6 +1489,17 @@ export default function LiveC2CReportPage() {
         </div>
         )}
       </section>
+
+      {selectedHouseId !== null && canViewAutomation && (
+        <div className="mt-4">
+          <LiveC2CAutomationCard
+            key={selectedHouseId}
+            houseId={selectedHouseId}
+            canView={canViewAutomation}
+            canManage={canManageAutomation}
+          />
+        </div>
+      )}
 
       <LiveC2CUploadModal
         open={uploadModalOpen}

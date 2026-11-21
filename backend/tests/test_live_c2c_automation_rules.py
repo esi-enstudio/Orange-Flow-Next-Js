@@ -97,6 +97,7 @@ async def test_enqueue_deduplicates_source_event_without_replacing_file(db):
         source_type="gmail",
         is_enabled=True,
         gmail_address=house.email,
+        destination_group_jid="reports@g.us",
         created_by=owner.id,
         updated_by=owner.id,
     )
@@ -123,6 +124,7 @@ async def test_enqueue_deduplicates_source_event_without_replacing_file(db):
     assert duplicate.id == first.id
     assert duplicate.content == b"original"
     assert duplicate.sha256 == sha256(b"original").hexdigest()
+    assert getattr(first, "destination_group_jid", None) == "reports@g.us"
 
 
 @pytest.mark.asyncio

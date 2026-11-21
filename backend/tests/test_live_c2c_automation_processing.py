@@ -91,6 +91,7 @@ async def _create_queue_item(
         config_id=config.id,
         source_type="gmail",
         source_event_id="gmail:message-1:attachment-1",
+        destination_group_jid=destination,
         filename=filename,
         sha256="a" * 64,
         content=content,
@@ -284,6 +285,90 @@ async def test_report_failure_retries_delivery_without_reimporting(db, monkeypat
     assert record.delivery_attempts == 2
     assert send_attempts == 2
     assert await db.scalar(select(func.count(LiveC2CRow.id))) == 1
+
+
+@pytest.mark.asyncio
+async def test_delivery_uses_destination_captured_when_file_was_received(db, monkeypatch):
+    service = _processor()
+    house = await make_house(db)
+    config, record, _ = await _create_queue_item(
+        db,
+        house=house,
+        content=b"already imported",
+        destination="original-destination@g.us",
+        status="imported",
+    )
+    config.destination_group_jid = "new-destination@g.us"
+    await db.commit()
+    calls = []
+
+    async def send_report(*args, **kwargs):
+        calls.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(service, "send_direct_report", send_report)
+
+    await service.process_pending_live_c2c_files(db)
+
+    assert calls[0]["whatsapp_chat_id"] == "original-destination@g.us"
+
+
+@pytest.mark.asyncio
+async def test_delivery_is_not_sent_after_automation_is_disabled(db, monkeypatch):
+    service = _processor()
+    house = await make_house(db)
+    config, record, _ = await _create_queue_item(
+        db,
+        house=house,
+        content=b"already imported",
+        status="imported",
+    )
+    config.is_enabled = False
+    await db.commit()
+    calls = []
+
+    async def send_report(*args, **kwargs):
+        calls.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(service, "send_direct_report", send_report)
+
+    await service.process_pending_live_c2c_files(db)
+
+    await db.refresh(record)
+    assert calls == []
+    assert record.delivery_status == "failed"
+    assert record.last_error == "live_c2c_automation_disabled"
+    assert await service.process_pending_live_c2c_files(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_queued_file_is_not_imported_after_automation_is_disabled(db, monkeypatch):
+    service = _processor()
+    house = await make_house(db)
+    employee, retailer = await _house_data(db, house)
+    config, record, _ = await _create_queue_item(
+        db,
+        house=house,
+        content=_valid_workbook(employee, retailer),
+    )
+    config.is_enabled = False
+    await db.commit()
+    calls = []
+
+    async def send_report(*args, **kwargs):
+        calls.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(service, "send_direct_report", send_report)
+
+    await service.process_pending_live_c2c_files(db)
+
+    await db.refresh(record)
+    assert calls == []
+    assert record.import_status == "failed"
+    assert record.last_error == "live_c2c_automation_disabled"
+    assert await db.scalar(select(func.count(LiveC2CRow.id))) == 0
 
 
 @pytest.mark.asyncio

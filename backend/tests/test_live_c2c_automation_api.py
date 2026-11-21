@@ -302,6 +302,58 @@ async def test_put_rejects_unavailable_whatsapp_source_group(
 
 
 @pytest.mark.asyncio
+async def test_put_rejects_same_whatsapp_source_and_destination_group(
+    api_client,
+    db,
+    house,
+    monkeypatch,
+):
+    house.wa_device_id = "device-1"
+    house.wa_jwt_token = "device-token"
+    house.wa_device_secret = "device-secret"
+    await db.commit()
+    user = await _user_with_permissions(
+        db,
+        house,
+        ["live_c2c.automation_manage"],
+    )
+    await api_client.make_user_override(user)
+    webhook_calls = []
+
+    async def get_groups(_self, _token):
+        return [{"id": "same@g.us", "name": "Same group"}]
+
+    async def create_webhook(_self, _token, url, events):
+        webhook_calls.append((url, events))
+        return {"webhook_id": 81, "secret": "webhook-secret"}
+
+    monkeypatch.setattr(WhatsAppServiceClient, "get_groups", get_groups)
+    monkeypatch.setattr(WhatsAppServiceClient, "create_webhook", create_webhook)
+    _set_webhook_url(monkeypatch)
+
+    response = await api_client.put(
+        "/api/v1/live-c2c-automation",
+        headers={"X-House-ID": str(house.id)},
+        json={
+            "source_type": "whatsapp",
+            "is_enabled": True,
+            "source_group_jid": "same@g.us",
+            "destination_group_jid": "same@g.us",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "live_c2c_source_destination_same_group"
+    assert webhook_calls == []
+    config_count = await db.scalar(
+        select(func.count()).select_from(LiveC2CAutomationConfig).where(
+            LiveC2CAutomationConfig.house_id == house.id
+        )
+    )
+    assert config_count == 0
+
+
+@pytest.mark.asyncio
 async def test_put_rejects_duplicate_whatsapp_source_mapping(
     api_client,
     db,
@@ -804,6 +856,135 @@ async def test_failed_gmail_revocation_rolls_back_source_switch(
     assert saved_config.source_type == "gmail"
     assert saved_config.gmail_refresh_token_encrypted is not None
     assert saved_config.gmail_status == "connected"
+
+
+@pytest.mark.asyncio
+async def test_failed_gmail_revocation_keeps_existing_webhook(
+    api_client,
+    db,
+    house,
+    monkeypatch,
+):
+    house.wa_device_id = "device-1"
+    house.wa_jwt_token = "device-token"
+    house.wa_device_secret = "device-secret"
+    await db.commit()
+    user = await _user_with_permissions(
+        db,
+        house,
+        ["live_c2c.automation_manage"],
+    )
+    config = LiveC2CAutomationConfig(
+        house_id=house.id,
+        source_type="whatsapp",
+        is_enabled=True,
+        gmail_address="old@example.com",
+        gmail_refresh_token_encrypted=encrypt_secret("gmail-refresh"),
+        gmail_status="connected",
+        wa_device_id="device-1",
+        wa_webhook_id=73,
+        wa_webhook_secret_encrypted=encrypt_secret("webhook-secret"),
+        created_by=user.id,
+        updated_by=user.id,
+    )
+    db.add(config)
+    await db.commit()
+    await api_client.make_user_override(user)
+    deleted = []
+
+    async def revoke(_config):
+        raise live_c2c_automation.LiveC2CGmailError("gmail_revoke_failed")
+
+    async def delete_webhook(_self, _token, webhook_id):
+        deleted.append(webhook_id)
+        return {}
+
+    monkeypatch.setattr(live_c2c_automation, "revoke_gmail_credentials", revoke)
+    monkeypatch.setattr(WhatsAppServiceClient, "delete_webhook", delete_webhook)
+    house_id = house.id
+
+    response = await api_client.put(
+        "/api/v1/live-c2c-automation",
+        headers={"X-House-ID": str(house_id)},
+        json={
+            "source_type": None,
+            "is_enabled": False,
+            "source_group_jid": None,
+            "destination_group_jid": None,
+        },
+    )
+
+    saved_config = await db.scalar(
+        select(LiveC2CAutomationConfig).where(
+            LiveC2CAutomationConfig.house_id == house_id
+        )
+    )
+    assert response.status_code == 502
+    assert deleted == []
+    assert saved_config.source_type == "whatsapp"
+    assert saved_config.wa_webhook_id == 73
+    assert saved_config.gmail_refresh_token_encrypted is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_webhook_cleanup_keeps_saved_settings_and_retry_id(
+    api_client,
+    db,
+    house,
+    monkeypatch,
+):
+    house.wa_device_id = "device-1"
+    house.wa_jwt_token = "device-token"
+    house.wa_device_secret = "device-secret"
+    await db.commit()
+    user = await _user_with_permissions(
+        db,
+        house,
+        ["live_c2c.automation_manage"],
+    )
+    config = LiveC2CAutomationConfig(
+        house_id=house.id,
+        source_type="whatsapp",
+        is_enabled=True,
+        wa_device_id="device-1",
+        wa_webhook_id=74,
+        wa_webhook_secret_encrypted=encrypt_secret("webhook-secret"),
+        created_by=user.id,
+        updated_by=user.id,
+    )
+    db.add(config)
+    await db.commit()
+    await api_client.make_user_override(user)
+
+    async def delete_webhook(_self, _token, _webhook_id):
+        raise WhatsAppServiceError(
+            code="WA_SERVICE_UNREACHABLE",
+            message="WhatsApp gateway unavailable",
+        )
+
+    monkeypatch.setattr(WhatsAppServiceClient, "delete_webhook", delete_webhook)
+    house_id = house.id
+
+    response = await api_client.put(
+        "/api/v1/live-c2c-automation",
+        headers={"X-House-ID": str(house_id)},
+        json={
+            "source_type": None,
+            "is_enabled": False,
+            "source_group_jid": None,
+            "destination_group_jid": None,
+        },
+    )
+
+    saved_config = await db.scalar(
+        select(LiveC2CAutomationConfig).where(
+            LiveC2CAutomationConfig.house_id == house_id
+        )
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "live_c2c_whatsapp_webhook_cleanup_failed"
+    assert saved_config.is_enabled is False
+    assert saved_config.wa_webhook_id == 74
 
 
 @pytest.mark.asyncio

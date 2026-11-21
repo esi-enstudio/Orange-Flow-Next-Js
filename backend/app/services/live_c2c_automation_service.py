@@ -151,6 +151,7 @@ async def enqueue_live_c2c_file(
         "source_event_id": source_event_id,
         "source_device_id": source_device_id,
         "source_group_jid": source_group_jid,
+        "destination_group_jid": config.destination_group_jid,
         "filename": safe_filename,
         "sha256": hashlib.sha256(content).hexdigest(),
         "content": content,

@@ -197,19 +197,27 @@ def _group_name(groups: list[dict[str, str]], group_jid: str | None) -> str | No
     )
 
 
-async def _delete_webhook(
+async def _webhook_target(
     db: AsyncSession,
     house: House,
     config: LiveC2CAutomationConfig,
-) -> None:
-    if config.wa_webhook_id is None:
-        return
+) -> WaTarget:
     target = await resolve_house_wa_target(db, house)
     if target is None or not target.device_id or target.device_id != config.wa_device_id:
         raise HTTPException(
             status_code=409,
             detail={"code": "live_c2c_whatsapp_device_changed"},
         )
+    return target
+
+
+async def _delete_webhook(
+    db: AsyncSession,
+    target: WaTarget,
+    config: LiveC2CAutomationConfig,
+) -> None:
+    if config.wa_webhook_id is None:
+        return
     client = WhatsAppServiceClient()
     try:
         await with_target_token(
@@ -292,6 +300,17 @@ async def update_live_c2c_automation(
     old_values = _safe_config(config, house)
     actor_id = current_user.id
     house_email = _house_email(house) if payload.source_type == "gmail" else house.email
+    if (
+        payload.is_enabled
+        and payload.source_type == "whatsapp"
+        and payload.source_group_jid
+        and payload.destination_group_jid
+        and payload.source_group_jid == payload.destination_group_jid
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "live_c2c_source_destination_same_group"},
+        )
     target = None
     groups: list[dict[str, str]] = []
     callback_url = settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL
@@ -393,6 +412,7 @@ async def update_live_c2c_automation(
         and payload.source_type == "whatsapp"
         and target is not None
     )
+    webhook_target_to_delete = None
     same_webhook = (
         needs_webhook
         and config is not None
@@ -406,7 +426,7 @@ async def update_live_c2c_automation(
             detail={"code": "live_c2c_whatsapp_webhook_reconfiguration_required"},
         )
     if not needs_webhook and config is not None and config.wa_webhook_id is not None:
-        await _delete_webhook(db, house, config)
+        webhook_target_to_delete = await _webhook_target(db, house, config)
 
     client = WhatsAppServiceClient()
     if config is None:
@@ -553,6 +573,30 @@ async def update_live_c2c_automation(
             status_code=503,
             detail={"code": "live_c2c_automation_save_failed"},
         ) from exc
+    if webhook_target_to_delete is not None:
+        try:
+            await _delete_webhook(db, webhook_target_to_delete, config)
+            await db.commit()
+        except HTTPException as exc:
+            await db.rollback()
+            logger.exception(
+                "Failed to clean up Live C2C WhatsApp webhook for house %s",
+                house_id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "live_c2c_whatsapp_webhook_cleanup_failed"},
+            ) from exc
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception(
+                "Failed to save Live C2C WhatsApp webhook cleanup for house %s",
+                house_id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "live_c2c_whatsapp_webhook_cleanup_failed"},
+            ) from exc
     return {"config": _safe_config(config, house)}
 
 

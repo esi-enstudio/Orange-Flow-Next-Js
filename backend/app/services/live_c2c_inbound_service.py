@@ -26,6 +26,13 @@ from app.utils.timezone import now_naive
 logger = logging.getLogger(__name__)
 PROCESSING_LEASE = timedelta(minutes=5)
 MAX_DELIVERY_RETRY_DELAY = timedelta(hours=1)
+TERMINAL_DELIVERY_ERRORS = frozenset(
+    {
+        "live_c2c_automation_disabled",
+        "live_c2c_automation_source_changed",
+        "live_c2c_destination_missing",
+    }
+)
 
 
 async def _load_context(
@@ -46,6 +53,23 @@ async def _load_context(
     if actor is None:
         raise LiveC2CImportError("live_c2c_automation_actor_missing")
     return config, house, actor
+
+
+def _validate_record_route(
+    config: LiveC2CAutomationConfig,
+    record: LiveC2CInboundFile,
+) -> None:
+    if not config.is_enabled:
+        raise LiveC2CImportError("live_c2c_automation_disabled")
+    if config.source_type != record.source_type:
+        raise LiveC2CImportError("live_c2c_automation_source_changed")
+    if not record.destination_group_jid:
+        raise LiveC2CImportError("live_c2c_destination_missing")
+    if record.source_type == "whatsapp" and (
+        config.wa_device_id != record.source_device_id
+        or config.source_group_jid != record.source_group_jid
+    ):
+        raise LiveC2CImportError("live_c2c_automation_source_changed")
 
 
 async def _audit_failure(
@@ -155,6 +179,7 @@ async def _process_import(
 
     try:
         config, house, actor = await _load_context(db, record)
+        _validate_record_route(config, record)
         sheet_name, rows = await _matching_worksheet(db, record=record, house=house)
         await store_live_c2c_rows(
             db,
@@ -207,19 +232,24 @@ async def _process_delivery(
 ) -> None:
     try:
         config, _, actor = await _load_context(db, record)
-    except Exception:
+        _validate_record_route(config, record)
+    except Exception as exc:
         record.delivery_status = "failed"
         actor = await _record_actor(db, record)
         if actor is not None:
+            error_code = _import_error_code(exc)
             await _audit_failure(
                 db,
                 record=record,
                 actor=actor,
                 stage="delivery",
-                error_code="live_c2c_automation_config_missing",
+                error_code=error_code,
             )
+            if error_code in TERMINAL_DELIVERY_ERRORS:
+                record.lease_expires_at = None
+                await db.commit()
         else:
-            record.last_error = "live_c2c_automation_config_missing"
+            record.last_error = _import_error_code(exc)
             record.lease_expires_at = None
             await db.commit()
         return
@@ -236,7 +266,7 @@ async def _process_delivery(
             user_name=actor.name,
             house_id=record.house_id,
             report_type="live_c2c",
-            whatsapp_chat_id=config.destination_group_jid,
+            whatsapp_chat_id=record.destination_group_jid,
             activity_module="live_c2c",
         )
         if not success:
@@ -304,6 +334,10 @@ async def process_pending_live_c2c_files(
             LiveC2CInboundFile.delivery_status == "pending",
             and_(
                 LiveC2CInboundFile.delivery_status == "failed",
+                or_(
+                    LiveC2CInboundFile.last_error.is_(None),
+                    LiveC2CInboundFile.last_error.not_in(TERMINAL_DELIVERY_ERRORS),
+                ),
                 or_(
                     LiveC2CInboundFile.lease_expires_at.is_(None),
                     LiveC2CInboundFile.lease_expires_at <= now,

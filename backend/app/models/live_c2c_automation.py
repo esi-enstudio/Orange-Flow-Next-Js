@@ -141,6 +141,7 @@ class LiveC2CInboundFile(Base):
     source_event_id = Column(String(300), nullable=False)
     source_device_id = Column(String(100), nullable=True)
     source_group_jid = Column(String(128), nullable=True)
+    destination_group_jid = Column(String(128), nullable=True)
     filename = Column(String(255), nullable=False)
     sha256 = Column(String(64), nullable=False)
     content = Column(LargeBinary, nullable=True)
