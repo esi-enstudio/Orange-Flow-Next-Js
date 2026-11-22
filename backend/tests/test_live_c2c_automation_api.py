@@ -258,6 +258,13 @@ async def test_get_redacts_gmail_and_webhook_secrets(api_client, db, house):
     assert "oauth token" not in response.text
     assert "gmail_access_token_encrypted" not in response.text
     assert "wa_webhook_secret_encrypted" not in response.text
+    recent_files = response.json()["recent_files"]
+    assert len(recent_files) == 1
+    assert recent_files[0]["filename"] == "Live C2C.xlsx"
+    assert recent_files[0]["import_status"] == "queued"
+    assert recent_files[0]["delivery_status"] == "pending"
+    assert recent_files[0]["last_error"] == "live_c2c_processing_failed"
+    assert "content" not in recent_files[0]
 
 
 @pytest.mark.asyncio

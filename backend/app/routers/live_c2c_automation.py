@@ -269,28 +269,42 @@ async def get_live_c2c_automation(
     if house is None:
         raise HTTPException(status_code=404, detail={"code": "house_not_found"})
     config = await _load_config(db, house_id)
-    latest = await db.scalar(
-        select(LiveC2CInboundFile)
-        .where(
-            LiveC2CInboundFile.house_id == house_id,
-            LiveC2CInboundFile.is_deleted.is_(False),
-        )
-        .order_by(LiveC2CInboundFile.received_at.desc(), LiveC2CInboundFile.id.desc())
-        .limit(1)
+    recent = list(
+        (
+            await db.scalars(
+                select(LiveC2CInboundFile)
+                .where(
+                    LiveC2CInboundFile.house_id == house_id,
+                    LiveC2CInboundFile.is_deleted.is_(False),
+                )
+                .order_by(
+                    LiveC2CInboundFile.received_at.desc(),
+                    LiveC2CInboundFile.id.desc(),
+                )
+                .limit(10)
+            )
+        ).all()
     )
-    latest_file = None
-    if latest is not None:
-        latest_file = {
-            "filename": latest.filename,
-            "received_at": latest.received_at,
-            "import_status": latest.import_status,
-            "delivery_status": latest.delivery_status,
-            "last_error": _safe_error_code(latest.last_error),
+    recent_files = [
+        {
+            "id": record.id,
+            "filename": record.filename,
+            "received_at": record.received_at,
+            "processed_at": record.processed_at,
+            "import_status": record.import_status,
+            "delivery_status": record.delivery_status,
+            "import_attempts": record.import_attempts,
+            "delivery_attempts": record.delivery_attempts,
+            "last_error": _safe_error_code(record.last_error),
         }
+        for record in recent
+    ]
+    latest_file = recent_files[0] if recent_files else None
     return {
         "house_id": house_id,
         "config": _safe_config(config, house),
         "latest_file": latest_file,
+        "recent_files": recent_files,
     }
 
 

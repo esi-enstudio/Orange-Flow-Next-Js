@@ -38,6 +38,8 @@ type deliveryTask struct {
 	event   WebhookEvent
 }
 
+const webhookRequestTimeout = 60 * time.Second
+
 func NewEngine(store *Store) *Engine {
 	// WEBHOOK_WORKERS: default 4
 	workers := env.GetEnvIntOrDefault("WEBHOOK_WORKERS", 4)
@@ -63,18 +65,18 @@ func NewEngine(store *Store) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	transport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   20,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
 	engine := &Engine{
 		store:        store,
-		httpClient:   &http.Client{Timeout: 10 * time.Second, Transport: transport},
+		httpClient:   &http.Client{Timeout: webhookRequestTimeout, Transport: transport},
 		queue:        make(chan *deliveryTask, 1000),
 		workers:      workers,
 		retryLimit:   retryLimit,

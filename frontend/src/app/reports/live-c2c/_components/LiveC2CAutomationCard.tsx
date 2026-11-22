@@ -25,16 +25,22 @@ interface AutomationConfig {
   destination_group_name: string | null;
 }
 
-interface LatestFile {
+interface InboundFile {
+  id: number;
   filename: string;
+  received_at: string;
+  processed_at: string | null;
   import_status: string;
   delivery_status: string;
+  import_attempts: number;
+  delivery_attempts: number;
   last_error: string | null;
 }
 
 interface AutomationResponse {
   config: AutomationConfig;
-  latest_file: LatestFile | null;
+  latest_file: InboundFile | null;
+  recent_files: InboundFile[];
 }
 
 interface ApiErrorBody {
@@ -68,6 +74,13 @@ function getAutomationErrorCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
+function isInboundFileActive(file: InboundFile): boolean {
+  return file.import_status === "queued"
+    || file.import_status === "processing"
+    || (file.import_status === "imported"
+      && (file.delivery_status === "pending" || file.delivery_status === "sending"));
+}
+
 export default function LiveC2CAutomationCard({
   houseId,
   canView,
@@ -75,7 +88,7 @@ export default function LiveC2CAutomationCard({
 }: Props) {
   const { t } = useLanguage();
   const [config, setConfig] = useState<AutomationConfig | null>(null);
-  const [latestFile, setLatestFile] = useState<LatestFile | null>(null);
+  const [recentFiles, setRecentFiles] = useState<InboundFile[]>([]);
   const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
   const [sourceGroupJid, setSourceGroupJid] = useState("");
   const [destinationGroupJid, setDestinationGroupJid] = useState("");
@@ -97,14 +110,14 @@ export default function LiveC2CAutomationCard({
     setLoading(true);
     setLoadError(false);
     setConfig(null);
-    setLatestFile(null);
+    setRecentFiles([]);
 
     apiClient.get<AutomationResponse>("/v1/live-c2c-automation", {
       headers,
       signal: controller.signal,
     }).then(({ data }) => {
       setConfig(data.config);
-      setLatestFile(data.latest_file);
+      setRecentFiles(data.recent_files ?? []);
       setSourceGroupJid(
         data.config.source_type === "whatsapp"
           ? data.config.source_group_jid ?? ""
@@ -144,23 +157,24 @@ export default function LiveC2CAutomationCard({
 
   useEffect(() => {
     if (!canView || !config?.is_enabled) return;
-    const refreshLatestFile = async () => {
+    const refreshFileActivity = async () => {
       try {
         const { data } = await apiClient.get<AutomationResponse>(
           "/v1/live-c2c-automation",
           { headers },
         );
-        setLatestFile(data.latest_file);
+        setRecentFiles(data.recent_files ?? []);
         setStatusRefreshError(false);
       } catch {
         setStatusRefreshError(true);
       }
     };
+    const interval = recentFiles.some(isInboundFileActive) ? 3_000 : 10_000;
     const timer = window.setInterval(() => {
-      void refreshLatestFile();
-    }, 30_000);
+      void refreshFileActivity();
+    }, interval);
     return () => window.clearInterval(timer);
-  }, [canView, config?.is_enabled, headers]);
+  }, [canView, config?.is_enabled, headers, recentFiles]);
 
   const saveSettings = async () => {
     setSaving(true);
@@ -218,6 +232,7 @@ export default function LiveC2CAutomationCard({
     const translated = t(path);
     return translated === path ? status : translated;
   };
+  const hasActiveFiles = recentFiles.some(isInboundFileActive);
 
   return (
     <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
@@ -439,28 +454,56 @@ export default function LiveC2CAutomationCard({
           )}
 
           <div className="border-t border-gray-100 pt-4 dark:border-slate-800">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {t("live_c2c.automation.latest_file")}
-            </h3>
-            {latestFile ? (
-              <div className="mt-2 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-                <p className="min-w-0 truncate font-medium text-gray-800 dark:text-gray-200" title={latestFile.filename}>
-                  {latestFile.filename}
-                </p>
-                <p className="text-gray-600 dark:text-gray-300">
-                  {t("live_c2c.automation.import_status")}:{" "}
-                  {statusText("import", latestFile.import_status)}
-                </p>
-                <p className="text-gray-600 dark:text-gray-300">
-                  {t("live_c2c.automation.delivery_status")}:{" "}
-                  {statusText("delivery", latestFile.delivery_status)}
-                </p>
-                {latestFile.last_error && (
-                  <p role="status" className="text-amber-700 dark:text-amber-300 sm:col-span-3">
-                    {t("live_c2c.automation.file_error")}
-                  </p>
-                )}
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {t("live_c2c.automation.latest_file")}
+              </h3>
+              {hasActiveFiles && (
+                <span
+                  role="status"
+                  className="inline-flex items-center gap-2 text-xs font-medium text-primary-700 dark:text-primary-300"
+                >
+                  <span className="size-2 animate-pulse rounded-full bg-primary-500" aria-hidden="true" />
+                  {t("live_c2c.automation.live_updates")}
+                </span>
+              )}
+            </div>
+            {recentFiles.length > 0 ? (
+              <ul className="mt-3 space-y-3">
+                {recentFiles.map((file) => (
+                  <li
+                    key={file.id}
+                    className="rounded-xl border border-gray-200 p-3 dark:border-slate-700"
+                  >
+                    <p
+                      className="truncate text-sm font-medium text-gray-800 dark:text-gray-200"
+                      title={file.filename}
+                    >
+                      {file.filename}
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+                      <p className="text-gray-600 dark:text-gray-300">
+                        {t("live_c2c.automation.file_received")}
+                      </p>
+                      <p className="text-gray-600 dark:text-gray-300">
+                        {t("live_c2c.automation.import_status")}:{" "}
+                        {statusText("import", file.import_status)}
+                      </p>
+                      <p className="text-gray-600 dark:text-gray-300">
+                        {t("live_c2c.automation.report_delivery")}:{" "}
+                        {file.import_status === "failed"
+                          ? statusText("delivery", "not_sent")
+                          : statusText("delivery", file.delivery_status)}
+                      </p>
+                    </div>
+                    {file.last_error && (
+                      <p role="status" className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                        {t("live_c2c.automation.file_error")}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                 {t("live_c2c.automation.no_files")}
