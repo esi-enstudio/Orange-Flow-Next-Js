@@ -661,7 +661,7 @@ async def authorize_gmail(
     config.oauth_return_path = _safe_return_path(return_path)
     config.updated_by = current_user.id
     try:
-        authorization_url = build_gmail_authorization_url(config, state)
+        authorization_url = await build_gmail_authorization_url(db, config, state)
     except LiveC2CGmailError as exc:
         await db.rollback()
         raise HTTPException(

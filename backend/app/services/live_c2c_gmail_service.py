@@ -1,12 +1,16 @@
 import base64
 import binascii
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+from cryptography.exceptions import InvalidTag
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.app_setting import AppSetting
 from app.models.live_c2c_automation import LiveC2CAutomationConfig
 from app.services.live_c2c_automation_service import (
     decrypt_secret,
@@ -39,6 +43,22 @@ class _GoogleHTTPError(LiveC2CGmailError):
         super().__init__(code)
 
 
+@dataclass(frozen=True)
+class GoogleOAuthConfig:
+    client_id: str | None
+    client_secret: str | None
+    redirect_uri: str | None
+    client_secret_configured: bool
+
+    @property
+    def available(self) -> bool:
+        return bool(
+            self.client_id
+            and self.redirect_uri
+            and self.client_secret_configured
+        )
+
+
 async def revoke_gmail_credentials(
     config: LiveC2CAutomationConfig,
 ) -> None:
@@ -61,20 +81,60 @@ async def revoke_gmail_credentials(
         raise LiveC2CGmailError("gmail_revoke_failed")
 
 
-def _oauth_config(*, include_secret: bool = False) -> tuple[str, str, str | None]:
-    client_id = settings.GOOGLE_OAUTH_CLIENT_ID
-    redirect_uri = settings.GOOGLE_OAUTH_REDIRECT_URI
+async def get_google_oauth_config(
+    db: AsyncSession,
+    *,
+    include_secret: bool = False,
+) -> GoogleOAuthConfig:
+    setting = await db.scalar(select(AppSetting).where(AppSetting.id == 1))
+    client_id = (
+        setting.google_oauth_client_id if setting else None
+    ) or settings.GOOGLE_OAUTH_CLIENT_ID
+    redirect_uri = (
+        setting.google_oauth_redirect_uri if setting else None
+    ) or settings.GOOGLE_OAUTH_REDIRECT_URI
+    encrypted_secret = (
+        setting.google_oauth_client_secret_encrypted if setting else None
+    )
+    client_secret_configured = bool(
+        encrypted_secret or settings.GOOGLE_OAUTH_CLIENT_SECRET
+    )
     client_secret = settings.GOOGLE_OAUTH_CLIENT_SECRET
-    if not client_id or not redirect_uri or (include_secret and not client_secret):
+    if encrypted_secret:
+        client_secret = None
+        if include_secret:
+            try:
+                client_secret = decrypt_secret(encrypted_secret)
+            except (InvalidTag, UnicodeDecodeError, ValueError) as exc:
+                raise LiveC2CGmailError("gmail_oauth_secret_invalid") from exc
+
+    return GoogleOAuthConfig(
+        client_id=client_id,
+        client_secret=client_secret if include_secret else None,
+        redirect_uri=redirect_uri,
+        client_secret_configured=client_secret_configured,
+    )
+
+
+async def _oauth_config(
+    db: AsyncSession,
+    *,
+    include_secret: bool = False,
+) -> GoogleOAuthConfig:
+    config = await get_google_oauth_config(db, include_secret=include_secret)
+    if not config.client_id or not config.redirect_uri or (
+        include_secret and not config.client_secret
+    ):
         raise LiveC2CGmailError("gmail_oauth_not_configured")
-    return client_id, redirect_uri, client_secret
+    return config
 
 
-def build_gmail_authorization_url(
+async def build_gmail_authorization_url(
+    db: AsyncSession,
     config: LiveC2CAutomationConfig,
     state: str,
 ) -> str:
-    client_id, redirect_uri, _ = _oauth_config(include_secret=True)
+    oauth = await _oauth_config(db, include_secret=True)
     if not state:
         raise LiveC2CGmailError("gmail_oauth_state_missing")
     if not config.gmail_address:
@@ -82,8 +142,8 @@ def build_gmail_authorization_url(
 
     query = urlencode(
         {
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
+            "client_id": oauth.client_id,
+            "redirect_uri": oauth.redirect_uri,
             "response_type": "code",
             "scope": GMAIL_READONLY_SCOPE,
             "access_type": "offline",
@@ -134,7 +194,7 @@ async def exchange_gmail_code(
     config: LiveC2CAutomationConfig,
     code: str,
 ) -> None:
-    client_id, redirect_uri, client_secret = _oauth_config(include_secret=True)
+    oauth = await _oauth_config(db, include_secret=True)
     if not code:
         raise LiveC2CGmailError("gmail_authorization_code_missing")
 
@@ -143,9 +203,9 @@ async def exchange_gmail_code(
         GOOGLE_TOKEN_URL,
         data={
             "code": code,
-            "client_id": client_id,
-            "client_secret": client_secret or "",
-            "redirect_uri": redirect_uri,
+            "client_id": oauth.client_id or "",
+            "client_secret": oauth.client_secret or "",
+            "redirect_uri": oauth.redirect_uri or "",
             "grant_type": "authorization_code",
         },
     )
@@ -188,7 +248,7 @@ async def _refresh_access_token(
     db: AsyncSession,
     config: LiveC2CAutomationConfig,
 ) -> str:
-    client_id, _, client_secret = _oauth_config(include_secret=True)
+    oauth = await _oauth_config(db, include_secret=True)
     if not config.gmail_refresh_token_encrypted:
         raise LiveC2CGmailError("gmail_refresh_token_missing")
     refresh_token = decrypt_secret(config.gmail_refresh_token_encrypted)
@@ -196,8 +256,8 @@ async def _refresh_access_token(
         "POST",
         GOOGLE_TOKEN_URL,
         data={
-            "client_id": client_id,
-            "client_secret": client_secret or "",
+            "client_id": oauth.client_id or "",
+            "client_secret": oauth.client_secret or "",
             "refresh_token": refresh_token,
             "grant_type": "refresh_token",
         },

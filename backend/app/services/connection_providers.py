@@ -23,13 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.house import House
 from app.models.live_c2c_automation import LiveC2CAutomationConfig
+from app.services.live_c2c_gmail_service import get_google_oauth_config
 from app.services import telegram_service
 from app.services.whatsapp_service_client import (
     WhatsAppServiceError,
     whatsapp_service_client,
 )
 from app.services.whatsapp_token import resolve_house_wa_target, with_target_token
-from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -174,14 +174,7 @@ async def _telegram_state(db: AsyncSession, house: House) -> HouseConnectionStat
 
 
 async def _gmail_state(db: AsyncSession, house: House) -> HouseConnectionState:
-    available = all(
-        getattr(settings, setting, None)
-        for setting in (
-            "GOOGLE_OAUTH_CLIENT_ID",
-            "GOOGLE_OAUTH_CLIENT_SECRET",
-            "GOOGLE_OAUTH_REDIRECT_URI",
-        )
-    )
+    oauth_config = await get_google_oauth_config(db)
     state = HouseConnectionState(
         provider="gmail",
         connected=False,
@@ -189,9 +182,9 @@ async def _gmail_state(db: AsyncSession, house: House) -> HouseConnectionState:
         account=house.email,
         detail="House Gmail account",
         used_for=["email"],
-        available=available,
+        available=oauth_config.available,
     )
-    if not available:
+    if not oauth_config.available:
         state.error = "Gmail is not configured by the administrator"
         return state
 

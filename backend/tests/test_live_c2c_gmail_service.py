@@ -12,6 +12,7 @@ from app.models.live_c2c_automation import (
     LiveC2CAutomationConfig,
     LiveC2CInboundFile,
 )
+from app.models.app_setting import AppSetting
 from app.models.user import User
 from app.utils.timezone import now_naive
 from config.settings import Settings, settings
@@ -64,14 +65,17 @@ def _google_response(request):
     assert False, f"Unexpected Google request: {request.method} {request.url}"
 
 
-def test_gmail_authorization_url_uses_configured_account_and_one_time_state(monkeypatch):
+@pytest.mark.asyncio
+async def test_gmail_authorization_url_uses_configured_account_and_one_time_state(
+    db, monkeypatch
+):
     service = _service()
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_REDIRECT_URI", "https://app.example/callback")
     config = LiveC2CAutomationConfig(gmail_address="House.Mail@example.com")
 
-    url = service.build_gmail_authorization_url(config, "one-time-state")
+    url = await service.build_gmail_authorization_url(db, config, "one-time-state")
     query = parse_qs(urlparse(url).query)
 
     assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
@@ -80,6 +84,39 @@ def test_gmail_authorization_url_uses_configured_account_and_one_time_state(monk
     assert query["state"] == ["one-time-state"]
     assert query["login_hint"] == ["House.Mail@example.com"]
     assert query["scope"] == ["https://www.googleapis.com/auth/gmail.readonly"]
+
+
+@pytest.mark.asyncio
+async def test_gmail_authorization_uses_saved_oauth_settings(db, monkeypatch):
+    service = _service()
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "environment-client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "environment-secret")
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "https://environment.example/api/v1/live-c2c-automation/gmail/callback",
+    )
+    saved_settings = AppSetting(
+        id=1,
+        google_oauth_client_id="saved-client-id",
+        google_oauth_client_secret_encrypted=service.encrypt_secret("saved-secret"),
+        google_oauth_redirect_uri=(
+            "https://saved.example/api/v1/live-c2c-automation/gmail/callback"
+        ),
+    )
+    db.add(saved_settings)
+    await db.commit()
+    config = LiveC2CAutomationConfig(gmail_address="house@example.com")
+
+    url = await service.build_gmail_authorization_url(db, config, "saved-state")
+    query = parse_qs(urlparse(url).query)
+    oauth = await service.get_google_oauth_config(db, include_secret=True)
+
+    assert query["client_id"] == ["saved-client-id"]
+    assert query["redirect_uri"] == [
+        "https://saved.example/api/v1/live-c2c-automation/gmail/callback"
+    ]
+    assert oauth.client_secret == "saved-secret"
 
 
 @pytest.mark.asyncio
@@ -324,7 +361,8 @@ async def test_expired_gmail_history_cursor_requires_reconnection_without_backfi
     assert config.gmail_history_id == "stale-cursor"
 
 
-def test_oauth_settings_are_optional_until_connection_is_attempted(monkeypatch):
+@pytest.mark.asyncio
+async def test_oauth_settings_are_optional_until_connection_is_attempted(db, monkeypatch):
     service = _service()
     settings_without_oauth = Settings(
         DB_USER="user",
@@ -343,5 +381,5 @@ def test_oauth_settings_are_optional_until_connection_is_attempted(monkeypatch):
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_REDIRECT_URI", None)
     config = LiveC2CAutomationConfig(gmail_address="house@example.com")
     with pytest.raises(service.LiveC2CGmailError) as error:
-        service.build_gmail_authorization_url(config, "state")
+        await service.build_gmail_authorization_url(db, config, "state")
     assert error.value.code == "gmail_oauth_not_configured"

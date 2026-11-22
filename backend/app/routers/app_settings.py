@@ -2,10 +2,11 @@ import base64
 import logging
 import os
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from app.routers.deps import get_db, has_permission, get_current_user, get_house_context
 from app.models.app_setting import AppSetting
@@ -14,6 +15,9 @@ from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_super_admin_user
 from app.utils.timezone import now_naive
 from app.services import maintenance_service
+from app.services.live_c2c_automation_service import encrypt_secret
+from app.services.live_c2c_gmail_service import get_google_oauth_config
+from config.settings import settings
 from app.services.brand_icons import (
     MAX_APP_ICON_SIZE,
     MAX_FAVICON_SIZE,
@@ -25,6 +29,10 @@ from app.services.brand_icons import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["App Settings"])
+google_oauth_settings_router = APIRouter(
+    prefix="/api/v1/settings/google-oauth",
+    tags=["Google OAuth Settings"],
+)
 
 UPLOAD_DIR = "uploads/brand"
 
@@ -40,6 +48,144 @@ class SIMSerialLengthUpdate(BaseModel):
 class MaintenanceUpdate(BaseModel):
     enabled: bool
     message: Optional[str] = Field(default=None, max_length=1000)
+
+
+class GoogleOAuthSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_id: str = Field(min_length=1, max_length=512)
+    client_secret: str | None = Field(default=None, max_length=2048)
+    redirect_uri: str = Field(min_length=1, max_length=2048)
+
+    @field_validator("client_id", "redirect_uri")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("This field is required")
+        return value
+
+    @field_validator("client_secret", mode="before")
+    @classmethod
+    def normalize_client_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("Client secret must be a string")
+        return value.strip() or None
+
+    @field_validator("redirect_uri")
+    @classmethod
+    def validate_redirect_uri(cls, value: str) -> str:
+        try:
+            parsed = urlsplit(value)
+            hostname = parsed.hostname
+        except ValueError as exc:
+            raise ValueError("Callback URL is invalid") from exc
+
+        if (
+            parsed.scheme not in {"https", "http"}
+            or not parsed.netloc
+            or not hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or not parsed.path.rstrip("/").endswith(
+                "/api/v1/live-c2c-automation/gmail/callback"
+            )
+        ):
+            raise ValueError("Use the Gmail OAuth callback URL")
+        if parsed.scheme != "https" and hostname not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
+            raise ValueError("Callback URL must use HTTPS")
+        return value
+
+
+async def _google_oauth_settings_response(
+    db: AsyncSession,
+) -> dict:
+    config = await get_google_oauth_config(db)
+    return {
+        "client_id": config.client_id or "",
+        "client_secret_configured": config.client_secret_configured,
+        "redirect_uri": config.redirect_uri or "",
+        "available": config.available,
+    }
+
+
+@google_oauth_settings_router.get("")
+async def get_google_oauth_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(has_permission("app_settings.manage")),
+):
+    return await _google_oauth_settings_response(db)
+
+
+@google_oauth_settings_router.put("")
+async def update_google_oauth_settings(
+    data: GoogleOAuthSettingsUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(has_permission("app_settings.manage")),
+):
+    setting = await db.scalar(select(AppSetting).where(AppSetting.id == 1))
+    if (
+        data.client_secret is None
+        and not (setting and setting.google_oauth_client_secret_encrypted)
+        and not settings.GOOGLE_OAUTH_CLIENT_SECRET
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "VALIDATION_ERROR",
+                "error_code": "gmail_oauth_client_secret_required",
+                "fields": {"client_secret": "Client secret is required"},
+            },
+        )
+    if setting is None:
+        setting = AppSetting(id=1)
+        db.add(setting)
+
+    old_values = {
+        "client_id": setting.google_oauth_client_id,
+        "redirect_uri": setting.google_oauth_redirect_uri,
+        "client_secret_configured": bool(
+            setting.google_oauth_client_secret_encrypted
+            or settings.GOOGLE_OAUTH_CLIENT_SECRET
+        ),
+    }
+    setting.google_oauth_client_id = data.client_id
+    setting.google_oauth_redirect_uri = data.redirect_uri
+    if data.client_secret is not None:
+        setting.google_oauth_client_secret_encrypted = encrypt_secret(
+            data.client_secret
+        )
+
+    await log_activity(
+        db=db,
+        user_id=current_user.id,
+        user_name=current_user.name or current_user.username,
+        module="app_settings",
+        action="google_oauth_settings.update",
+        record_id=1,
+        record_identifier="gmail_oauth",
+        old_values=old_values,
+        new_values={
+            "client_id": data.client_id,
+            "redirect_uri": data.redirect_uri,
+            "client_secret_configured": True,
+            "client_secret_updated": data.client_secret is not None,
+        },
+        request=request,
+        commit=False,
+    )
+    await db.commit()
+    return await _google_oauth_settings_response(db)
+
 
 async def _require_super_admin(current_user = Depends(get_current_user)):
     if not is_super_admin_user(current_user):

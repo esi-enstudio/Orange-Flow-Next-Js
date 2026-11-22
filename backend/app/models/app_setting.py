@@ -18,3 +18,6 @@ class AppSetting(Base):
     maintenance_message = Column(Text, nullable=True)
     maintenance_updated_at = Column(DateTime, nullable=True)
     maintenance_updated_by = Column(Integer, nullable=True)
+    google_oauth_client_id = Column(String(512), nullable=True)
+    google_oauth_client_secret_encrypted = Column(Text, nullable=True)
+    google_oauth_redirect_uri = Column(String(2048), nullable=True)

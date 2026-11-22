@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from app.models.activity_log import ActivityLog
+from app.models.app_setting import AppSetting
 from app.models.house import House
 from app.models.live_c2c_automation import LiveC2CAutomationConfig
 from app.models.role import Permission, Role
@@ -18,6 +19,7 @@ from app.models.telegram_bot import TelegramBot
 from app.models.user import User
 from app.models.whatsapp_connection import WhatsappConnection
 from app.routers import (
+    app_settings,
     live_c2c_automation,
     telegram_bots,
     whatsapp_connections,
@@ -41,6 +43,7 @@ async def api_client(db):
     app.include_router(whatsapp_connections.router)
     app.include_router(whatsapp_gateway.router)
     app.include_router(live_c2c_automation.router)
+    app.include_router(app_settings.google_oauth_settings_router)
 
     async def override_db():
         yield db
@@ -201,6 +204,131 @@ async def test_gmail_is_unavailable_when_oauth_configuration_is_incomplete(
     assert response.status_code == 200
     gmail = next(item for item in response.json()["data"] if item["provider"] == "gmail")
     assert gmail["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_gmail_state_uses_the_configured_gmail_account(
+    api_client, db, house, monkeypatch
+):
+    house.email = "configured@example.com"
+    config = LiveC2CAutomationConfig(
+        house_id=house.id,
+        source_type="gmail",
+        gmail_status="connected",
+        gmail_address="different@example.com",
+        gmail_refresh_token_encrypted="encrypted",
+        created_by=0,
+        updated_by=0,
+    )
+    db.add(config)
+    await db.commit()
+
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(
+        settings,
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "https://api.example.test/api/v1/live-c2c-automation/gmail/callback",
+    )
+    user = await _user_with_permissions(db, ["connections.view"], [house])
+    await api_client.make_user_override(user)
+
+    response = await api_client.get(
+        "/api/connections", headers={"X-House-ID": str(house.id)}
+    )
+
+    assert response.status_code == 200
+    gmail = next(item for item in response.json()["data"] if item["provider"] == "gmail")
+    assert gmail["account"] == "different@example.com"
+    assert gmail["connected"] is True
+    assert gmail["status"] == "connected"
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_settings_require_app_settings_permission(
+    api_client, db
+):
+    user = await _user_with_permissions(db, [])
+    await api_client.make_user_override(user)
+
+    response = await api_client.get("/api/v1/settings/google-oauth")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_settings_store_secret_encrypted_and_audited(
+    api_client, db, house, monkeypatch
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", None)
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", None)
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_REDIRECT_URI", None)
+    user = await _user_with_permissions(
+        db, ["app_settings.manage", "connections.view"], [house]
+    )
+    await api_client.make_user_override(user)
+
+    payload = {
+        "client_id": "client-id.apps.googleusercontent.com",
+        "client_secret": "google-client-secret",
+        "redirect_uri": (
+            "https://api.example.test/api/v1/live-c2c-automation/gmail/callback"
+        ),
+    }
+    response = await api_client.put(
+        "/api/v1/settings/google-oauth",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["client_id"] == payload["client_id"]
+    assert data["redirect_uri"] == payload["redirect_uri"]
+    assert data["client_secret_configured"] is True
+    assert "client_secret" not in data
+    setting = await db.scalar(select(AppSetting).where(AppSetting.id == 1))
+    assert setting.google_oauth_client_secret_encrypted != payload["client_secret"]
+    assert "google-client-secret" not in str(setting.google_oauth_client_secret_encrypted)
+    log = await db.scalar(
+        select(ActivityLog).where(ActivityLog.action == "google_oauth_settings.update")
+    )
+    assert log is not None
+    assert "google-client-secret" not in str(log.new_values)
+    connections_response = await api_client.get(
+        "/api/connections", headers={"X-House-ID": str(house.id)}
+    )
+    assert connections_response.status_code == 200
+    gmail = next(
+        item
+        for item in connections_response.json()["data"]
+        if item["provider"] == "gmail"
+    )
+    assert gmail["available"] is True
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_settings_require_a_client_secret_on_first_setup(
+    api_client, db, monkeypatch
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", None)
+    user = await _user_with_permissions(db, ["app_settings.manage"])
+    await api_client.make_user_override(user)
+
+    response = await api_client.put(
+        "/api/v1/settings/google-oauth",
+        json={
+            "client_id": "client-id.apps.googleusercontent.com",
+            "redirect_uri": (
+                "https://api.example.test/api/v1/live-c2c-automation/gmail/callback"
+            ),
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error_code"] == (
+        "gmail_oauth_client_secret_required"
+    )
+    assert await db.scalar(select(AppSetting).where(AppSetting.id == 1)) is None
 
 
 @pytest.mark.asyncio
@@ -837,10 +965,13 @@ async def test_gmail_authorize_is_allowed_with_connect_permission(
     house.email = "house@example.com"
     await db.commit()
 
+    async def fake_authorization_url(db, config, state):
+        return "https://accounts.google.test/auth"
+
     monkeypatch.setattr(
         live_c2c_automation,
         "build_gmail_authorization_url",
-        lambda config, state: "https://accounts.google.test/auth",
+        fake_authorization_url,
     )
 
     user = await _user_with_permissions(db, ["gmail.connect"], [house])

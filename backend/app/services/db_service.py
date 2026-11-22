@@ -355,6 +355,40 @@ async def _migrate_app_settings_maintenance():
     except Exception as e:
         _migration_warning("app_settings maintenance", e)
 
+
+async def _migrate_app_settings_google_oauth():
+    columns = [
+        (
+            "google_oauth_client_id",
+            "ALTER TABLE app_settings ADD COLUMN google_oauth_client_id VARCHAR(512)",
+        ),
+        (
+            "google_oauth_client_secret_encrypted",
+            "ALTER TABLE app_settings ADD COLUMN google_oauth_client_secret_encrypted TEXT",
+        ),
+        (
+            "google_oauth_redirect_uri",
+            "ALTER TABLE app_settings ADD COLUMN google_oauth_redirect_uri VARCHAR(2048)",
+        ),
+    ]
+    try:
+        async with engine.begin() as conn:
+            for name, ddl in columns:
+                result = await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name='app_settings' AND column_name='{name}'"
+                    )
+                )
+                if result.scalar():
+                    continue
+                logger.info("Migrating app_settings: adding %s column...", name)
+                await conn.execute(text(ddl))
+            logger.info("Migration complete: app_settings Google OAuth columns")
+    except Exception as e:
+        _migration_warning("app_settings Google OAuth", e)
+
+
 INDEX_MIGRATIONS = [
     # activations table
     ("ix_activations_house_id", "CREATE INDEX IF NOT EXISTS ix_activations_house_id ON activations (house_id)"),
@@ -3014,6 +3048,7 @@ async def init_db():
         await _migrate_app_settings_favicon()
         await _migrate_app_settings_sim_serial_length()
         await _migrate_app_settings_maintenance()
+        await _migrate_app_settings_google_oauth()
         await _migrate_live_activation_date_type()
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_live_c2c_entity_ids()
