@@ -69,6 +69,15 @@ router = APIRouter(
 
 MAX_WEBHOOK_BODY_SIZE = 15 * 1024 * 1024
 OAUTH_STATE_TTL = timedelta(minutes=10)
+LIVE_C2C_WHATSAPP_WEBHOOK_PATH = "/api/v1/live-c2c-automation/whatsapp/webhook"
+
+
+def configure_live_c2c_whatsapp_webhook_url(public_url: str) -> str:
+    if settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL:
+        return settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL
+    callback_url = f"{public_url.rstrip('/')}{LIVE_C2C_WHATSAPP_WEBHOOK_PATH}"
+    settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL = callback_url
+    return callback_url
 
 
 class AutomationConfigUpdate(BaseModel):

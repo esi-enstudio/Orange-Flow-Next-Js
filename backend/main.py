@@ -152,6 +152,7 @@ from app.routers.location import router as location_router
 from app.routers.monitoring import router as monitoring_router
 from app.routers.documents import router as documents_router
 from app.routers.live_c2c_automation import (
+    configure_live_c2c_whatsapp_webhook_url,
     live_c2c_automation_scheduler,
     router as live_c2c_automation_router,
 )
@@ -598,6 +599,11 @@ async def main():
                     public_url = tunnels[0].public_url
                     logger.info(f"🌐 Ngrok tunnel opened: {public_url}")
                     logger.info(f"📱 Configure SMS Forwarder to POST to: {public_url}/api/webhook/sms")
+                    callback_url = configure_live_c2c_whatsapp_webhook_url(public_url)
+                    logger.info(
+                        "Live C2C WhatsApp callback URL configured from the public tunnel: %s",
+                        callback_url,
+                    )
                 else:
                     logger.error("❌ Ngrok tunnel not available")
             except Exception as e:

@@ -21,7 +21,10 @@ from app.models.user import User
 from app.routers import live_c2c_automation
 from app.routers import whatsapp_gateway
 from app.routers import whatsapp_schedules
-from app.routers.live_c2c_automation import router
+from app.routers.live_c2c_automation import (
+    configure_live_c2c_whatsapp_webhook_url,
+    router,
+)
 from app.routers.deps import get_current_user, get_db
 from app.services.live_c2c_automation_service import encrypt_secret
 from app.services.whatsapp_service_client import WhatsAppServiceClient, WhatsAppServiceError
@@ -96,6 +99,27 @@ def _set_webhook_url(monkeypatch):
             "LIVE_C2C_WHATSAPP_WEBHOOK_URL",
             "https://api.example.test/webhook",
         )
+
+
+def test_configure_whatsapp_webhook_url_uses_public_tunnel_when_unset(monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_C2C_WHATSAPP_WEBHOOK_URL", None)
+
+    callback_url = configure_live_c2c_whatsapp_webhook_url("https://example.test/")
+
+    assert callback_url == (
+        "https://example.test/api/v1/live-c2c-automation/whatsapp/webhook"
+    )
+    assert settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL == callback_url
+
+
+def test_configure_whatsapp_webhook_url_preserves_explicit_setting(monkeypatch):
+    configured_url = "https://callback.example.test/receive"
+    monkeypatch.setattr(settings, "LIVE_C2C_WHATSAPP_WEBHOOK_URL", configured_url)
+
+    assert (
+        configure_live_c2c_whatsapp_webhook_url("https://tunnel.example.test")
+        == configured_url
+    )
 
 
 @pytest.mark.asyncio

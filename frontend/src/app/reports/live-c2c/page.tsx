@@ -1566,6 +1566,7 @@ export default function LiveC2CReportPage() {
                   single
                   showSelectAll={false}
                   clearLabel={t("live_c2c.clear_selection")}
+                  portal
                 />
                 <p className="text-sm text-gray-600 dark:text-gray-300">
                   {t("live_c2c.required_columns")}
