@@ -125,6 +125,10 @@ async def import_route_list(db: AsyncSession, data: bytes, current_user: User) -
         )
     ).scalars().all()
     house_by_code = {(house.code or "").strip().upper(): house for house in houses}
+    house_code_by_id = {
+        house.id: (house.code or "").strip().upper()
+        for house in houses
+    }
 
     errors: list[str] = []
     skipped = 0
@@ -281,9 +285,10 @@ async def import_route_list(db: AsyncSession, data: bytes, current_user: User) -
             rso_assigned = len(new_links)
 
     await db.flush()
+
     logger.info(
         "Route list import by %s: %s created, %s updated, %s unchanged, "
-        "%s RSO assigned, %s unmatched, %s skipped",
+            "%s RSO assigned, %s unmatched, %s skipped",
         current_user.id,
         created,
         updated,
@@ -300,5 +305,13 @@ async def import_route_list(db: AsyncSession, data: bytes, current_user: User) -
         "rso_assigned": rso_assigned,
         "rso_unmatched": rso_unmatched,
         "skipped": skipped,
+        "house_ids": house_ids,
+        "house_codes": sorted(
+            {
+                house_code_by_id[house_id]
+                for house_id in house_ids
+                if house_code_by_id.get(house_id)
+            }
+        ),
         "errors": errors,
     }

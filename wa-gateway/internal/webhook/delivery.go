@@ -21,16 +21,17 @@ import (
 )
 
 type Engine struct {
-	store        *Store
-	httpClient   *http.Client
-	queue        chan *deliveryTask
-	workers      int
-	retryLimit   int
-	maxPerDevice int
-	enabled      bool
-	wg           sync.WaitGroup
-	ctx          context.Context
-	cancel       context.CancelFunc
+	store         *Store
+	httpClient    *http.Client
+	queue         chan *deliveryTask
+	workers       int
+	retryLimit    int
+	maxPerDevice  int
+	enabled       bool
+	insecureHosts map[string]struct{}
+	wg            sync.WaitGroup
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 type deliveryTask struct {
@@ -62,6 +63,13 @@ func NewEngine(store *Store) *Engine {
 	// WEBHOOKS_ENABLED: default true
 	enabled := env.GetEnvBoolOrDefault("WEBHOOKS_ENABLED", true)
 
+	// WEBHOOK_ALLOW_INSECURE_HOSTS: comma-separated host[:port] entries that may
+	// receive HTTP webhooks (e.g. "backend:8000" for a private Docker network).
+	// Empty by default, so every other URL still requires public HTTPS.
+	insecureHosts := parseInsecureHosts(
+		env.GetEnvStringOrDefault("WEBHOOK_ALLOW_INSECURE_HOSTS", ""),
+	)
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	transport := &http.Transport{
@@ -75,15 +83,16 @@ func NewEngine(store *Store) *Engine {
 	}
 
 	engine := &Engine{
-		store:        store,
-		httpClient:   &http.Client{Timeout: webhookRequestTimeout, Transport: transport},
-		queue:        make(chan *deliveryTask, 1000),
-		workers:      workers,
-		retryLimit:   retryLimit,
-		maxPerDevice: maxPerDevice,
-		enabled:      enabled,
-		ctx:          ctx,
-		cancel:       cancel,
+		store:         store,
+		httpClient:    &http.Client{Timeout: webhookRequestTimeout, Transport: transport},
+		queue:         make(chan *deliveryTask, 1000),
+		workers:       workers,
+		retryLimit:    retryLimit,
+		maxPerDevice:  maxPerDevice,
+		enabled:       enabled,
+		insecureHosts: insecureHosts,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	if enabled {
@@ -235,11 +244,20 @@ func (e *Engine) validateURL(rawURL string) error {
 		return err
 	}
 
+	hostWithPort := strings.ToLower(u.Host)
+	hostname := strings.ToLower(u.Hostname())
+	if _, ok := e.insecureHosts[hostWithPort]; ok {
+		return nil
+	}
+	if _, ok := e.insecureHosts[hostname]; ok {
+		return nil
+	}
+
 	if u.Scheme != "https" {
 		return fmt.Errorf("only HTTPS URLs are allowed")
 	}
 
-	host := strings.ToLower(u.Hostname())
+	host := hostname
 	if host == "localhost" || host == "0.0.0.0" {
 		return fmt.Errorf("private/local network URLs are not allowed")
 	}
@@ -250,4 +268,15 @@ func (e *Engine) validateURL(rawURL string) error {
 	}
 
 	return nil
+}
+
+func parseInsecureHosts(raw string) map[string]struct{} {
+	hosts := make(map[string]struct{})
+	for _, entry := range strings.Split(raw, ",") {
+		host := strings.ToLower(strings.TrimSpace(entry))
+		if host != "" {
+			hosts[host] = struct{}{}
+		}
+	}
+	return hosts
 }

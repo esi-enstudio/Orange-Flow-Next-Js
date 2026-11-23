@@ -101,6 +101,8 @@ async def test_import_upserts_routes_and_syncs_active_owner(db):
     report = response.json()["data"]
     assert report["created"] == 1 and report["updated"] == 1
     assert report["rso_assigned"] == 2 and report["skipped"] == 0
+    assert report["house_ids"] == [house.id]
+    assert report["house_codes"] == ["MYMVAI01"]
 
     route = (
         await db.execute(select(Route).where(Route.code == "MYMVAI01_ROUTE0066"))

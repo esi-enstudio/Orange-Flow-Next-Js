@@ -105,6 +105,7 @@ services:
       - SERVER_PORT=7001
       - WHATSAPP_DATASTORE_TYPE=postgres
       - WHATSAPP_DATASTORE_URI=postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@db:5432/${DB_NAME:-orange_flow_db}?sslmode=disable
+      - WEBHOOK_ALLOW_INSECURE_HOSTS=${WEBHOOK_ALLOW_INSECURE_HOSTS:-}
     deploy:
       resources:
         limits:

@@ -59,12 +59,18 @@ interface RsoOption {
   sublabel?: string;
 }
 
+interface AccessibleHouse {
+  id: number;
+  name: string;
+  code: string;
+}
+
 interface RouteFilters {
   status: "" | "active" | "inactive";
   owner: "" | "assigned" | "unassigned";
 }
 
-const defaultFilters: RouteFilters = { status: "", owner: "" };
+const defaultFilters: RouteFilters = { status: "", owner: "assigned" };
 
 const DAY_KEYS = ["sat", "sun", "mon", "tue", "wed", "thu", "fri"] as const;
 const DAY_VALUES = [
@@ -85,6 +91,8 @@ interface ImportResult {
   rso_assigned: number;
   rso_unmatched: number;
   skipped: number;
+  house_ids: number[];
+  house_codes: string[];
   errors: string[];
 }
 
@@ -93,7 +101,7 @@ const inputClass =
 
 export default function RoutesPage() {
   const router = useRouter();
-  const { selectedHouse, hasPermission, loading: authLoading } = useAuth();
+  const { selectedHouse, updateUser, hasPermission, loading: authLoading } = useAuth();
   const { t } = useLanguage();
 
   const [rows, setRows] = useState<RouteRow[]>([]);
@@ -101,6 +109,9 @@ export default function RoutesPage() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
   const perPage = 20;
+  const [houses, setHouses] = useState<AccessibleHouse[]>([]);
+  const [scopeHouseId, setScopeHouseId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const [search, setSearch] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -127,6 +138,8 @@ export default function RoutesPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<RouteRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showSelectedDelete, setShowSelectedDelete] = useState(false);
+  const [permanentDeleting, setPermanentDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const [showImport, setShowImport] = useState(false);
@@ -137,6 +150,7 @@ export default function RoutesPage() {
   const canCreate = hasPermission("routes.create");
   const canEdit = hasPermission("routes.edit");
   const canDelete = hasPermission("routes.delete");
+  const canPermanentDelete = hasPermission("routes.delete.permanent");
   const canAssign = hasPermission("routes.assign");
   const canImport = hasPermission("routes.import");
   const canExport = hasPermission("routes.export");
@@ -149,7 +163,17 @@ export default function RoutesPage() {
     }
   }, [authLoading, hasPermission, router]);
 
-  const fetchRoutes = useCallback(async () => {
+  useEffect(() => {
+    apiClient
+      .get("houses/accessible")
+      .then((res) => setHouses(Array.isArray(res.data) ? res.data : []))
+      .catch((err) => {
+        console.error(err);
+        setHouses([]);
+      });
+  }, []);
+
+  const fetchRoutes = useCallback(async (houseOverride: { id: number } | null = null) => {
     setLoading(true);
     try {
       const params: Record<string, unknown> = {
@@ -163,7 +187,7 @@ export default function RoutesPage() {
       if (filters.owner) params.has_rso = filters.owner === "assigned";
       const res = await apiClient.get("routes", {
         params,
-        headers: houseHeaders(selectedHouse),
+        headers: houseHeaders(houseOverride ?? (scopeHouseId ? { id: scopeHouseId } : null)),
       });
       setRows(
         (res.data.data || []).map((row: RouteRow) => ({
@@ -178,7 +202,7 @@ export default function RoutesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, filters, selectedHouse, t]);
+  }, [page, search, filters, scopeHouseId, t]);
 
   useEffect(() => {
     if (!authLoading && hasPermission("routes.view")) fetchRoutes();
@@ -358,6 +382,7 @@ export default function RoutesPage() {
     }
   };
 
+
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -391,15 +416,60 @@ export default function RoutesPage() {
       const res = await apiClient.post("routes/import", formData, {
         headers: houseHeaders(selectedHouse),
       });
-      setImportResult(res.data?.data ?? null);
+      const result = res.data?.data as ImportResult | null;
+      setImportResult(result);
       toast.success(t("routes.import_success"));
       setPage(1);
-      fetchRoutes();
+      if (result?.house_ids?.length) {
+        const importedHouseId = result.house_ids[0];
+        setScopeHouseId(importedHouseId);
+        updateUser({ selected_house_id: importedHouseId });
+        fetchRoutes({ id: importedHouseId });
+      } else {
+        fetchRoutes();
+      }
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : t("routes.import_failed"));
     } finally {
       setImporting(false);
+    }
+  };
+
+  const toggleSelected = (routeId: number) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(routeId)) next.delete(routeId);
+      else next.add(routeId);
+      return next;
+    });
+  };
+
+  const handlePermanentDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    setPermanentDeleting(true);
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((routeId) =>
+          apiClient.delete(`routes/permanent/${routeId}`, {
+            headers: houseHeaders(scopeHouseId ? { id: scopeHouseId } : null),
+          })
+        )
+      );
+      toast.success(t("routes.permanent_delete_selected_success"));
+      setSelectedIds(new Set());
+      setShowSelectedDelete(false);
+      setPage(1);
+      fetchRoutes();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.error(
+        typeof detail === "string"
+          ? detail
+          : t("routes.permanent_delete_failed")
+      );
+    } finally {
+      setPermanentDeleting(false);
     }
   };
 
@@ -466,6 +536,15 @@ export default function RoutesPage() {
               {t("routes.export")}
             </button>
           )}
+          {canPermanentDelete && selectedIds.size > 0 && (
+            <button
+              onClick={() => setShowSelectedDelete(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 dark:border-red-500/30 text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              {t("routes.permanent_delete_selected")} ({selectedIds.size})
+            </button>
+          )}
           {canCreate && (
             <button
               onClick={openCreate}
@@ -480,6 +559,35 @@ export default function RoutesPage() {
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-gray-50 dark:border-slate-800 flex items-center gap-3">
+          <div className="w-full sm:w-64 shrink-0">
+            <EntitySelector
+              label={t("routes.house_select")}
+              hideLabel
+              items={houses.map((house) => ({
+                id: house.id,
+                label: house.name,
+                sublabel: house.code,
+              }))}
+              selectedIds={scopeHouseId ? [scopeHouseId] : []}
+              onChange={(ids) => {
+                const value = ids.length ? Number(ids[0]) : null;
+                setScopeHouseId(value);
+                setSelectedIds(new Set());
+                setPage(1);
+                fetchRoutes(value ? { id: value } : null);
+              }}
+              placeholder={t("routes.house_all")}
+              searchPlaceholder={t("routes.house_select")}
+              emptyMessage={t("routes.house_all")}
+              noResultsMessage={t("routes.house_all")}
+              single
+              closeOnSelect
+              portal
+              showSelectAll={false}
+              clearLabel={t("common.clear")}
+              selectedLabel={t("routes.selected")}
+            />
+          </div>
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -536,6 +644,7 @@ export default function RoutesPage() {
               <table className="w-full text-left min-w-[980px]">
                 <thead>
                   <tr className="bg-gray-50/50 dark:bg-slate-800/50 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest border-b border-gray-50 dark:border-slate-800">
+                    {canPermanentDelete && <th className="px-2 py-4 w-10"></th>}
                     <th className="px-6 py-4">{t("routes.table_code")}</th>
                     <th className="px-6 py-4">{t("routes.table_name")}</th>
                     <th className="px-6 py-4">{t("routes.table_visit_plan")}</th>
@@ -548,6 +657,17 @@ export default function RoutesPage() {
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-800">
                   {filteredRows.map((row) => (
                     <tr key={row.id} className="hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                      {canPermanentDelete && (
+                        <td className="px-2 py-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(row.id)}
+                            onChange={() => toggleSelected(row.id)}
+                            className="h-4 w-4 rounded border-gray-300 text-primary-600 cursor-pointer"
+                            aria-label={`${t("routes.select_route")} ${row.code}`}
+                          />
+                        </td>
+                      )}
                       <td className="px-2 py-1">
                         <div className="flex items-center gap-3 py-2">
                           <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 shrink-0">
@@ -704,10 +824,20 @@ export default function RoutesPage() {
             <div className="lg:hidden divide-y divide-gray-50 dark:divide-slate-800">
               {filteredRows.map((row) => (
                 <div key={row.id}>
-                  <button
-                    onClick={() => setExpandedId((prev) => (prev === row.id ? null : row.id))}
-                    className="w-full flex items-center gap-3 px-5 py-4 text-left cursor-pointer"
-                  >
+                  <div className="w-full flex items-center gap-3 px-5 py-4 text-left">
+                    {canPermanentDelete && (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(row.id)}
+                        onChange={() => toggleSelected(row.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-primary-600 cursor-pointer shrink-0"
+                        aria-label={`${t("routes.select_route")} ${row.code}`}
+                      />
+                    )}
+                    <button
+                      onClick={() => setExpandedId((prev) => (prev === row.id ? null : row.id))}
+                      className="flex-1 min-w-0 flex items-center gap-3 text-left cursor-pointer"
+                    >
                     <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center text-primary-700 dark:text-primary-400 shrink-0">
                       <Hash className="w-5 h-5" />
                     </div>
@@ -731,6 +861,7 @@ export default function RoutesPage() {
                       )}
                     />
                   </button>
+                  </div>
                   {expandedId === row.id && (
                     <div className="px-5 pb-4 pt-1 space-y-2">
                       <div className="flex items-center justify-between text-sm">
@@ -919,7 +1050,6 @@ export default function RoutesPage() {
                   >
                     <option value="">{t("routes.filter_any_owner")}</option>
                     <option value="assigned">{t("routes.filter_with_rso")}</option>
-                    <option value="unassigned">{t("routes.filter_without_rso")}</option>
                   </select>
                 </div>
               </div>
@@ -1292,6 +1422,16 @@ export default function RoutesPage() {
         confirmText={t("routes.delete_confirm")}
         type="danger"
         loading={deleting}
+      />
+      <ConfirmationModal
+        isOpen={showSelectedDelete}
+        onClose={() => setShowSelectedDelete(false)}
+        onConfirm={handlePermanentDeleteSelected}
+        title={t("routes.permanent_delete_selected_confirm_title")}
+        message={t("routes.permanent_delete_selected_confirm_message")}
+        confirmText={t("routes.permanent_delete_selected_confirm")}
+        type="danger"
+        loading={permanentDeleting}
       />
     </div>
   );

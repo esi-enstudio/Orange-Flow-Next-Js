@@ -162,6 +162,15 @@ Alternatively set `PUBLIC_BACKEND_URL=https://<backend-host>` (scheme and host o
 
 The URL must be reachable from the WhatsApp gateway. The gateway must send `media.received` document events with the signed HMAC header. Invalid signatures, oversized bodies, wrong devices, and wrong source groups are rejected or ignored without enqueueing.
 
+When the gateway and backend share a private Docker network and no public HTTPS endpoint exists, point the callback at the backend service and allowlist that exact host for HTTP delivery on the gateway:
+
+```env
+LIVE_C2C_WHATSAPP_WEBHOOK_URL=http://backend:8000/api/v1/live-c2c-automation/whatsapp/webhook
+WEBHOOK_ALLOW_INSECURE_HOSTS=backend:8000
+```
+
+`WEBHOOK_ALLOW_INSECURE_HOSTS` is a comma-separated allowlist. Every URL not on it still requires public HTTPS, so the gateway's SSRF protection stays in force.
+
 Incoming event bodies are limited to 15 MiB. Live C2C attachments are additionally limited to 10 MiB and must use `.xlsx` or `.xlsb`. Duplicate gateway event IDs are not processed twice.
 
 Configure the incoming source group and report destination group separately for each house; the two WhatsApp groups must be different. The automation settings on `/reports/live-c2c` use the selected house's connected WhatsApp device and available group list. When a matching file is queued, its destination group is snapshotted so later changes cannot reroute it. The background scheduler processes the file (normally within 30 seconds), imports its single matching worksheet, and sends the generated Live C2C report to that snapshotted destination. If automation is disabled or its incoming source changes before processing, the queued file is marked failed rather than imported or sent. The filename must contain both `Live` and `C2C` as case-insensitive words. Transient import or delivery failures remain visible and are retried according to the existing queue policy.
