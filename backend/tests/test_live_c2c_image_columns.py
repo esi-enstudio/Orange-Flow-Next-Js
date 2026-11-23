@@ -3,7 +3,7 @@
 The image mirrors the page's table, so every row, the total row and the grouped
 header bands must stay aligned with ``LABELS`` — an off-by-one would silently
 shift the transaction columns. The sheet is A4 landscape, and the two metric
-blocks are grouped so the repeated Today/Other/Total/Ach %/Remain labels stay
+blocks are grouped so the repeated On Route/Other/Total/Ach %/Remain labels stay
 unambiguous.
 """
 from app.services.live_c2c_whatsapp_image import (
@@ -71,6 +71,14 @@ def test_every_row_and_the_total_line_up_with_the_labels():
     total = _total_cells(rows)
     assert len(total) == len(LABELS)
     assert total[0] == "Total (2 RSO)"
+
+
+def test_route_columns_after_targets_are_labelled_on_route():
+    c2c_target = LABELS.index("C2C Tgt")
+    trans_target = LABELS.index("Trans Tgt")
+    assert LABELS[c2c_target + 1] == "On Route"
+    assert LABELS[trans_target + 1] == "On Route"
+    assert "Today" not in LABELS
 
 
 def test_total_trans_column_follows_today_and_other_route_counts():

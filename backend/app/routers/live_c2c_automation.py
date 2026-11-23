@@ -72,12 +72,44 @@ OAUTH_STATE_TTL = timedelta(minutes=10)
 LIVE_C2C_WHATSAPP_WEBHOOK_PATH = "/api/v1/live-c2c-automation/whatsapp/webhook"
 
 
-def configure_live_c2c_whatsapp_webhook_url(public_url: str) -> str:
+def _derive_webhook_url(base_url: str | None) -> str | None:
+    """Append the fixed webhook path to a public base URL, or return None."""
+    base = (base_url or "").strip().rstrip("/")
+    if not base.lower().startswith(("http://", "https://")):
+        return None
+    return f"{base}{LIVE_C2C_WHATSAPP_WEBHOOK_PATH}"
+
+
+def resolve_live_c2c_whatsapp_webhook_url(
+    tunnel_public_url: str | None = None,
+) -> str | None:
+    """Resolve the public callback URL the WhatsApp gateway posts events to.
+
+    Precedence: the explicit ``LIVE_C2C_WHATSAPP_WEBHOOK_URL`` setting, then
+    ``PUBLIC_BACKEND_URL`` (the operator's stable backend host), then the ngrok
+    tunnel URL handed over by startup. The frontend ``APP_URL`` is never used,
+    so a wrong host cannot be derived silently. The resolved URL is cached on
+    settings so later callers reuse the exact same callback.
+    """
     if settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL:
         return settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL
-    callback_url = f"{public_url.rstrip('/')}{LIVE_C2C_WHATSAPP_WEBHOOK_PATH}"
-    settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL = callback_url
-    return callback_url
+    for base in (settings.PUBLIC_BACKEND_URL, tunnel_public_url):
+        url = _derive_webhook_url(base)
+        if url:
+            settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL = url
+            return url
+        if base:
+            logger.warning(
+                "Ignoring unusable Live C2C WhatsApp webhook base URL: %s", base
+            )
+    return None
+
+
+def configure_live_c2c_whatsapp_webhook_url(
+    public_url: str | None,
+) -> str | None:
+    """Startup hook: derive the callback URL from the ngrok tunnel or env."""
+    return resolve_live_c2c_whatsapp_webhook_url(public_url)
 
 
 class AutomationConfigUpdate(BaseModel):
@@ -336,7 +368,7 @@ async def update_live_c2c_automation(
         )
     target = None
     groups: list[dict[str, str]] = []
-    callback_url = settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL
+    callback_url = resolve_live_c2c_whatsapp_webhook_url()
 
     if payload.is_enabled:
         if payload.source_type is None:

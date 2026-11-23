@@ -7,7 +7,7 @@ columns, then the same five transaction columns) plus the footer total row.
 
 The two metric blocks sit under a grouped header band ("C2C (BDT)" and
 "Transactions (count)") exactly like the page table's two-tier header, so the
-repeated ``Today`` / ``Other`` / ``Total`` / ``Ach %`` / ``Remain`` labels are
+repeated ``On Route`` / ``Other`` / ``Total`` / ``Ach %`` / ``Remain`` labels are
 never ambiguous.
 
 Every page stays inside an exact A4 landscape sheet (1750x1237 design units,
@@ -78,13 +78,13 @@ LABELS = [
     "RSO",
     "iTop",
     "C2C Tgt",
-    "Today",
+    "On Route",
     "Other",
     "Total",
     "Ach %",
     "Remain",
     "Trans Tgt",
-    "Today",
+    "On Route",
     "Other",
     "Total",
     "Ach %",
@@ -295,7 +295,7 @@ def _render_image(house_name: str, house_code: str, rows: list[dict], today: dat
     first_fit = max(1, (PAGE_H - CARD_PAD * 2 - HDR_H - SECTION_TITLE_H
                         - GROUP_H - head_h - row_h - FOOTER_H) // row_h)
     # Continuation pages repeat the section title and grouped header band so the
-    # repeated Today / Other / Total / Ach % / Remain labels stay unambiguous.
+    # repeated On Route / Other / Total / Ach % / Remain labels stay unambiguous.
     rest_fit = max(1, (PAGE_H - CARD_PAD * 2 - SECTION_TITLE_H
                        - GROUP_H - head_h - row_h - FOOTER_H) // row_h)
     chunks = _chunk_rows(body, first_fit, rest_fit)

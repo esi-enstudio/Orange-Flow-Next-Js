@@ -605,7 +605,7 @@ async def main():
                     logger.info(f"📱 Configure SMS Forwarder to POST to: {public_url}/api/webhook/sms")
                     callback_url = configure_live_c2c_whatsapp_webhook_url(public_url)
                     logger.info(
-                        "Live C2C WhatsApp callback URL configured from the public tunnel: %s",
+                        "Live C2C WhatsApp callback URL resolved: %s",
                         callback_url,
                     )
                 else:

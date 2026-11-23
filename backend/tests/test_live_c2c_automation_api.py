@@ -23,6 +23,7 @@ from app.routers import whatsapp_gateway
 from app.routers import whatsapp_schedules
 from app.routers.live_c2c_automation import (
     configure_live_c2c_whatsapp_webhook_url,
+    resolve_live_c2c_whatsapp_webhook_url,
     router,
 )
 from app.routers.deps import get_current_user, get_db
@@ -119,6 +120,57 @@ def test_configure_whatsapp_webhook_url_preserves_explicit_setting(monkeypatch):
     assert (
         configure_live_c2c_whatsapp_webhook_url("https://tunnel.example.test")
         == configured_url
+    )
+
+
+def test_webhook_url_is_derived_from_public_backend_url(monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_C2C_WHATSAPP_WEBHOOK_URL", None)
+    monkeypatch.setattr(settings, "PUBLIC_BACKEND_URL", "https://api.live.example/")
+
+    expected = "https://api.live.example/api/v1/live-c2c-automation/whatsapp/webhook"
+    assert resolve_live_c2c_whatsapp_webhook_url() == expected
+    assert settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL == expected
+
+
+def test_public_backend_url_wins_over_the_tunnel_url(monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_C2C_WHATSAPP_WEBHOOK_URL", None)
+    monkeypatch.setattr(settings, "PUBLIC_BACKEND_URL", "https://api.live.example")
+
+    assert configure_live_c2c_whatsapp_webhook_url("https://tunnel.example.test") == (
+        "https://api.live.example/api/v1/live-c2c-automation/whatsapp/webhook"
+    )
+
+
+def test_explicit_webhook_url_wins_over_public_backend_url(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "LIVE_C2C_WHATSAPP_WEBHOOK_URL",
+        "https://callback.example.test/receive",
+    )
+    monkeypatch.setattr(settings, "PUBLIC_BACKEND_URL", "https://api.live.example")
+
+    assert (
+        resolve_live_c2c_whatsapp_webhook_url()
+        == "https://callback.example.test/receive"
+    )
+
+
+def test_invalid_public_backend_url_is_ignored(monkeypatch):
+    monkeypatch.setattr(settings, "LIVE_C2C_WHATSAPP_WEBHOOK_URL", None)
+    monkeypatch.setattr(settings, "PUBLIC_BACKEND_URL", "api.live.example/")
+
+    assert resolve_live_c2c_whatsapp_webhook_url() is None
+    assert settings.LIVE_C2C_WHATSAPP_WEBHOOK_URL is None
+
+
+def test_webhook_url_falls_back_to_the_tunnel_when_everything_else_is_unset(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "LIVE_C2C_WHATSAPP_WEBHOOK_URL", None)
+    monkeypatch.setattr(settings, "PUBLIC_BACKEND_URL", None)
+
+    assert configure_live_c2c_whatsapp_webhook_url("https://tunnel.example.test") == (
+        "https://tunnel.example.test/api/v1/live-c2c-automation/whatsapp/webhook"
     )
 
 
@@ -743,6 +795,60 @@ async def test_put_registers_and_encrypts_whatsapp_webhook(
     assert "returned-signing-secret" not in response.text
     assert config.source_group_name == "Inbound"
     assert config.destination_group_name == "Reports"
+
+
+@pytest.mark.asyncio
+async def test_put_enables_whatsapp_automation_from_public_backend_url(
+    api_client,
+    db,
+    house,
+    monkeypatch,
+):
+    house.wa_device_id = "device-1"
+    house.wa_jwt_token = "device-token"
+    house.wa_device_secret = "device-secret"
+    await db.commit()
+    user = await _user_with_permissions(
+        db,
+        house,
+        ["live_c2c.automation_manage"],
+    )
+    await api_client.make_user_override(user)
+    webhook_urls = []
+
+    async def get_groups(_self, _token):
+        return [
+            {"id": "source@g.us", "name": "Inbound"},
+            {"id": "destination@g.us", "name": "Reports"},
+        ]
+
+    async def create_webhook(_self, _token, url, events):
+        webhook_urls.append((url, events))
+        return {"webhook_id": 91, "secret": "public-backend-secret"}
+
+    monkeypatch.setattr(WhatsAppServiceClient, "get_groups", get_groups)
+    monkeypatch.setattr(WhatsAppServiceClient, "create_webhook", create_webhook)
+    monkeypatch.setattr(settings, "LIVE_C2C_WHATSAPP_WEBHOOK_URL", None)
+    monkeypatch.setattr(settings, "PUBLIC_BACKEND_URL", "https://api.live.example")
+
+    response = await api_client.put(
+        "/api/v1/live-c2c-automation",
+        headers={"X-House-ID": str(house.id)},
+        json={
+            "source_type": "whatsapp",
+            "is_enabled": True,
+            "source_group_jid": "source@g.us",
+            "destination_group_jid": "destination@g.us",
+        },
+    )
+
+    assert response.status_code == 200
+    assert webhook_urls == [
+        (
+            "https://api.live.example/api/v1/live-c2c-automation/whatsapp/webhook",
+            ["media.received"],
+        )
+    ]
 
 
 @pytest.mark.asyncio

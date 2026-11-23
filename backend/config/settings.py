@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = None
     GOOGLE_OAUTH_REDIRECT_URI: Optional[str] = None
     LIVE_C2C_WHATSAPP_WEBHOOK_URL: Optional[str] = None
+    # Public base URL of this backend (scheme + host only, no path). Used to
+    # derive the Live C2C WhatsApp webhook callback when no explicit
+    # LIVE_C2C_WHATSAPP_WEBHOOK_URL is configured and no ngrok tunnel runs.
+    PUBLIC_BACKEND_URL: Optional[str] = None
 
     # JWT Authentication
     SECRET_KEY: str

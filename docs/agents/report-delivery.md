@@ -158,6 +158,8 @@ Set the public callback URL for signed gateway webhooks:
 LIVE_C2C_WHATSAPP_WEBHOOK_URL=https://<backend-host>/api/v1/live-c2c-automation/whatsapp/webhook
 ```
 
+Alternatively set `PUBLIC_BACKEND_URL=https://<backend-host>` (scheme and host only) and the callback is derived as `<PUBLIC_BACKEND_URL>/api/v1/live-c2c-automation/whatsapp/webhook`. Resolution order is: explicit `LIVE_C2C_WHATSAPP_WEBHOOK_URL`, then `PUBLIC_BACKEND_URL`, then the ngrok tunnel URL when `START_NGROK` is enabled. `APP_URL` (the frontend host) is never used for this. If none of the three is available, enabling WhatsApp automation returns `live_c2c_whatsapp_webhook_url_not_configured` instead of registering a webhook.
+
 The URL must be reachable from the WhatsApp gateway. The gateway must send `media.received` document events with the signed HMAC header. Invalid signatures, oversized bodies, wrong devices, and wrong source groups are rejected or ignored without enqueueing.
 
 Incoming event bodies are limited to 15 MiB. Live C2C attachments are additionally limited to 10 MiB and must use `.xlsx` or `.xlsb`. Duplicate gateway event IDs are not processed twice.
