@@ -2512,6 +2512,37 @@ async def _migrate_rule_included_employee_to_emp_id():
         _migration_warning("rule_included_employee_ids employee_id", e)
 
 
+async def _migrate_rso_productivity_columns():
+    """Add the productivity target columns to an existing ``rso_targets`` table.
+
+    ``Base.metadata.create_all`` never alters an existing table, so databases
+    created before the productivity targets shipped keep the old schema and
+    every read/write that touches the columns fails at query time. Mirrors
+    alembic revision ``d7f0c2a15b84`` for deployments that boot through
+    ``init_db`` instead of alembic.
+    """
+    columns = [
+        ("productivity_c2c_tgt", "DOUBLE PRECISION"),
+        ("productivity_trans_tgt", "DOUBLE PRECISION"),
+    ]
+    try:
+        async with engine.begin() as conn:
+            for column, ddl_type in columns:
+                exists = await conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'rso_targets' AND column_name = :c"
+                ), {"c": column})
+                if exists.scalar():
+                    continue
+                logger.info(f"Migrating rso_targets: adding {column} column...")
+                await conn.execute(text(
+                    f"ALTER TABLE rso_targets ADD COLUMN {column} {ddl_type} NOT NULL DEFAULT 0"
+                ))
+            logger.info("Migration complete: rso_targets productivity columns")
+    except Exception as e:
+        _migration_warning("rso_targets productivity columns", e)
+
+
 async def _migrate_location_telemetry_columns():
     """Add the rich-macro fields (altitude + telemetry JSONB) to the location tables.
 
@@ -3056,6 +3087,7 @@ async def init_db():
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_deposit_slip()
         await _migrate_lifting_pull_fields()
+        await _migrate_rso_productivity_columns()
         await _migrate_indexes()
         await _migrate_location_telemetry_columns()
         await _migrate_whatsapp_schedule_columns()
