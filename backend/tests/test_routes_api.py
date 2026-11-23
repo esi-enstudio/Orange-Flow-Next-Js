@@ -234,6 +234,52 @@ async def test_delete_blocked_while_route_is_in_use(db):
     assert res.status_code == 409, res.text
 
 
+async def test_permanent_delete_removes_route_and_retailer_links(db):
+    house = await _house(db, "MYMVAI01")
+    route = Route(house_id=house.id, code="MYMVAI01_ROUTE0001")
+    db.add(route)
+    await db.flush()
+    retailer = Retailer(house_id=house.id, retailer_code="R1", name="Shop")
+    rso = await _rso(db, house, "Active RSO")
+    db.add(retailer)
+    await db.flush()
+    db.add_all(
+        [
+            EmployeeRoute(
+                house_id=house.id,
+                employee_id=rso.id,
+                route_id=route.id,
+                status="active",
+            ),
+            RetailerRoute(
+                retailer_id=retailer.id,
+                route_id=route.id,
+                status="active",
+                is_primary=True,
+            ),
+        ]
+    )
+    await db.commit()
+
+    user = _user(house, permissions=["routes.delete.permanent"])
+    async with _client(db, user) as client:
+        res = await client.delete(
+            f"/api/routes/permanent/{route.id}",
+            headers={"X-House-ID": str(house.id)},
+        )
+
+    assert res.status_code == 200, res.text
+    assert (await db.get(Route, route.id)) is None
+    retailer_links = (
+        await db.execute(select(RetailerRoute).where(RetailerRoute.route_id == route.id))
+    ).scalars().all()
+    rso_links = (
+        await db.execute(select(EmployeeRoute).where(EmployeeRoute.route_id == route.id))
+    ).scalars().all()
+    assert retailer_links == []
+    assert rso_links == []
+
+
 async def test_tenant_cannot_address_another_house(db):
     house = await _house(db, "MYMVAI01")
     other = await _house(db, "MYMVAI02")

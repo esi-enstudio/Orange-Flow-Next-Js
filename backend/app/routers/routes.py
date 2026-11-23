@@ -11,7 +11,7 @@ from typing import List, Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
@@ -19,7 +19,7 @@ from app.models.house import House
 from app.models.retailer import Retailer
 from app.models.route import EmployeeRoute, RetailerRoute, Route
 from app.models.user import User
-from app.routers.deps import get_db, get_house_context, has_permission
+from app.routers.deps import get_db, get_house_context, has_permission, require_house_context
 from app.schemas.pagination import PaginatedResponse, PaginationMeta, PaginationParams
 from app.services.route_list_excel import WEEKDAYS, import_route_list
 from app.services.route_service import ROUTE_CODE_RE, route_house_prefix
@@ -229,9 +229,9 @@ async def list_routes(
         query = query.where(or_(Route.code.ilike(pattern), Route.name.ilike(pattern)))
     if is_active is not None:
         query = query.where(Route.is_active.is_(is_active))
-    if has_rso is not None:
+    if has_rso is True:
         owned = select(EmployeeRoute.route_id).where(EmployeeRoute.status == "active")
-        query = query.where(Route.id.in_(owned) if has_rso else Route.id.not_in(owned))
+        query = query.where(Route.id.in_(owned))
 
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
@@ -494,6 +494,40 @@ async def delete_route(
         request=request, status_code=204,
     )
     return Response(status_code=204)
+
+
+@router.delete("/permanent/{route_id}", status_code=200)
+async def permanently_delete_route(
+    route_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_permission("routes.delete.permanent")),
+):
+    route = await db.get(Route, route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    _assert_house_access(current_user, route.house_id)
+    await db.execute(RetailerRoute.__table__.delete().where(RetailerRoute.route_id == route.id))
+    await db.execute(EmployeeRoute.__table__.delete().where(EmployeeRoute.route_id == route.id))
+    await db.execute(delete(Route).where(Route.id == route.id))
+    await db.commit()
+    await log_activity(
+        db,
+        current_user.id,
+        current_user.name,
+        "routes",
+        "permanent_delete",
+        record_id=route.id,
+        record_identifier=route.code,
+        old_values={
+            "house_id": route.house_id,
+            "code": route.code,
+            "name": route.name,
+        },
+        request=request,
+        status_code=200,
+    )
+    return {"success": True, "data": {"deleted": 1}}
 
 
 @router.get("/{route_id}/retailers")
