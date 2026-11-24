@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Eye, Plus, Save, Trash2 } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
 import { getDocumentErrorMessage } from "@/lib/documents";
+import TemplateDeleteButton from "../_components/TemplateDeleteButton";
 
 type BlockType = "heading" | "paragraph" | "spacer" | "divider" | "signature" | "page_break";
 type Orientation = "portrait" | "landscape";
@@ -52,6 +53,7 @@ interface TemplateInfo {
   id: number;
   name: string;
   scope: "global" | "house";
+  is_default: boolean;
   latest_version: { version_number: number } | null;
   content_json: DocumentAst;
 }
@@ -104,7 +106,12 @@ export default function DocumentTemplateEditorPage() {
   const { hasPermission, loading: authLoading, selectedHouse, user } = useAuth();
   const selectedHouseId = selectedHouse?.id;
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const templateId = parseTemplateId(params.id);
+  const handleTemplateDeleted = useCallback(
+    () => router.replace("/documents/templates"),
+    [router],
+  );
   const canView = hasPermission("documents.templates.view");
   const canManage = hasPermission("documents.templates.manage");
   const isSuperAdmin = Boolean(user?.roles?.some((role) => {
@@ -360,7 +367,22 @@ export default function DocumentTemplateEditorPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("document_template_editor.title")}</h1>
           <PageGuideModal pageKey="document_template_editor" />
         </div>
-        <Link href="/documents/templates" className="inline-flex min-h-11 items-center rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800">{t("common.back")}</Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/documents/templates" className="inline-flex min-h-11 items-center rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800">{t("common.back")}</Link>
+          {template && (
+            <TemplateDeleteButton
+              templateId={template.id}
+              templateName={template.name}
+              scope={template.scope}
+              isDefault={template.is_default}
+              canManage={canManage}
+              isSuperAdmin={isSuperAdmin}
+              headers={selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {}}
+              onDeleted={handleTemplateDeleted}
+              variant="full"
+            />
+          )}
+        </div>
       </header>
       {errorMessage && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{errorMessage}</p>}
       {successMessage && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{successMessage}</p>}

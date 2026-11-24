@@ -12,6 +12,21 @@ export function getDocumentErrorMessage(error: unknown, fallback: string): strin
   return fallback;
 }
 
+export function getDocumentFieldErrors(error: unknown): Record<string, string> {
+  if (typeof error !== "object" || error === null || !("response" in error)) return {};
+  const response = error.response;
+  if (typeof response !== "object" || response === null || !("data" in response)) return {};
+  const data = response.data;
+  if (typeof data !== "object" || data === null) return {};
+  // apiClient's response interceptor flattens structured detail.fields into
+  // data._fieldErrors while replacing detail with its message string.
+  const fields = "_fieldErrors" in data ? data._fieldErrors : undefined;
+  if (typeof fields !== "object" || fields === null) return {};
+  return Object.fromEntries(
+    Object.entries(fields).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
 export function formatDocumentDate(value: string | null | undefined): string {
   if (!value) return "-";
   const datePart = value.slice(0, 10);

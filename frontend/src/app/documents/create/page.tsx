@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Download, FilePlus2, RefreshCw, Search } from "lucide-react";
+import { ChevronRight, Download, FilePlus2, Home, RefreshCw, Search } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useAuth } from "@/context/AuthContext";
@@ -168,10 +169,13 @@ export default function CreateDocumentPage() {
       setFields(schemaFields);
       const initial: Record<string, string> = {};
       for (const field of schemaFields) {
+        // Read-only values are resolved by the backend from the employee/house
+        // record. Submitting them is rejected by the API validation.
+        if (field.readonly) continue;
         initial[field.key] = field.default || "";
-      }
-      if (schemaFields.some((field) => field.key === "document_date")) {
-        initial.document_date = todayInBangladesh();
+        if (field.source === "document.document_date" || field.key === "document_date") {
+          initial[field.key] = todayInBangladesh();
+        }
       }
       setValues(initial);
       setDraftId(null);
@@ -205,6 +209,13 @@ export default function CreateDocumentPage() {
     };
   }, [employeeQuery, headers, selectedHouseId, t]);
 
+  // The API deliberately rejects unknown and read-only keys in document_data.
+  // Send only the editable fields declared by the active template schema.
+  const editableDocumentData = useCallback(() => {
+    const allowed = new Set(fields.filter((field) => !field.readonly).map((field) => field.key));
+    return Object.fromEntries(Object.entries(values).filter(([key]) => allowed.has(key)));
+  }, [fields, values]);
+
   const requestPreview = useCallback(async () => {
     if (!templateId || !selectedHouseId || schemaLoading) {
       setPreviewHtml("");
@@ -217,7 +228,7 @@ export default function CreateDocumentPage() {
       const response = await apiClient.post("v1/documents/render/preview", {
         template_id: Number(templateId),
         employee_id: employee?.id || null,
-        document_data: values,
+        document_data: editableDocumentData(),
       }, { headers });
       if (previewRequestId.current === requestId) {
         setPreviewHtml(response.data.data.html);
@@ -229,7 +240,7 @@ export default function CreateDocumentPage() {
     } finally {
       if (previewRequestId.current === requestId) setPreviewLoading(false);
     }
-  }, [employee, headers, schemaLoading, selectedHouseId, templateId, t, values]);
+  }, [editableDocumentData, employee, headers, schemaLoading, selectedHouseId, templateId, t]);
 
   useEffect(() => {
     if (!templateId || schemaLoading) return;
@@ -276,7 +287,7 @@ export default function CreateDocumentPage() {
     const payload = {
       template_id: Number(templateId),
       employee_id: employee?.id || null,
-      document_data: values,
+      document_data: editableDocumentData(),
     };
     try {
       const response = draftId
@@ -350,24 +361,50 @@ export default function CreateDocumentPage() {
   const displayLabel = (field: VariableField) => (
     language === "bn" ? field.label_bn || field.label : field.label
   );
+  const noPublishedTemplate = Boolean(selectedTypeId) && !loading && templates.length === 0;
 
   if (!authLoading && !canCreate) return <AccessDenied />;
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-center gap-2.5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400">
-          <FilePlus2 className="h-5 w-5" />
+    <div className="flex min-w-0 flex-col gap-4 lg:h-[calc(100vh-9rem)]">
+      <header className="shrink-0 border-b border-gray-200 pb-4 dark:border-slate-700">
+        <nav aria-label={t("document_create.breadcrumb_label")} className="-mt-1 mb-3 text-[13px]">
+          <ol className="flex flex-wrap items-center gap-1.5 text-gray-500 dark:text-gray-400">
+            <li>
+              <Link href="/" className="inline-flex cursor-pointer items-center gap-1.5 transition-colors hover:text-gray-700 dark:hover:text-gray-200">
+                <Home aria-hidden="true" className="size-4" />
+                {t("document_create.breadcrumb_home")}
+              </Link>
+            </li>
+            <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+            <li>
+              <Link href="/documents" className="cursor-pointer transition-colors hover:text-gray-700 dark:hover:text-gray-200">
+                {t("nav.document_history")}
+              </Link>
+            </li>
+            <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+            <li aria-current="page" className="font-medium text-gray-700 dark:text-gray-300">{t("document_create.title")}</li>
+          </ol>
+        </nav>
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+            <FilePlus2 aria-hidden="true" className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{t("document_create.title")}</h1>
+              <PageGuideModal pageKey="document_create" />
+            </div>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t("document_create.subtitle")}</p>
+          </div>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("document_create.title")}</h1>
-        <PageGuideModal pageKey="document_create" />
       </header>
 
-      {!selectedHouseId && <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{t("document_create.select_house")}</p>}
-      {errorMessage && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{errorMessage}</p>}
-      {successMessage && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{successMessage}</p>}
+      {!selectedHouseId && <p role="alert" className="shrink-0 rounded-xl bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{t("document_create.select_house")}</p>}
+      {errorMessage && <p role="alert" className="shrink-0 rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{errorMessage}</p>}
+      {successMessage && <p role="status" className="shrink-0 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{successMessage}</p>}
       {downloadError && (
-        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+        <div role="alert" className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
           <span>{downloadError}</span>
           {downloadTarget && (
             <button
@@ -381,9 +418,11 @@ export default function CreateDocumentPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
-        <form onSubmit={saveDraft} className="space-y-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:flex lg:min-h-0 lg:flex-1 lg:gap-5">
+        <form onSubmit={saveDraft} className="order-2 flex min-w-0 flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-5 lg:order-2 lg:w-[400px] lg:shrink-0 lg:overflow-y-auto xl:w-[420px]">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("document_create.options")}</h2>
+
+          <div className="flex flex-col gap-4">
             <label className="space-y-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
               {t("document_create.document_type")}
               <select
@@ -414,12 +453,15 @@ export default function CreateDocumentPage() {
                 {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
               </select>
             </label>
+            {noPublishedTemplate && (
+              <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{t("document_create.preview_no_template")}</p>
+            )}
           </div>
 
           <div className="space-y-1.5">
             <label htmlFor="document-employee-search" className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("document_create.employee")}</label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
               <input
                 id="document-employee-search"
                 type="search"
@@ -459,17 +501,17 @@ export default function CreateDocumentPage() {
             {employee && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sky-50 px-3 py-2 text-sm text-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
                 <span>{employee.employee_name} · {employee.dms_code || employee.employee_id}</span>
-                <button type="button" onClick={() => { setEmployee(null); setEmployeeQuery(""); }} className="min-h-9 cursor-pointer px-2 text-xs font-semibold">{t("document_create.clear_employee")}</button>
+                <button type="button" onClick={() => { setEmployee(null); setEmployeeQuery(""); }} className="min-h-11 cursor-pointer px-2 text-xs font-semibold">{t("document_create.clear_employee")}</button>
               </div>
             )}
           </div>
 
           {schemaLoading ? (
-            <div className="space-y-3 animate-pulse">
+            <div className="flex animate-pulse flex-col gap-3 motion-reduce:animate-none">
               {Array.from({ length: 5 }).map((_, index) => <div key={index} className="h-11 rounded-xl bg-gray-100 dark:bg-slate-800" />)}
             </div>
-          ) : fields.filter((field) => !field.readonly).length > 0 && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          ) : fields.filter((field) => !field.readonly).length > 0 ? (
+            <div className="flex flex-col gap-4">
               {fields.filter((field) => !field.readonly).map((field) => (
                 <label key={field.key} className="space-y-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
                   <span>{displayLabel(field)}{field.required && <span className="ml-1 text-red-500">*</span>}</span>
@@ -491,32 +533,40 @@ export default function CreateDocumentPage() {
                 </label>
               ))}
             </div>
-          )}
+          ) : null}
 
           <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4 dark:border-slate-800">
             <button type="submit" disabled={saving || generating || schemaLoading || !templateId || !selectedHouseId} className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800">
-              <RefreshCw className={`h-4 w-4 ${saving ? "animate-spin" : ""}`} />
+              <RefreshCw aria-hidden="true" className={`size-4 ${saving ? "animate-spin" : ""}`} />
               {saving ? t("document_create.saving") : t("document_create.save_draft")}
             </button>
             <button type="button" onClick={() => void generate()} disabled={saving || generating || schemaLoading || !templateId || !selectedHouseId} className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50">
-              <Download className="h-4 w-4" />
+              <Download aria-hidden="true" className="size-4" />
               {generating ? t("document_create.generating") : t("document_create.generate")}
             </button>
           </div>
         </form>
 
-        <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-          <div className="flex min-h-14 items-center justify-between gap-3 border-b border-gray-100 px-4 dark:border-slate-800">
+        <section className="order-1 flex h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:order-1 lg:h-full lg:min-h-0 lg:flex-1">
+          <div className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-gray-100 px-4 dark:border-slate-800">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">{t("document_create.preview")}</h2>
             <span className="text-xs text-gray-500 dark:text-gray-400">{previewLoading ? t("document_create.refreshing_preview") : t("document_create.auto_preview")}</span>
           </div>
           {previewError ? (
             <p role="alert" className="p-6 text-sm text-red-700 dark:text-red-300">{previewError}</p>
           ) : previewHtml ? (
-            <iframe title={t("document_create.preview")} srcDoc={previewHtml} sandbox="" className="h-[720px] w-full bg-white" />
+            <iframe title={t("document_create.preview")} srcDoc={previewHtml} sandbox="" className="min-h-0 w-full flex-1 bg-white" />
+          ) : loading || schemaLoading ? (
+            <div className="flex animate-pulse flex-col gap-4 p-8 motion-reduce:animate-none">
+              <div className="mx-auto h-5 w-2/3 rounded bg-gray-200 dark:bg-slate-700" />
+              <div className="h-3 w-full rounded bg-gray-100 dark:bg-slate-800" />
+              <div className="h-3 w-11/12 rounded bg-gray-100 dark:bg-slate-800" />
+              <div className="h-3 w-4/5 rounded bg-gray-100 dark:bg-slate-800" />
+              <div className="h-32 w-full rounded bg-gray-100 dark:bg-slate-800" />
+            </div>
           ) : (
-            <div className="flex h-[420px] items-center justify-center p-8 text-center text-sm text-gray-500 dark:text-gray-400">
-              {loading ? t("document_create.loading") : t("document_create.preview_empty")}
+            <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              {noPublishedTemplate ? t("document_create.preview_no_template") : t("document_create.preview_empty")}
             </div>
           )}
         </section>

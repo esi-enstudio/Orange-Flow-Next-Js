@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, RefreshCw, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronRight, FilePlus2, FileText, Home, RefreshCw, Search } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
+import CreateTemplateModal from "./_components/CreateTemplateModal";
+import TemplateDeleteButton from "./_components/TemplateDeleteButton";
 
 interface DocumentType {
   id: number;
@@ -54,9 +57,17 @@ function TemplateSkeleton() {
 
 export default function DocumentTemplatesPage() {
   const { t, language } = useLanguage();
-  const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const router = useRouter();
+  const { user, hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const selectedHouseId = selectedHouse?.id;
   const canView = hasPermission("documents.templates.view");
+  const canManage = hasPermission("documents.templates.manage");
+  const canCreateGlobal = Boolean(
+    user?.roles?.some((role) => {
+      const name = role.name.toLowerCase();
+      return name === "super_admin" || name === "super admin";
+    }),
+  );
   const [templates, setTemplates] = useState<Template[]>([]);
   const [types, setTypes] = useState<DocumentType[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -64,6 +75,16 @@ export default function DocumentTemplatesPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const closeCreate = useCallback(() => setCreateOpen(false), []);
+  const handleTemplateCreated = useCallback(
+    (templateId: number) => {
+      setCreateOpen(false);
+      router.push(`/documents/templates/${templateId}`);
+    },
+    [router],
+  );
 
   const loadTemplates = useCallback(async (pageNumber: number, keyword: string) => {
     setLoading(true);
@@ -85,6 +106,21 @@ export default function DocumentTemplatesPage() {
       setLoading(false);
     }
   }, [selectedHouseId]);
+
+  const handleTemplateDeleted = useCallback(
+    async (deletedId: number) => {
+      const remaining = templates.filter((item) => item.id !== deletedId);
+      const targetPage = remaining.length === 0 && pagination?.has_prev && page > 1
+        ? page - 1
+        : page;
+      if (targetPage !== page) {
+        setPage(targetPage);
+        return;
+      }
+      await loadTemplates(page, search);
+    },
+    [loadTemplates, page, pagination?.has_prev, search, templates],
+  );
 
   useEffect(() => {
     if (authLoading || !canView) return;
@@ -110,31 +146,59 @@ export default function DocumentTemplatesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex items-center justify-center rounded-xl bg-sky-50 p-2 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400">
-            <FileText className="h-5 w-5" />
+      <header className="border-b border-gray-200 pb-4 dark:border-slate-700">
+        <nav aria-label={t("documents.breadcrumb_label")} className="-mt-1 mb-3 text-[13px]">
+          <ol className="flex flex-wrap items-center gap-1.5 text-gray-500 dark:text-gray-400">
+            <li>
+              <Link href="/" className="inline-flex cursor-pointer items-center gap-1.5 transition-colors hover:text-gray-700 dark:hover:text-gray-200">
+                <Home aria-hidden="true" className="size-4" />
+                {t("documents.breadcrumb_home")}
+              </Link>
+            </li>
+            <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+            <li>{t("nav.documents")}</li>
+            <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+            <li aria-current="page" className="font-medium text-gray-700 dark:text-gray-300">{t("nav.document_templates")}</li>
+          </ol>
+        </nav>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+              <FileText aria-hidden="true" className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{t("documents.title")}</h1>
+                <PageGuideModal pageKey="documents" />
+              </div>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t("documents.subtitle")}</p>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {t("documents.title")}
-          </h1>
-          <PageGuideModal pageKey="documents" />
+          <div className="flex flex-wrap items-center gap-2">
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
+              >
+                <FilePlus2 aria-hidden="true" className="size-4" />
+                {t("documents.new_template")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void loadTemplates(page, search)}
+              disabled={loading}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
+            >
+              <RefreshCw aria-hidden="true" className={`size-4 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`} />
+              {t("documents.refresh")}
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadTemplates(page, search)}
-          disabled={loading}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          {t("documents.refresh")}
-        </button>
-      </div>
+      </header>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-6">
-        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-          {t("documents.description")}
-        </p>
         <label className="relative block max-w-md">
           <span className="sr-only">{t("documents.search")}</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -184,6 +248,7 @@ export default function DocumentTemplatesPage() {
                   <th className="px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("documents.scope")}</th>
                   <th className="px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("documents.version")}</th>
                   <th className="px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("documents.status")}</th>
+                  <th className="px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("documents.delete")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
@@ -200,6 +265,18 @@ export default function DocumentTemplatesPage() {
                     <td className="px-2 py-1 text-gray-700 dark:text-gray-300">{t(`documents.${template.scope}`)}</td>
                     <td className="px-2 py-1 text-gray-700 dark:text-gray-300">{template.latest_version ? `v${template.latest_version.version_number}` : "-"}</td>
                     <td className="px-2 py-1 text-gray-700 dark:text-gray-300">{statusLabel(template)}</td>
+                    <td className="px-2 py-1">
+                      <TemplateDeleteButton
+                        templateId={template.id}
+                        templateName={template.name}
+                        scope={template.scope}
+                        isDefault={template.is_default}
+                        canManage={canManage}
+                        isSuperAdmin={canCreateGlobal}
+                        headers={selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {}}
+                        onDeleted={handleTemplateDeleted}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -232,6 +309,19 @@ export default function DocumentTemplatesPage() {
                     <dd className="mt-0.5 font-medium text-gray-800 dark:text-gray-200">{statusLabel(template)}</dd>
                   </div>
                 </dl>
+                <div className="flex pt-3">
+                  <TemplateDeleteButton
+                    templateId={template.id}
+                    templateName={template.name}
+                    scope={template.scope}
+                    isDefault={template.is_default}
+                    canManage={canManage}
+                    isSuperAdmin={canCreateGlobal}
+                    headers={selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {}}
+                    onDeleted={handleTemplateDeleted}
+                    variant="full"
+                  />
+                </div>
               </article>
             ))}
           </div>
@@ -263,6 +353,15 @@ export default function DocumentTemplatesPage() {
           )}
         </>
       )}
+
+      <CreateTemplateModal
+        open={createOpen}
+        onClose={closeCreate}
+        types={types}
+        selectedHouseId={selectedHouseId}
+        canCreateGlobal={canCreateGlobal}
+        onCreated={handleTemplateCreated}
+      />
     </div>
   );
 }
