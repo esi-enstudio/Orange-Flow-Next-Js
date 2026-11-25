@@ -249,6 +249,14 @@ def letterhead_html(letterhead) -> str:
     return "".join(parts)
 
 
+def house_letterhead_html(path: Optional[str]) -> str:
+    """Full-page house letterhead image embedded as a safe data URI."""
+    image = _image_data_uri_from_path(path)
+    if not image:
+        return ""
+    return f'<div class="house-letterhead"><img src="{image}" alt=""></div>'
+
+
 def footer_html(letterhead) -> str:
     if letterhead is None or not getattr(letterhead, "footer_text", None):
         return ""
@@ -287,6 +295,8 @@ def _page_css(page: dict, *, embed_fonts: bool = True) -> str:
         + ".letterhead .org{font-size:15pt;font-weight:700;line-height:1.3}"
         + ".letterhead .subtitle{font-size:10pt;color:#333}"
         + ".letterhead .contact{font-size:9pt;color:#444;margin-top:1mm}"
+        + ".house-letterhead{margin:0 0 4mm 0;break-inside:avoid;page-break-inside:avoid}"
+        + ".house-letterhead img{width:100%;height:auto;display:block}"
         + ".sig{margin-top:10mm}"
         + ".sig .sig-img{max-height:18mm;max-width:50mm;display:block;margin-bottom:1mm}"
         + ".sig .sig-line{line-height:1.45}"
@@ -306,6 +316,7 @@ def render_html(
     signatory=None,
     title: Optional[str] = None,
     embed_fonts: bool = True,
+    house_letterhead_path: Optional[str] = None,
 ) -> str:
     """Full printable HTML for one document.
 
@@ -318,9 +329,13 @@ def render_html(
         raise document_ast.AstError(
             "Unknown template variables: " + ", ".join(sorted(unknown))
         )
-    body = [letterhead_html(letterhead)]
+    house_image = house_letterhead_html(house_letterhead_path)
+    # A house image is the single source of truth for branded output. The
+    # legacy text header/footer is only a fallback when no image was uploaded.
+    body = [house_image or letterhead_html(letterhead)]
     body.extend(_block_html(block, context, signatory) for block in ast["blocks"])
-    body.append(footer_html(letterhead))
+    if not house_image:
+        body.append(footer_html(letterhead))
     document_title = html.escape(_text(title or "Document"))
     lang = "bn" if any("\u0980" <= char <= "\u09ff" for char in "".join(context.values())) else "en"
 

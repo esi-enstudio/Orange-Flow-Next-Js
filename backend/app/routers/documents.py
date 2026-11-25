@@ -59,6 +59,7 @@ from app.services import document_assets
 from app.services import document_ast, document_render
 from app.services import document_numbering, document_pdf
 from app.services import document_service as svc
+from app.services import house_letterhead
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_super_admin_user
 from app.utils.timezone import now_naive
@@ -161,6 +162,49 @@ async def _audit_document(
         status_code=200,
         commit=False,
     )
+
+
+def _require_explicit_house(house_context: Optional[int]) -> int:
+    """This page has no global scope, so an absent X-House-ID is an error."""
+    if house_context is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "HOUSE_CONTEXT_REQUIRED",
+                "message": "Please select a house first",
+            },
+        )
+    return house_context
+
+
+async def _resolve_letterhead_for_house(
+    db: AsyncSession,
+    house_id: int,
+    letterhead_id: Optional[int],
+    *,
+    house: Optional[House] = None,
+):
+    """Legacy letterhead is only a fallback when the house has no image.
+
+    Once a house image exists it is the single source of truth for rendering,
+    so stale/ambiguous letterhead records must not block document generation.
+    """
+    if house is None:
+        house = await db.get(House, house_id)
+    if house is not None and house_letterhead.image_fs_path(house):
+        return None
+    return await svc.resolve_letterhead(db, house_id, letterhead_id=letterhead_id)
+
+
+def _house_render_path(house: House) -> Optional[str]:
+    """Relative path a document renderer can resolve inside `private_uploads`."""
+    relative = getattr(house, "letterhead_image_path", None)
+    if not relative:
+        return None
+    relative = relative.replace("\\", "/").lstrip("/")
+    if relative.startswith("letterheads/"):
+        return relative
+    return f"letterheads/{relative}"
 
 
 def _serialize_document(document: GeneratedDocument) -> dict:
@@ -562,8 +606,8 @@ async def _render_document_version(
             prefix=document_type.number_prefix,
         )
 
-    letterhead = await svc.resolve_letterhead(
-        db, document.house_id, letterhead_id=document.letterhead_id
+    letterhead = await _resolve_letterhead_for_house(
+        db, document.house_id, document.letterhead_id, house=house
     )
     signatory = await svc.resolve_signatory(
         db, house_id=document.house_id, signatory_id=document.signatory_id
@@ -591,6 +635,7 @@ async def _render_document_version(
         letterhead=letterhead,
         signatory=signatory,
         title=document.document_title,
+        house_letterhead_path=_house_render_path(house),
     )
     stored_path = None
     document_id = document.id
@@ -753,6 +798,137 @@ async def list_variables(
         for key, spec in sorted(document_ast.VARIABLES.items())
     ]
     return {"success": True, "data": data}
+
+
+# --------------------------------------------------------------------------- #
+# House letterhead image (the only letterhead asset used by templates)
+# --------------------------------------------------------------------------- #
+
+async def _document_letterhead_house(
+    db: AsyncSession, house_context: Optional[int]
+) -> House:
+    house_id = _require_explicit_house(house_context)
+    house = await db.get(House, house_id)
+    if house is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "HOUSE_NOT_FOUND", "message": "House not found"},
+        )
+    return house
+
+
+def _house_image_state(house: House) -> dict:
+    return {
+        "house_id": house.id,
+        "has_image": house_letterhead.image_fs_path(house) is not None,
+    }
+
+
+async def _audit_house_image(
+    db: AsyncSession,
+    request: Request,
+    user: User,
+    house: House,
+    action: str,
+    *,
+    old_values: Optional[dict] = None,
+    new_values: Optional[dict] = None,
+) -> None:
+    await log_activity(
+        db,
+        user_id=user.id,
+        user_name=getattr(user, "name", None),
+        module="documents",
+        action=action,
+        record_id=house.id,
+        record_identifier=f"house-letterhead: {house.code}",
+        old_values=old_values,
+        new_values=new_values,
+        request=request,
+        status_code=200,
+        commit=False,
+    )
+
+
+@router.get("/letterheads/house-image")
+async def get_document_house_letterhead_image(
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission("documents.letterheads.manage")),
+):
+    house = await _document_letterhead_house(db, house_context)
+    return {"success": True, "data": _house_image_state(house)}
+
+
+@router.get("/letterheads/house-image/file")
+async def stream_document_house_letterhead_image(
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission("documents.letterheads.manage")),
+):
+    house = await _document_letterhead_house(db, house_context)
+    path = house_letterhead.image_fs_path(house)
+    if not path:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "IMAGE_NOT_FOUND", "message": "This house has no letterhead image"},
+        )
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.post("/letterheads/house-image")
+async def upload_document_house_letterhead_image(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission("documents.letterheads.manage")),
+):
+    house = await _document_letterhead_house(db, house_context)
+    previous = house.letterhead_image_path
+    try:
+        await house_letterhead.store_image(house, file)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "INVALID_IMAGE", "message": str(exc)},
+        ) from exc
+    await _audit_house_image(
+        db, request, current_user, house, "edit",
+        old_values={"letterhead_image": previous},
+        new_values={"letterhead_image": house.letterhead_image_path},
+    )
+    await db.commit()
+    await db.refresh(house)
+    return {"success": True, "data": _house_image_state(house)}
+
+
+@router.delete("/letterheads/house-image")
+async def delete_document_house_letterhead_image(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission("documents.letterheads.manage")),
+):
+    house = await _document_letterhead_house(db, house_context)
+    previous = house.letterhead_image_path
+    if not previous:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "IMAGE_NOT_FOUND", "message": "This house has no letterhead image"},
+        )
+    house_letterhead.delete_image(house)
+    await _audit_house_image(
+        db, request, current_user, house, "delete",
+        old_values={"letterhead_image": previous},
+    )
+    await db.commit()
+    await db.refresh(house)
+    return {"success": True, "data": _house_image_state(house)}
 
 
 # --------------------------------------------------------------------------- #
@@ -1392,8 +1568,8 @@ async def render_preview(
     scope_house_id = house_context or 0
     house = await db.get(House, house_context) if house_context is not None else None
     employee = await _employee_for_house(db, payload.employee_id, scope_house_id)
-    letterhead = await svc.resolve_letterhead(
-        db, scope_house_id, letterhead_id=payload.letterhead_id
+    letterhead = await _resolve_letterhead_for_house(
+        db, scope_house_id, payload.letterhead_id, house=house
     )
     signatory = await svc.resolve_signatory(
         db, house_id=scope_house_id, signatory_id=payload.signatory_id
@@ -1423,6 +1599,7 @@ async def render_preview(
         signatory=signatory,
         title=template.name,
         embed_fonts=False,
+        house_letterhead_path=_house_render_path(house),
     )
     return {
         "success": True,
@@ -1527,8 +1704,8 @@ async def create_generated_document_draft(
         db, payload.template_id, house_context
     )
     employee = await _employee_for_house(db, payload.employee_id, house_context)
-    letterhead = await svc.resolve_letterhead(
-        db, house_context, letterhead_id=payload.letterhead_id
+    letterhead = await _resolve_letterhead_for_house(
+        db, house_context, payload.letterhead_id
     )
     signatory = await svc.resolve_signatory(
         db, house_id=house_context, signatory_id=payload.signatory_id
@@ -1610,8 +1787,8 @@ async def update_generated_document_draft(
     employee = await _employee_for_house(db, employee_id, house_context)
     letterhead_id = values.pop("letterhead_id", document.letterhead_id)
     signatory_id = values.pop("signatory_id", document.signatory_id)
-    letterhead = await svc.resolve_letterhead(
-        db, house_context, letterhead_id=letterhead_id
+    letterhead = await _resolve_letterhead_for_house(
+        db, house_context, letterhead_id
     )
     signatory = await svc.resolve_signatory(
         db, house_id=house_context, signatory_id=signatory_id

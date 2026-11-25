@@ -1,7 +1,7 @@
 "use client";
 
-import DocumentAssetsManager from "../_components/DocumentAssetsManager";
+import HouseLetterheadImageManager from "./_components/HouseLetterheadImageManager";
 
 export default function DocumentLetterheadsPage() {
-  return <DocumentAssetsManager kind="letterheads" />;
+  return <HouseLetterheadImageManager />;
 }
