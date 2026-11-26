@@ -3,7 +3,7 @@ import json
 import logging
 from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import func, inspect, or_, select, text
+from sqlalchemy import func, or_, select, text
 from config.settings import DATABASE_URL
 from app.models.base import Base
 from app.utils.timezone import now_naive
@@ -550,23 +550,25 @@ async def _migrate_live_c2c_entity_ids():
         _startup_fatal("live_c2c entity ID migration failed", error)
 
 
-def _table_column_names(connection, table_name: str) -> set[str]:
-    return {column["name"] for column in inspect(connection).get_columns(table_name)}
+# Serializes concurrent boots of the additive-column steps. Distinct from the
+# billing lock so the two independent migration groups never block each other.
+_BOOT_COLUMN_LOCK_KEY = 7_312_604_119
 
 
-def _apply_live_c2c_destination_migration(connection):
+def _apply_alembic_revision(migration_filename: str, module_name: str, connection):
+    """Run one existing Alembic revision against a boot connection.
+
+    Alembic is not in the container boot path. Calling the revision directly
+    keeps one definition of each schema change; the `has_column` guards in
+    those revisions also make a later `alembic upgrade head` a no-op.
+    """
     from alembic.operations import Operations
     from alembic.runtime.migration import MigrationContext
 
     migration_path = (
-        Path(__file__).resolve().parents[2]
-        / "alembic"
-        / "versions"
-        / "e1f2a3b4c5d6_snapshot_live_c2c_delivery_destination.py"
+        Path(__file__).resolve().parents[2] / "alembic" / "versions" / migration_filename
     )
-    spec = importlib.util.spec_from_file_location(
-        "live_c2c_destination_migration", migration_path
-    )
+    spec = importlib.util.spec_from_file_location(module_name, migration_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load migration at {migration_path}")
 
@@ -577,29 +579,65 @@ def _apply_live_c2c_destination_migration(connection):
         migration.upgrade()
 
 
-async def _migrate_live_c2c_inbound_files_destination(db_engine=None):
-    """Add the queued-file destination snapshot on databases created before it.
+async def _ensure_boot_column(
+    *, db_engine, table: str, column: str, migration_filename: str, module_name: str
+):
+    """Add an ORM-selected column on databases created before its revision.
 
-    Alembic is not part of the boot path, so an existing deployment keeps the
-    old table while the ORM already selects the new column. Applying the
-    existing Alembic revision here keeps one migration definition and makes
-    boot idempotent.
+    The revision always runs; its own guards skip DDL that is already present
+    but still perform repairs such as backfills and missing indexes/FKs. The
+    advisory lock serializes concurrent boots, and the whole change shares one
+    transaction. Failure is boot-blocking: serving traffic with a missing
+    column makes every affected query fail.
     """
     active_engine = db_engine or engine
     try:
         async with active_engine.begin() as connection:
-            columns = await connection.run_sync(
-                _table_column_names, "live_c2c_inbound_files"
+            if connection.sync_connection.dialect.name == "postgresql":
+                await connection.execute(
+                    text("SELECT pg_advisory_xact_lock(:key)"),
+                    {"key": _BOOT_COLUMN_LOCK_KEY},
+                )
+            logger.info("Checking %s.%s on boot...", table, column)
+            await connection.run_sync(
+                lambda sync_conn: _apply_alembic_revision(
+                    migration_filename, module_name, sync_conn
+                )
             )
-            if "destination_group_jid" in columns:
-                return
-            logger.info("Migrating live_c2c_inbound_files: adding destination_group_jid...")
-            await connection.run_sync(_apply_live_c2c_destination_migration)
-            logger.info("Migration complete: live_c2c inbound destination snapshot")
+            logger.info("Migration complete: %s.%s", table, column)
     except Exception as error:
-        # Serving traffic with a missing column would fail every scheduler
-        # iteration, so this one is boot-blocking like the entity-ID rollout.
-        _startup_fatal("live_c2c inbound destination migration failed", error)
+        _startup_fatal(f"boot column {table}.{column} migration failed", error)
+
+
+async def _migrate_live_c2c_inbound_files_destination(db_engine=None):
+    await _ensure_boot_column(
+        db_engine=db_engine,
+        table="live_c2c_inbound_files",
+        column="destination_group_jid",
+        migration_filename="e1f2a3b4c5d6_snapshot_live_c2c_delivery_destination.py",
+        module_name="live_c2c_destination_migration",
+    )
+
+
+async def _migrate_live_c2c_oauth_return_path(db_engine=None):
+    await _ensure_boot_column(
+        db_engine=db_engine,
+        table="live_c2c_automation_configs",
+        column="oauth_return_path",
+        migration_filename="e2f3a4b5c6d7_add_live_c2c_oauth_return_path.py",
+        module_name="live_c2c_oauth_return_path_migration",
+    )
+
+
+async def _migrate_users_selected_house_id(db_engine=None):
+    """The active-house switcher selects this column on every user query."""
+    await _ensure_boot_column(
+        db_engine=db_engine,
+        table="users",
+        column="selected_house_id",
+        migration_filename="b6c7d8e9f0a1_add_selected_house_id_to_users.py",
+        module_name="users_selected_house_id_migration",
+    )
 
 
 async def _migrate_employee_sr_no():
@@ -3097,6 +3135,7 @@ async def init_db():
         await _migrate_supervisor_member_rename()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        await _migrate_users_selected_house_id()
         await _migrate_seed_rule_contexts()
         await _migrate_rule_apply_to()
         await _migrate_rule_column_key()
@@ -3137,6 +3176,7 @@ async def init_db():
         await _migrate_live_c2c_entity_ids()
         await _migrate_live_c2c_drop_soft_delete()
         await _migrate_live_c2c_inbound_files_destination()
+        await _migrate_live_c2c_oauth_return_path()
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_deposit_slip()
         await _migrate_lifting_pull_fields()

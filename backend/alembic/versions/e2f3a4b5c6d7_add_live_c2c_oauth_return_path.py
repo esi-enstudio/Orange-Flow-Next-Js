@@ -6,7 +6,7 @@ Create Date: 2026-11-20 12:00:00.000000
 """
 from typing import Sequence, Union
 
-from alembic import context, op
+from alembic import op
 import sqlalchemy as sa
 
 
@@ -16,8 +16,16 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_column(table_name: str, column_name: str) -> bool:
+    """`Inspector.has_column` does not exist in SQLAlchemy 2.x."""
+    return column_name in {
+        column["name"]
+        for column in sa.inspect(op.get_bind()).get_columns(table_name)
+    }
+
+
 def upgrade() -> None:
-    if context.is_offline_mode() or not sa.inspect(op.get_bind()).has_column(
+    if op.get_context().as_sql or not _has_column(
         "live_c2c_automation_configs", "oauth_return_path"
     ):
         op.add_column(

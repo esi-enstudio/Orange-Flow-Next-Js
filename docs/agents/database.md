@@ -22,9 +22,23 @@ Alembic is **not** in the container boot path; `init_db()` runs `create_all`
 (which does not alter existing tables) plus the registered `_migrate_*` steps.
 Therefore every additive column/index change must also have an idempotent
 `_migrate_*` step registered in `init_db()`. Reuse the existing Alembic revision
-from that step (see `_migrate_live_c2c_inbound_files_destination()`) so there is
-one definition of the change. Without the boot step, deployed databases keep the
-old schema while the ORM selects the new column and every affected query fails.
+from that step (see `_ensure_boot_column()`) so there is one definition
+of the change. Without the boot step, deployed databases keep the old schema
+while the ORM selects the new column and every affected query fails.
+The boot step must:
+
+- always invoke the revision — never short-circuit on "column exists", because
+  the revision may also need to backfill rows or create a missing index/FK,
+- run all DDL in one transaction, guarded by a PostgreSQL advisory lock so
+  concurrent boots cannot race, and
+- fail startup via `_startup_fatal()` rather than serve an incompatible schema.
+
+The reused revision itself must guard each object independently so replay is
+safe on a partially migrated database. Use `op.get_context().as_sql` plus
+`sa.inspect(op.get_bind()).get_columns()/get_indexes()/get_foreign_keys()`;
+`Inspector.has_column` does not exist in SQLAlchemy 2.x. The boot path does not
+stamp `alembic_version`, so a later `alembic upgrade head` may replay the same
+revision.
 
 ---
 

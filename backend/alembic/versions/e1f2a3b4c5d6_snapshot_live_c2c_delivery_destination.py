@@ -14,11 +14,22 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(table_name: str, column_name: str) -> bool:
+    """`Inspector.has_column` does not exist in SQLAlchemy 2.x."""
+    return column_name in {
+        column["name"]
+        for column in sa.inspect(op.get_bind()).get_columns(table_name)
+    }
+
+
 def upgrade():
-    op.add_column(
-        "live_c2c_inbound_files",
-        sa.Column("destination_group_jid", sa.String(length=128), nullable=True),
-    )
+    if op.get_context().as_sql or not _has_column(
+        "live_c2c_inbound_files", "destination_group_jid"
+    ):
+        op.add_column(
+            "live_c2c_inbound_files",
+            sa.Column("destination_group_jid", sa.String(length=128), nullable=True),
+        )
     op.execute(
         """
         UPDATE live_c2c_inbound_files
