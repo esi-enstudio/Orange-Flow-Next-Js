@@ -1,13 +1,14 @@
 """Active-house selection is self-service, tenant-scoped, persisted and audited."""
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from starlette.requests import Request
 
 from app.models.activity_log import ActivityLog
 from app.models.role import Role
 from app.models.user import User
-from app.routers.auth import SelectedHouseUpdate, get_me, set_selected_house
+from app.routers.auth import SelectedHouseUpdate, get_me, router as auth_router, set_selected_house
 from conftest import make_house
 
 
@@ -39,6 +40,16 @@ async def make_user(db, username, houses, role_name="Manager", selected_house_id
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@pytest.mark.asyncio
+async def test_route_is_wired_and_requires_auth():
+    app = FastAPI()
+    app.include_router(auth_router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.put("/api/auth/selected-house", json={"house_id": 1})
+
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -138,6 +149,56 @@ async def test_null_resets_to_first_house_for_super_admin(db):
 
     assert result == {"selected_house_id": first.id}
     assert admin.selected_house_id == first.id
+
+
+@pytest.mark.asyncio
+async def test_super_admin_with_pivot_rows_gets_all_houses_from_me(db):
+    pivot = await make_house(db, code="H001", name="Pivot House")
+    extra = await make_house(db, code="H002", name="Extra House")
+    admin = await make_user(
+        db, "root", [pivot], role_name="Super Admin", selected_house_id=pivot.id
+    )
+
+    result = await set_selected_house(
+        SelectedHouseUpdate(house_id=extra.id), make_request(), db, admin
+    )
+
+    assert result == {"selected_house_id": extra.id}
+    me = await get_me(db=db, current_user=admin)
+    # /houses/accessible offers every house to a super admin, so /auth/me must
+    # list the same set or the UI silently rejects the newly selected house.
+    assert extra.id in {house.id for house in me.houses}
+    assert me.selected_house_id == extra.id
+
+
+@pytest.mark.asyncio
+async def test_null_reset_for_super_admin_without_pivot_rows(db):
+    first = await make_house(db, code="H001", name="First House")
+    await make_house(db, code="H002", name="Second House")
+    admin = await make_user(db, "root", [], role_name="Super Admin")
+
+    result = await set_selected_house(
+        SelectedHouseUpdate(house_id=None), make_request(), db, admin
+    )
+
+    assert result == {"selected_house_id": first.id}
+    assert admin.selected_house_id == first.id
+
+
+@pytest.mark.asyncio
+async def test_null_reset_prefers_active_house(db):
+    inactive = await make_house(db, code="H001", name="Old Inactive", is_active=False)
+    active = await make_house(db, code="H002", name="Active House")
+    tenant = await make_user(
+        db, "manager", [inactive, active], selected_house_id=inactive.id
+    )
+
+    result = await set_selected_house(
+        SelectedHouseUpdate(house_id=None), make_request(), db, tenant
+    )
+
+    assert result == {"selected_house_id": active.id}
+    assert tenant.selected_house_id == active.id
 
 
 @pytest.mark.asyncio

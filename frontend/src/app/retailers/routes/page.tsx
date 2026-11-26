@@ -423,7 +423,13 @@ export default function RoutesPage() {
       if (result?.house_ids?.length) {
         const importedHouseId = result.house_ids[0];
         setScopeHouseId(importedHouseId);
-        await setSelectedHouse(importedHouseId);
+        try {
+          await setSelectedHouse(importedHouseId);
+        } catch {
+          // The import already succeeded; only the workspace switch failed.
+          toast.error(t("routes.import_house_switch_failed"));
+        }
+        // Always show the imported house's rows, even if the preference write failed.
         fetchRoutes({ id: importedHouseId });
       } else {
         fetchRoutes();

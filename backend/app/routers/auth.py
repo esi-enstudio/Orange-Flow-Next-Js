@@ -31,12 +31,12 @@ class SelectedHouseUpdate(BaseModel):
     house_id: Optional[int] = None
 from app.schemas.user import UserSchema, UserCreate
 from app.schemas.role import RoleSchema
-from app.schemas.house import HouseSchema
 from app.models.user import User
 from app.models.role import Role
 from app.models.house import House
 from app.services.user_employee import ensure_supervisor_employee, conflict_detail
 from app.utils.access_control import is_super_admin_user
+from app.routers.houses import _sees_all_houses
 from app.utils.activity_logger import log_activity
 from app.utils.validation import validate_image, MAX_FILE_SIZE
 import logging
@@ -143,22 +143,26 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     access_token = create_access_token(data={"sub": str(user.id)})
     return {"access_token": access_token, "token_type": "bearer"}
 
+async def _visible_houses(db: AsyncSession, user: User) -> list[House]:
+    """Houses this user may work in, ordered active-first then oldest."""
+    if _sees_all_houses(user):
+        result = await db.execute(
+            select(House).order_by(House.is_active.desc(), House.id)
+        )
+        return list(result.scalars().all())
+    return list(user.houses)
+
+
 @router.get("/me", response_model=UserSchema)
 async def get_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Only the platform super admin bypasses the users_houses pivot (mirrors
-    # GET /houses/accessible). A tenant admin with no assigned house gets none:
-    # house access is deny-by-default.
-    if is_super_admin_user(current_user) and not current_user.houses:
-        # The first house becomes the UI's workspace default (``selectedHouse``),
-        # so it must never be an inactive or arbitrary house: active houses come
-        # first, then the oldest house of the company.
-        result = await db.execute(
-            select(House).order_by(House.is_active.desc(), House.id)
-        )
-        current_user.houses = list(result.scalars().all())
+    if _sees_all_houses(current_user):
+        # Query first, then reassign: an autoflush after the assignment would
+        # persist these pivot rows from a read-only endpoint. get_db closes the
+        # session without committing, so the change is discarded at teardown.
+        current_user.houses = list(await _visible_houses(db, current_user))
     return current_user
 
 @router.put("/profile", response_model=UserSchema)
@@ -193,7 +197,8 @@ async def set_selected_house(
         # is deterministic for every role. Explicit ids still go through the
         # guard, which stays the single judge of tenant membership.
         houses = sorted(
-            current_user.houses, key=lambda h: (not h.is_active, h.id)
+            await _visible_houses(db, current_user),
+            key=lambda h: (not h.is_active, h.id),
         )
         if not houses:
             raise HTTPException(status_code=400, detail="Please select a house first")

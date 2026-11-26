@@ -251,4 +251,12 @@ Verify by inspection: all switcher strings via `t()` with both locales present; 
 - [ ] **Step 4: Diff hygiene**
 
 Run: `git diff --check <base-sha>..HEAD`
-Expected: clean.
+Expected: clean (CRLF-only lines on `DashboardLayout.tsx` are a pre-existing repo pattern; verify no added line has real trailing spaces).
+
+## Post-review corrections (final implementation)
+
+A fresh whole-branch review found two issues; the plan above was corrected as follows so the checked-in code and the plan agree:
+
+1. `/auth/me` must expose exactly the same house set as `GET /houses/accessible`. Previously a super admin **with** pivot rows saw only those pivot houses from `/auth/me` while the switcher offered every house, so selecting a non-pivot house succeeded on the server but was silently rejected by the UI. `auth.py` now imports the single `_sees_all_houses` helper from `houses.py` (also used by `reports.py`) and reassigns `current_user.houses` from that shared rule. The query runs before the assignment so autoflush cannot persist pivot rows from a GET, and `get_db` closes without committing. `null` resolution uses the same helper, which also fixes reset for a zero-pivot super admin. Added tests: super admin with pivot rows, zero-pivot reset, and null-with-inactive preference.
+2. A failed `setSelectedHouse` during retailer import no longer falls into the import `catch`. It has its own `try/catch` with `routes.import_house_switch_failed` (en+bn) and `fetchRoutes({ id: importedHouseId })` always runs, so a successful import cannot be misreported as failed.
+3. The switcher reads `user.houses` from `/auth/me` instead of fetching `houses/accessible`; both shell placements now share one authoritative list with no duplicate request. Options are sorted by name and labelled `name (code)`; the trigger uses the same label so identically named houses remain distinguishable. The auth-context fallback sorts active houses first then by id, matching the backend's `null` default.

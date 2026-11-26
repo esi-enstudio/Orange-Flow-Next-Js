@@ -21,6 +21,7 @@ interface House {
   id: number;
   name: string;
   code: string;
+  is_active?: boolean;
 }
 
 interface User {
@@ -176,11 +177,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   // A stored house that is no longer assigned to the user must not become the
-  // active workspace; fall back to the first house returned by /auth/me.
+  // active workspace. Fall back the same way the backend does for `null`:
+  // active houses first, then the oldest, so a blocked house is never chosen.
+  const houses = user?.houses ?? [];
+  const fallbackHouseId = [...houses].sort(
+    (a, b) => Number(b.is_active ?? true) - Number(a.is_active ?? true) || a.id - b.id
+  )[0]?.id ?? null;
   const activeHouseId =
-    user?.selected_house_id && user.houses?.some((house) => house.id === user.selected_house_id)
+    user?.selected_house_id && houses.some((house) => house.id === user.selected_house_id)
       ? user.selected_house_id
-      : (user?.houses?.[0]?.id ?? null);
+      : fallbackHouseId;
 
   return (
     <AuthContext.Provider value={{ 
