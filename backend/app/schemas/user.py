@@ -16,6 +16,7 @@ class UserSchema(BaseModel):
     roles: List[RoleSchema] = []
     houses: List[HouseSchema] = []
     parent_id: Optional[int] = None
+    selected_house_id: Optional[int] = None
     class Config: from_attributes = True
 
 class UserCreate(BaseModel):

@@ -35,3 +35,26 @@ async def test_me_orders_houses_active_first_then_oldest(db):
     me = await get_me(db=db, current_user=user)
 
     assert [house.id for house in me.houses] == [oldest.id, newer.id, inactive.id]
+
+
+@pytest.mark.asyncio
+async def test_me_returns_selected_house_id_when_set(db):
+    house = await make_house(db, code="H010", name="Assigned House")
+    role = Role(name="Manager")
+    db.add(role)
+    await db.flush()
+    user = User(
+        username="manager",
+        name="Manager",
+        hashed_password="x",
+        roles=[role],
+        houses=[house],
+        selected_house_id=house.id,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    me = await get_me(db=db, current_user=user)
+
+    assert me.selected_house_id == house.id

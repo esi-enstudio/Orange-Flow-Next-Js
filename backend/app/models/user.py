@@ -36,6 +36,11 @@ class User(Base):
     # Reporting line (Self-referencing Foreign Key) ✅
     parent_id = Column(Integer, ForeignKey('users.id'), nullable=True)
 
+    # Workspace house chosen by this user; NULL means "use first assigned house".
+    selected_house_id = Column(
+        Integer, ForeignKey('houses.id', ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Many-to-many relationship (with Role table)
     roles = relationship("Role", secondary=user_roles, back_populates="users", lazy="selectin")
 
