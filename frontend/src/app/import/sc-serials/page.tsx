@@ -1,11 +1,15 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Download, X, Loader2, Database, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Upload, AlertTriangle, CheckCircle2, Copy } from "lucide-react";
+import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
+import { Search, Download, X, Loader2, Database, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Upload, AlertTriangle, CheckCircle2, Copy, Home, SlidersHorizontal } from "lucide-react";
 import { toast } from "react-hot-toast";
 import apiClient from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DateRangePicker } from "@/components/date-picker";
+import SearchableSelect from "@/components/filters/SearchableSelect";
 import { useLanguage } from "@/i18n/useLanguage";
 import PageGuideModal from "@/components/PageGuideModal";
 
@@ -40,6 +44,15 @@ interface Product {
 
 const SEARCH_DEBOUNCE_MS = 500;
 
+interface SerialFilters {
+  serialFrom: string;
+  serialTo: string;
+  mrp: string;
+  status: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
 export default function SCSerialsPage() {
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const { t } = useLanguage();
@@ -55,14 +68,25 @@ export default function SCSerialsPage() {
   const perPage = 5;
 
   // filters
+  const todayDateRange = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const today = `${y}-${m}-${d}`;
+    return { dateFrom: today, dateTo: today };
+  };
+
+  const defaultFilters = (): SerialFilters => {
+    const { dateFrom, dateTo } = todayDateRange();
+    return { serialFrom: "", serialTo: "", mrp: "", status: "", dateFrom, dateTo };
+  };
+
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [serialFrom, setSerialFrom] = useState("");
-  const [debouncedSerialFrom, setDebouncedSerialFrom] = useState("");
-  const [serialTo, setSerialTo] = useState("");
-  const [debouncedSerialTo, setDebouncedSerialTo] = useState("");
-  const [filterMrp, setFilterMrp] = useState<string>("");
-  const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filters, setFilters] = useState<SerialFilters>(defaultFilters);
+  const [draftFilters, setDraftFilters] = useState<SerialFilters>(defaultFilters);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const fetchDataRequest = useRef(0);
 
   useEffect(() => {
@@ -73,13 +97,49 @@ export default function SCSerialsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [search]);
 
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDebouncedSerialFrom(serialFrom.trim());
-      setDebouncedSerialTo(serialTo.trim());
-    }, SEARCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [serialFrom, serialTo]);
+  const hasDrawerFilters = (value: SerialFilters) => {
+    const { dateFrom, dateTo } = todayDateRange();
+    return Boolean(
+      value.serialFrom.trim() ||
+      value.serialTo.trim() ||
+      value.mrp ||
+      value.status ||
+      value.dateFrom !== dateFrom ||
+      value.dateTo !== dateTo,
+    );
+  };
+
+  const activeFilterCount = () => {
+    const { dateFrom, dateTo } = todayDateRange();
+    return [
+      Boolean(filters.serialFrom.trim() || filters.serialTo.trim()),
+      Boolean(filters.mrp),
+      Boolean(filters.status),
+      Boolean(filters.dateFrom !== dateFrom || filters.dateTo !== dateTo),
+    ].filter(Boolean).length;
+  };
+
+  const openFilters = () => {
+    setDraftFilters(filters);
+    setFiltersOpen(true);
+  };
+
+  const applyFilters = () => {
+    const next: SerialFilters = {
+      ...draftFilters,
+      serialFrom: draftFilters.serialFrom.trim(),
+      serialTo: draftFilters.serialTo.trim(),
+    };
+    setFilters(next);
+    setDraftFilters(next);
+    setPage(1);
+    if (hasDrawerFilters(next)) {
+      // The backend ignores mrp/status/date while a serial search is active.
+      setSearch("");
+      setDebouncedSearch("");
+    }
+    setFiltersOpen(false);
+  };
 
   // stock summary
   const [stockSummary, setStockSummary] = useState<StockSummary[]>([]);
@@ -105,10 +165,6 @@ export default function SCSerialsPage() {
 
   // products for dropdown
   const [products, setProducts] = useState<Product[]>([]);
-  const availableMrps = Array.from(
-    new Set(products.map(product => product.mrp).filter(mrp => Number.isFinite(mrp))),
-  ).sort((a, b) => a - b);
-
   // delete confirm
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -158,34 +214,30 @@ export default function SCSerialsPage() {
   if (selectedHouse?.id) {
     houseHeaders["X-House-ID"] = String(selectedHouse.id);
   }
-
-  const todayDateRange = () => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const today = `${y}-${m}-${d}`;
-    return { dateFrom: today, dateTo: today };
-  };
+  const selectedHouseId = selectedHouse?.id;
 
   const fetchData = useCallback(async () => {
     const requestId = ++fetchDataRequest.current;
     setLoading(true);
     try {
       const params: Record<string, string | number> = { page, per_page: perPage, sort_order: "desc" };
-      const searchTerm = debouncedSearch;
-      if (!searchTerm && !debouncedSerialFrom && !debouncedSerialTo) {
-        const { dateFrom, dateTo } = todayDateRange();
-        params.date_from = dateFrom;
-        params.date_to = dateTo;
+      const searchTerm = debouncedSearch.trim();
+      const serialFrom = filters.serialFrom.trim();
+      const serialTo = filters.serialTo.trim();
+      if (!searchTerm && !serialFrom && !serialTo) {
+        if (filters.dateFrom) params.date_from = filters.dateFrom;
+        if (filters.dateTo) params.date_to = filters.dateTo;
       }
-      if (searchTerm) params.search = searchTerm;
-      if (debouncedSerialFrom) params.serial_from = debouncedSerialFrom;
-      if (debouncedSerialTo) params.serial_to = debouncedSerialTo;
-      if (filterMrp) params.mrp = Number(filterMrp);
-      if (filterStatus) params.status = filterStatus;
+      if (searchTerm) {
+        params.search = searchTerm;
+      } else {
+        if (serialFrom) params.serial_from = serialFrom;
+        if (serialTo) params.serial_to = serialTo;
+        if (filters.mrp) params.mrp = Number(filters.mrp);
+        if (filters.status) params.status = filters.status;
+      }
       const headers: Record<string, string> = {};
-      if (selectedHouse?.id) headers["X-House-ID"] = String(selectedHouse.id);
+      if (selectedHouseId) headers["X-House-ID"] = String(selectedHouseId);
       const res = await apiClient.get("/v1/scratch-card-serials", { params, headers });
       if (requestId !== fetchDataRequest.current) return;
       setData(res.data.data || []);
@@ -195,7 +247,7 @@ export default function SCSerialsPage() {
     } finally {
       if (requestId === fetchDataRequest.current) setLoading(false);
     }
-  }, [page, debouncedSearch, debouncedSerialFrom, debouncedSerialTo, filterMrp, filterStatus, selectedHouse?.id, t]);
+  }, [page, debouncedSearch, filters, selectedHouseId, t]);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -226,21 +278,8 @@ export default function SCSerialsPage() {
   };
 
   useEffect(() => {
-    const searchSettled = search.trim() === debouncedSearch;
-    const rangeSettled =
-      serialFrom.trim() === debouncedSerialFrom &&
-      serialTo.trim() === debouncedSerialTo;
-    if (!authLoading && searchSettled && rangeSettled) fetchData();
-  }, [
-    authLoading,
-    debouncedSearch,
-    debouncedSerialFrom,
-    debouncedSerialTo,
-    fetchData,
-    search,
-    serialFrom,
-    serialTo,
-  ]);
+    if (!authLoading && search.trim() === debouncedSearch) fetchData();
+  }, [authLoading, search, debouncedSearch, fetchData]);
 
   useEffect(() => {
     if (!authLoading) fetchSummary();
@@ -263,9 +302,6 @@ export default function SCSerialsPage() {
     }).catch(() => {});
   }, [authLoading]);
 
-  // reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, serialFrom, serialTo, filterMrp, filterStatus]);
-
   const handleExport = async (houseId: number): Promise<boolean> => {
     setExporting(true);
     setExportElapsed(0);
@@ -275,7 +311,7 @@ export default function SCSerialsPage() {
     try {
       const headers: Record<string, string> = { "X-House-ID": String(houseId) };
       const params: Record<string, string> = {};
-      if (filterMrp) params.mrp = filterMrp;
+      if (filters.mrp) params.mrp = filters.mrp;
       const res = await apiClient.get("/v1/scratch-card-serials/export/list", {
         params, headers, responseType: "blob",
         // A house can hold ~700k serials and the workbook is built server-side,
@@ -404,16 +440,20 @@ export default function SCSerialsPage() {
     setSelectingAll(true);
     try {
       const params: Record<string, string | number> = {};
-      const searchTerm = search.trim();
-      if (searchTerm) params.search = searchTerm;
-      if (serialFrom) params.serial_from = serialFrom;
-      if (serialTo) params.serial_to = serialTo;
-      if (filterMrp) params.mrp = Number(filterMrp);
-      if (filterStatus) params.status = filterStatus;
-      if (!searchTerm && !serialFrom && !serialTo) {
-        const { dateFrom, dateTo } = todayDateRange();
-        params.date_from = dateFrom;
-        params.date_to = dateTo;
+      const searchTerm = debouncedSearch.trim();
+      const serialFrom = filters.serialFrom.trim();
+      const serialTo = filters.serialTo.trim();
+      if (searchTerm) {
+        params.search = searchTerm;
+      } else {
+        if (serialFrom) params.serial_from = serialFrom;
+        if (serialTo) params.serial_to = serialTo;
+        if (filters.mrp) params.mrp = Number(filters.mrp);
+        if (filters.status) params.status = filters.status;
+        if (!serialFrom && !serialTo) {
+          if (filters.dateFrom) params.date_from = filters.dateFrom;
+          if (filters.dateTo) params.date_to = filters.dateTo;
+        }
       }
       const res = await apiClient.post("/v1/scratch-card-serials/select-all", null, { params, headers: houseHeaders });
       const allIds = res.data.data?.ids || [];
@@ -595,52 +635,77 @@ export default function SCSerialsPage() {
   if (!authLoading && !hasPermission("scratch_card_serials.view")) return <AccessDenied />;
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <div className="min-w-0 space-y-5 p-2 pb-8 sm:p-6 sm:pb-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-primary-100 dark:bg-primary-500/20 rounded-xl">
-            <Database className="w-5 h-5 text-primary-600" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.title')}</h1>
-              <PageGuideModal pageKey="scratch_card_serials" />
+      <header className="mb-4 border-b border-gray-200 pb-4 dark:border-slate-700">
+        <nav aria-label={t('scratch_card_serials.breadcrumb_label')} className="-mt-2 mb-4 text-[13px]">
+          <ol className="flex flex-wrap items-center gap-1.5 text-gray-500 dark:text-gray-400">
+            <li>
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-gray-700 dark:hover:text-gray-200"
+              >
+                <Home aria-hidden="true" className="size-4" />
+                {t('scratch_card_serials.breadcrumb_home')}
+              </Link>
+            </li>
+            <li aria-hidden="true">
+              <ChevronRight className="size-3.5" />
+            </li>
+            <li>{t('scratch_card_serials.breadcrumb_import')}</li>
+            <li aria-hidden="true">
+              <ChevronRight className="size-3.5" />
+            </li>
+            <li aria-current="page" className="font-medium text-gray-700 dark:text-gray-300">
+              {t('scratch_card_serials.title')}
+            </li>
+          </ol>
+        </nav>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+              <Database aria-hidden="true" className="size-5" />
             </div>
-            <p className="text-sm text-gray-500">{t('scratch_card_serials.description')}</p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{t('scratch_card_serials.title')}</h1>
+                <PageGuideModal pageKey="scratch_card_serials" />
+              </div>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('scratch_card_serials.description')}</p>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-          {hasPermission("scratch_card_serials.create") && (
-              <button onClick={async () => {
-                setShowImport(true);
-                setModalHouseId("");
-                setImportResult(null);
-                try {
-                  const res = await apiClient.get("/v1/scratch-card-serials/batch-id/generate");
-                  setImportBatch(res.data.data?.batch_id || generateBatchId());
-                } catch { setImportBatch(generateBatchId()); }
-              }}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
-              <Plus className="w-4 h-4" /> {t('scratch_card_serials.btn_add_serials')}
-            </button>
-          )}
-          <div className="flex flex-1 sm:flex-none gap-2">
-            {hasPermission("scratch_card_serials.export") && (
-              <button onClick={() => { setExportHouseId(""); setShowExportHouse(true); }}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                <Download className="w-4 h-4" /> {t('scratch_card_serials.btn_export')}
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {hasPermission("scratch_card_serials.create") && (
+                <button onClick={async () => {
+                  setShowImport(true);
+                  setModalHouseId("");
+                  setImportResult(null);
+                  try {
+                    const res = await apiClient.get("/v1/scratch-card-serials/batch-id/generate");
+                    setImportBatch(res.data.data?.batch_id || generateBatchId());
+                  } catch { setImportBatch(generateBatchId()); }
+                }}
+                className="flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-700">
+                <Plus className="w-4 h-4" /> {t('scratch_card_serials.btn_add_serials')}
               </button>
             )}
-            {hasPermission("scratch_card_serials.view") && (
-              <button onClick={() => { setShowAllocate(true); setAllocAmount(""); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                <Database className="w-4 h-4" /> {t('scratch_card_serials.btn_allocate')}
-              </button>
-            )}
+            <div className="flex w-full flex-1 gap-2 sm:w-auto sm:flex-none">
+              {hasPermission("scratch_card_serials.export") && (
+                <button onClick={() => { setExportHouseId(""); setShowExportHouse(true); }}
+                  className="flex min-h-[44px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-300 dark:hover:bg-slate-800 sm:flex-none">
+                  <Download className="w-4 h-4" /> {t('scratch_card_serials.btn_export')}
+                </button>
+              )}
+              {hasPermission("scratch_card_serials.view") && (
+                <button onClick={() => { setShowAllocate(true); setAllocAmount(""); setAllocResult(null); setAllocError(""); setAllocNotes(""); }}
+                  className="flex min-h-[44px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-300 dark:hover:bg-slate-800 sm:flex-none">
+                  <Database className="w-4 h-4" /> {t('scratch_card_serials.btn_allocate')}
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </header>
 
       {/* Stock Summary — per house */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-4">
@@ -692,78 +757,158 @@ export default function SCSerialsPage() {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+      {/* Toolbar: immediate search + staged filter drawer */}
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
           <input
+            type="text"
             placeholder={t('scratch_card_serials.search_placeholder_search')}
             value={search}
             onChange={e => {
-              setSearch(e.target.value);
-              setSerialFrom("");
-              setSerialTo("");
-              setFilterMrp("");
-              setFilterStatus("");
+              const next = e.target.value;
+              setSearch(next);
+              setPage(1);
+              if (next.trim()) {
+                setFilters(defaultFilters());
+                setDraftFilters(defaultFilters());
+              }
             }}
-            className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+            className="min-h-[44px] w-full cursor-text rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-100"
           />
         </div>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={100}
-          aria-label={t('scratch_card_serials.serial_range_from')}
-          placeholder={t('scratch_card_serials.serial_range_from')}
-          value={serialFrom}
-          onChange={e => {
-            setSerialFrom(e.target.value);
-            setSearch("");
-            setDebouncedSearch("");
-          }}
-          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-        />
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={100}
-          aria-label={t('scratch_card_serials.serial_range_to')}
-          placeholder={t('scratch_card_serials.serial_range_to')}
-          value={serialTo}
-          onChange={e => {
-            setSerialTo(e.target.value);
-            setSearch("");
-            setDebouncedSearch("");
-          }}
-          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-        />
-        <select
-          value={filterMrp}
-          onChange={e => {
-            setFilterMrp(e.target.value);
-            setSearch("");
-            setDebouncedSearch("");
-          }}
-          className="cursor-pointer px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-          <option value="">{t('scratch_card_serials.filter_all')}</option>
-          {availableMrps.map(mrp => (
-            <option key={mrp} value={mrp}>{mrp.toLocaleString('en-US')} Tk</option>
-          ))}
-        </select>
-        <select
-          value={filterStatus}
-          onChange={e => {
-            setFilterStatus(e.target.value);
-            setSearch("");
-            setDebouncedSearch("");
-          }}
-          className="cursor-pointer px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500/20">
-          <option value="">{t('scratch_card_serials.filter_all_status')}</option>
-          <option value="available">{t('scratch_card_serials.filter_available')}</option>
-          <option value="used">{t('scratch_card_serials.filter_used')}</option>
-          <option value="allocated">{t('scratch_card_serials.filter_allocated')}</option>
-        </select>
+        <button
+          type="button"
+          onClick={openFilters}
+          title={t('scratch_card_serials.filter_open')}
+          aria-label={t('scratch_card_serials.filter_open')}
+          className="relative flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-300 dark:hover:bg-slate-800"
+        >
+          <SlidersHorizontal aria-hidden="true" className="size-4" />
+          {activeFilterCount() > 0 && (
+            <span className="absolute -right-1 -top-1 flex min-w-[18px] items-center justify-center rounded-full bg-primary-600 px-1 text-[10px] font-bold text-white">
+              {activeFilterCount()}
+            </span>
+          )}
+        </button>
       </div>
+
+      {/* Filter Drawer */}
+      <AnimatePresence>
+        {filtersOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setFiltersOpen(false)}
+              className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm"
+            />
+            <motion.aside
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('scratch_card_serials.filter_title')}
+              className="fixed inset-y-0 right-0 z-[101] flex w-full flex-col bg-white shadow-2xl dark:bg-slate-900 sm:max-w-md"
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-slate-800">
+                <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                  {t('scratch_card_serials.filter_title')}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen(false)}
+                  title={t('common.close')}
+                  aria-label={t('common.close')}
+                  className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-gray-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="sc-serial-from" className="block text-sm font-bold text-gray-700 dark:text-gray-300">
+                    {t('scratch_card_serials.serial_range_from')}
+                  </label>
+                  <input
+                    id="sc-serial-from"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={100}
+                    value={draftFilters.serialFrom}
+                    onChange={e => setDraftFilters(prev => ({ ...prev, serialFrom: e.target.value }))}
+                    className="min-h-[44px] w-full cursor-text rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-100"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="sc-serial-to" className="block text-sm font-bold text-gray-700 dark:text-gray-300">
+                    {t('scratch_card_serials.serial_range_to')}
+                  </label>
+                  <input
+                    id="sc-serial-to"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={100}
+                    value={draftFilters.serialTo}
+                    onChange={e => setDraftFilters(prev => ({ ...prev, serialTo: e.target.value }))}
+                    className="min-h-[44px] w-full cursor-text rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-100"
+                  />
+                </div>
+                <SearchableSelect
+                  label={t('scratch_card_serials.filter_amount')}
+                  items={mrpOptions.map(product => ({
+                    id: String(product.mrp),
+                    label: `${product.mrp.toLocaleString('en-US')} ${t('scratch_card_serials.taka')}`,
+                  }))}
+                  value={draftFilters.mrp}
+                  onChange={value => setDraftFilters(prev => ({ ...prev, mrp: value }))}
+                  placeholder={t('scratch_card_serials.filter_all_amounts')}
+                  searchPlaceholder={t('scratch_card_serials.filter_amount_search')}
+                  emptyMessage={t('scratch_card_serials.no_products')}
+                  noResultsMessage={t('scratch_card_serials.no_products')}
+                />
+                <SearchableSelect
+                  label={t('scratch_card_serials.filter_status')}
+                  items={[
+                    { id: "available", label: t('scratch_card_serials.filter_available') },
+                    { id: "used", label: t('scratch_card_serials.filter_used') },
+                    { id: "allocated", label: t('scratch_card_serials.filter_allocated') },
+                  ]}
+                  value={draftFilters.status}
+                  onChange={value => setDraftFilters(prev => ({ ...prev, status: value }))}
+                  placeholder={t('scratch_card_serials.filter_all_status')}
+                  searchPlaceholder={t('scratch_card_serials.filter_status_search')}
+                  emptyMessage={t('scratch_card_serials.filter_all_status')}
+                  noResultsMessage={t('scratch_card_serials.filter_all_status')}
+                />
+                <DateRangePicker
+                  label={t('scratch_card_serials.filter_date_range')}
+                  value={{ from: draftFilters.dateFrom || null, to: draftFilters.dateTo || null }}
+                  onChange={range => setDraftFilters(prev => ({
+                    ...prev,
+                    dateFrom: range.from ?? "",
+                    dateTo: range.to ?? "",
+                  }))}
+                />
+              </div>
+
+              <div className="border-t border-gray-100 px-5 py-4 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={applyFilters}
+                  className="min-h-[44px] w-full cursor-pointer rounded-lg bg-primary-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm shadow-primary-600/25 transition-all hover:bg-primary-700 active:scale-[0.98]"
+                >
+                  {t('scratch_card_serials.filter_apply')}
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Select All Matching */}
       <div className="flex items-center justify-between">
