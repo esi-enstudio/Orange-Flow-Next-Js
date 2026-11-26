@@ -20,6 +20,7 @@ interface CreateTemplateModalProps {
   onClose: () => void;
   types: DocumentType[];
   selectedHouseId?: number;
+  selectedHouseName?: string;
   canCreateGlobal: boolean;
   onCreated: (templateId: number) => void;
 }
@@ -45,6 +46,7 @@ export default function CreateTemplateModal({
   onClose,
   types,
   selectedHouseId,
+  selectedHouseName,
   canCreateGlobal,
   onCreated,
 }: CreateTemplateModalProps) {
@@ -261,24 +263,31 @@ export default function CreateTemplateModal({
                 </label>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {t("documents.scope")}
-                    <select
-                      value={form.scope}
-                      onChange={(event) => setField("scope", event.target.value as FormState["scope"])}
-                      aria-invalid={Boolean(fieldError("scope"))}
-                      aria-describedby={fieldError("scope") ? "create-template-scope-error" : undefined}
-                      className={`${fieldClass} mt-1.5`}
-                    >
-                      <option value="house">{t("documents.house")}</option>
-                      {canCreateGlobal && <option value="global">{t("documents.global")}</option>}
-                    </select>
-                    {fieldError("scope") && (
-                      <span id="create-template-scope-error" role="alert" className="mt-1 block text-xs text-red-600 dark:text-red-400">
-                        {fieldError("scope")}
-                      </span>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {t("documents.scope")}
+                      <select
+                        value={form.scope}
+                        onChange={(event) => setField("scope", event.target.value as FormState["scope"])}
+                        aria-invalid={Boolean(fieldError("scope"))}
+                        aria-describedby={fieldError("scope") ? "create-template-scope-error" : undefined}
+                        className={`${fieldClass} mt-1.5`}
+                      >
+                        <option value="house">{t("documents.house")}</option>
+                        {canCreateGlobal && <option value="global">{t("documents.global")}</option>}
+                      </select>
+                      {fieldError("scope") && (
+                        <span id="create-template-scope-error" role="alert" className="mt-1 block text-xs text-red-600 dark:text-red-400">
+                          {fieldError("scope")}
+                        </span>
+                      )}
+                    </label>
+                    {form.scope === "house" && selectedHouseName && (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {t("documents.house_scope_hint", { house: selectedHouseName })}
+                      </p>
                     )}
-                  </label>
+                  </div>
 
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     {t("documents.template_mode")}

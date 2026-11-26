@@ -60,6 +60,7 @@ export default function DocumentTemplatesPage() {
   const router = useRouter();
   const { user, hasPermission, loading: authLoading, selectedHouse } = useAuth();
   const selectedHouseId = selectedHouse?.id;
+  const selectedHouseName = user?.houses?.find((house) => house.id === selectedHouseId)?.name;
   const canView = hasPermission("documents.templates.view");
   const canManage = hasPermission("documents.templates.manage");
   const canCreateGlobal = Boolean(
@@ -359,6 +360,7 @@ export default function DocumentTemplatesPage() {
         onClose={closeCreate}
         types={types}
         selectedHouseId={selectedHouseId}
+        selectedHouseName={selectedHouseName}
         canCreateGlobal={canCreateGlobal}
         onCreated={handleTemplateCreated}
       />
