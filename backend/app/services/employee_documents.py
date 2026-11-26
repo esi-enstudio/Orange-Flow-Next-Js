@@ -398,21 +398,71 @@ async def store_image_document(
     return doc
 
 
+NID_TYPES = ("nid", "voter_id", "nid_front")
+NID_NAME_HINTS = ("nid", "voter", "national id", "জাতীয়")
+
+
 async def latest_document(
-    db: AsyncSession, employee_id: int, doc_types: Iterable[str]
+    db: AsyncSession,
+    employee_id: int,
+    doc_types: Iterable[str],
+    *,
+    house_id: Optional[int] = None,
 ) -> Optional[EmployeeDocument]:
-    """Newest active document of one of the given types."""
+    """Newest active document of one of the given types, optionally house-scoped."""
+    query = select(EmployeeDocument).where(
+        EmployeeDocument.employee_id == employee_id,
+        EmployeeDocument.doc_type.in_(tuple(doc_types)),
+        EmployeeDocument.is_deleted.is_(False),
+    )
+    if house_id is not None:
+        query = query.where(EmployeeDocument.house_id == house_id)
     result = await db.execute(
-        select(EmployeeDocument)
-        .where(
-            EmployeeDocument.employee_id == employee_id,
-            EmployeeDocument.doc_type.in_(tuple(doc_types)),
-            EmployeeDocument.is_deleted.is_(False),
-        )
-        .order_by(EmployeeDocument.created_at.desc(), EmployeeDocument.id.desc())
-        .limit(1)
+        query.order_by(EmployeeDocument.created_at.desc(), EmployeeDocument.id.desc()).limit(1)
     )
     return result.unique().scalar_one_or_none()
+
+
+async def latest_nid_documents(
+    db: AsyncSession,
+    employee_ids: list[int],
+    *,
+    house_id: Optional[int] = None,
+) -> dict[int, EmployeeDocument]:
+    """Newest NID scan per employee, with the resignation page's selection heuristic."""
+    if not employee_ids:
+        return {}
+    query = select(EmployeeDocument).where(
+        EmployeeDocument.employee_id.in_(employee_ids),
+        EmployeeDocument.is_deleted.is_(False),
+        EmployeeDocument.mime_type.like("image/%"),
+    )
+    if house_id is not None:
+        query = query.where(EmployeeDocument.house_id == house_id)
+    result = await db.execute(
+        query.order_by(EmployeeDocument.created_at.desc(), EmployeeDocument.id.desc())
+    )
+    typed: dict[int, EmployeeDocument] = {}
+    untyped: dict[int, list[EmployeeDocument]] = {}
+    for doc in result.unique().scalars().all():
+        if doc.doc_type in NID_TYPES:
+            typed.setdefault(doc.employee_id, doc)
+        elif doc.doc_type == "other":
+            untyped.setdefault(doc.employee_id, []).append(doc)
+    for emp_id, docs in untyped.items():
+        if emp_id in typed:
+            continue
+        hinted = next(
+            (
+                doc
+                for doc in docs
+                if any(h in f"{doc.title or ''} {doc.file_name}".lower() for h in NID_NAME_HINTS)
+            ),
+            None,
+        )
+        if hinted or len(docs) == 1:
+            typed[emp_id] = hinted or docs[0]
+    return typed
 
 
 # --------------------------------------------------------------------------- #

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { FilePlus2, Loader2, X } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
 import { getDocumentErrorMessage, getDocumentFieldErrors } from "@/lib/documents";
@@ -15,28 +16,41 @@ interface DocumentType {
   name_bn: string | null;
 }
 
+interface SelectableHouse {
+  id: number;
+  name: string;
+  code?: string;
+}
+
 interface CreateTemplateModalProps {
   open: boolean;
   onClose: () => void;
   types: DocumentType[];
+  houses: SelectableHouse[];
   selectedHouseId?: number;
   selectedHouseName?: string;
   canCreateGlobal: boolean;
   onCreated: (templateId: number) => void;
 }
 
+type Audience = "all" | "rso" | "bp";
+
 type FormState = {
   document_type_id: string;
   name: string;
   description: string;
   scope: "house" | "global";
+  houseId: string;
   template_mode: "PREDEFINED" | "VISUAL";
+  audience: Audience;
   is_default: boolean;
   publish: boolean;
   version_notes: string;
 };
 
 type FieldErrors = Record<string, string>;
+
+const AUDIENCES: Audience[] = ["all", "rso", "bp"];
 
 const fieldClass =
   "min-h-11 w-full cursor-pointer rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-100";
@@ -45,18 +59,22 @@ export default function CreateTemplateModal({
   open,
   onClose,
   types,
+  houses,
   selectedHouseId,
   selectedHouseName,
   canCreateGlobal,
   onCreated,
 }: CreateTemplateModalProps) {
   const { t, language } = useLanguage();
+  const { setSelectedHouse } = useAuth();
   const [form, setForm] = useState<FormState>({
     document_type_id: "",
     name: "",
     description: "",
     scope: selectedHouseId ? "house" : canCreateGlobal ? "global" : "house",
+    houseId: selectedHouseId ? String(selectedHouseId) : "",
     template_mode: "PREDEFINED",
+    audience: "all",
     is_default: false,
     publish: true,
     version_notes: "",
@@ -66,18 +84,29 @@ export default function CreateTemplateModal({
   const [saving, setSaving] = useState(false);
   const typeRef = useRef<HTMLSelectElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  // The active house changes during submit (switch-then-create). Keeping the
+  // default in a ref prevents the open-reset effect from wiping the form.
+  const defaultHouseIdRef = useRef(selectedHouseId);
+  useEffect(() => {
+    defaultHouseIdRef.current = selectedHouseId;
+  }, [selectedHouseId]);
+  const sortedHouses = [...houses].sort((a, b) => a.name.localeCompare(b.name));
+  const chosenHouseName = houses.find((house) => String(house.id) === form.houseId)?.name ?? selectedHouseName;
   const scopeHintId =
-    form.scope === "house" && selectedHouseName ? "create-template-scope-hint" : undefined;
+    form.scope === "house" && chosenHouseName ? "create-template-scope-hint" : undefined;
 
   useEffect(() => {
     if (!open) return;
+    const defaultHouseId = defaultHouseIdRef.current;
     triggerRef.current = document.activeElement as HTMLElement | null;
     setForm({
       document_type_id: "",
       name: "",
       description: "",
-      scope: selectedHouseId ? "house" : canCreateGlobal ? "global" : "house",
+      scope: defaultHouseId ? "house" : canCreateGlobal ? "global" : "house",
+      houseId: defaultHouseId ? String(defaultHouseId) : "",
       template_mode: "PREDEFINED",
+      audience: "all",
       is_default: false,
       publish: true,
       version_notes: "",
@@ -92,7 +121,7 @@ export default function CreateTemplateModal({
       triggerRef.current?.focus();
       triggerRef.current = null;
     };
-  }, [open, selectedHouseId, canCreateGlobal]);
+  }, [open, canCreateGlobal]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,7 +149,8 @@ export default function CreateTemplateModal({
     else if (form.name.trim().length > 200) next.name = t("documents.validation_name_long");
     if (form.description.length > 2000) next.description = t("documents.validation_description_long");
     if (form.version_notes.length > 1000) next.version_notes = t("documents.validation_notes_long");
-    if (form.scope === "house" && !selectedHouseId) next.scope = t("documents.validation_house_required");
+    if (form.scope === "house" && !form.houseId) next.houseId = t("documents.validation_house_required");
+    if (!AUDIENCES.includes(form.audience)) next.audience = t("documents.validation_audience_required");
     return next;
   };
 
@@ -133,6 +163,15 @@ export default function CreateTemplateModal({
     if (Object.keys(nextErrors).length > 0) return;
 
     setSaving(true);
+    if (form.scope === "house" && form.houseId && Number(form.houseId) !== selectedHouseId) {
+      try {
+        await setSelectedHouse(Number(form.houseId));
+      } catch {
+        setSubmitError(t("documents.house_switch_failed"));
+        setSaving(false);
+        return;
+      }
+    }
     try {
       const response = await apiClient.post(
         "v1/documents/templates",
@@ -143,13 +182,13 @@ export default function CreateTemplateModal({
           template_mode: form.template_mode,
           description: form.description.trim() || null,
           is_default: form.is_default,
-          content_json: { blocks: [] },
+          content_json: { blocks: [], audience: form.audience },
           variables_schema: { fields: [] },
           version_notes: form.version_notes.trim() || null,
           publish: form.publish,
         },
         {
-          headers: form.scope === "house" && selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {},
+          headers: form.scope === "house" && form.houseId ? { "X-House-ID": form.houseId } : {},
         },
       );
       const createdId = Number(response.data?.data?.id);
@@ -224,6 +263,7 @@ export default function CreateTemplateModal({
                   <span className="ml-1 text-red-500">*</span>
                   <select
                     ref={typeRef}
+                    disabled={saving}
                     value={form.document_type_id}
                     onChange={(event) => setField("document_type_id", event.target.value)}
                     aria-invalid={Boolean(fieldError("document_type_id"))}
@@ -249,6 +289,7 @@ export default function CreateTemplateModal({
                   <span className="ml-1 text-red-500">*</span>
                   <input
                     type="text"
+                    disabled={saving}
                     maxLength={200}
                     value={form.name}
                     onChange={(event) => setField("name", event.target.value)}
@@ -269,6 +310,7 @@ export default function CreateTemplateModal({
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       {t("documents.scope")}
                       <select
+                        disabled={saving}
                         value={form.scope}
                         onChange={(event) => setField("scope", event.target.value as FormState["scope"])}
                         aria-invalid={Boolean(fieldError("scope"))}
@@ -288,9 +330,39 @@ export default function CreateTemplateModal({
                         </span>
                       )}
                     </label>
+                    {form.scope === "house" && (
+                      <label className="mt-3 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {t("documents.select_house")}
+                        <span className="ml-1 text-red-500">*</span>
+                        <select
+                          disabled={saving}
+                          value={form.houseId}
+                          onChange={(event) => setField("houseId", event.target.value)}
+                          aria-invalid={Boolean(fieldError("houseId"))}
+                          aria-describedby={
+                            [fieldError("houseId") ? "create-template-house-error" : null, scopeHintId]
+                              .filter(Boolean)
+                              .join(" ") || undefined
+                          }
+                          className={`${fieldClass} mt-1.5`}
+                        >
+                          <option value="">{t("documents.select_house")}</option>
+                          {sortedHouses.map((house) => (
+                            <option key={house.id} value={house.id}>
+                              {house.code ? `${house.name} (${house.code})` : house.name}
+                            </option>
+                          ))}
+                        </select>
+                        {fieldError("houseId") && (
+                          <span id="create-template-house-error" role="alert" className="mt-1 block text-xs text-red-600 dark:text-red-400">
+                            {fieldError("houseId")}
+                          </span>
+                        )}
+                      </label>
+                    )}
                     {scopeHintId && (
                       <p id={scopeHintId} className="mt-1 break-words text-xs text-gray-500 dark:text-gray-400">
-                        {t("documents.house_scope_hint", { house: selectedHouseName })}
+                        {t("documents.house_scope_hint", { house: chosenHouseName })}
                       </p>
                     )}
                   </div>
@@ -298,6 +370,7 @@ export default function CreateTemplateModal({
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     {t("documents.template_mode")}
                     <select
+                      disabled={saving}
                       value={form.template_mode}
                       onChange={(event) => setField("template_mode", event.target.value as FormState["template_mode"])}
                       className={`${fieldClass} mt-1.5`}
@@ -308,6 +381,29 @@ export default function CreateTemplateModal({
                   </label>
                 </div>
 
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t("documents.create_audience")}
+                  <select
+                    disabled={saving}
+                    value={form.audience}
+                    onChange={(event) => setField("audience", event.target.value as Audience)}
+                    aria-invalid={Boolean(fieldError("audience"))}
+                    aria-describedby={fieldError("audience") ? "create-template-audience-error" : undefined}
+                    className={`${fieldClass} mt-1.5`}
+                  >
+                    {AUDIENCES.map((audience) => (
+                      <option key={audience} value={audience}>
+                        {t(`documents.create_audience_${audience}`)}
+                      </option>
+                    ))}
+                  </select>
+                  {fieldError("audience") && (
+                    <span id="create-template-audience-error" role="alert" className="mt-1 block text-xs text-red-600 dark:text-red-400">
+                      {fieldError("audience")}
+                    </span>
+                  )}
+                </label>
+
                 {form.scope === "global" && canCreateGlobal && (
                   <p className="text-xs text-gray-500 dark:text-gray-400">{t("documents.global_hint")}</p>
                 )}
@@ -316,6 +412,7 @@ export default function CreateTemplateModal({
                   {t("documents.template_description")}
                   <textarea
                     rows={3}
+                    disabled={saving}
                     maxLength={2000}
                     value={form.description}
                     onChange={(event) => setField("description", event.target.value)}
@@ -335,6 +432,7 @@ export default function CreateTemplateModal({
                   {t("documents.version_notes")}
                   <input
                     type="text"
+                    disabled={saving}
                     maxLength={1000}
                     value={form.version_notes}
                     onChange={(event) => setField("version_notes", event.target.value)}
@@ -354,8 +452,9 @@ export default function CreateTemplateModal({
                   <input
                     type="checkbox"
                     checked={form.is_default}
+                    disabled={saving}
                     onChange={(event) => setField("is_default", event.target.checked)}
-                    className="size-4 cursor-pointer rounded border-gray-300"
+                    className="size-4 cursor-pointer rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   {t("documents.default")}
                 </label>
@@ -363,8 +462,9 @@ export default function CreateTemplateModal({
                   <input
                     type="checkbox"
                     checked={form.publish}
+                    disabled={saving}
                     onChange={(event) => setField("publish", event.target.checked)}
-                    className="size-4 cursor-pointer rounded border-gray-300"
+                    className="size-4 cursor-pointer rounded border-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   {t("documents.publish_now")}
                 </label>

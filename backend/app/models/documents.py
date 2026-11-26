@@ -138,6 +138,44 @@ class DocumentTemplateVersion(Base):
     )
 
 
+class DocumentTemplateAsset(Base):
+    """A private image uploaded for use in a template's manual image blocks.
+
+    ``house_id IS NULL`` marks a global asset; every other row belongs to one
+    house. ``storage_path`` is relative to ``private_uploads`` so the shared
+    guarded renderer helper can embed it without accepting client paths.
+    """
+
+    __tablename__ = "document_template_assets"
+
+    id = Column(Integer, primary_key=True)
+    template_id = Column(
+        Integer, ForeignKey("document_templates.id"), nullable=False, index=True
+    )
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=True, index=True)
+    file_name = Column(String(255), nullable=False)
+    storage_path = Column(String(500), nullable=False)
+    content_type = Column(String(100), nullable=False)
+    size_bytes = Column(BigInteger, nullable=False)
+
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=now_naive)
+    updated_at = Column(DateTime, default=now_naive, onupdate=now_naive)
+    is_deleted = Column(Boolean, nullable=False, default=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_document_template_assets_scope",
+            "house_id",
+            "template_id",
+            "is_deleted",
+        ),
+    )
+
+
 class DocumentLetterhead(Base):
     """Organisation branding printed above the document body."""
 

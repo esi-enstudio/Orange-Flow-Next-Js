@@ -39,6 +39,7 @@ from app.services.employee_documents import (
     document_file_path,
     get_document,
     latest_document,
+    latest_nid_documents,
     list_documents,
     serialize_document,
     soft_delete_documents,
@@ -898,41 +899,7 @@ async def _resignation_nid_scans(
     changes its type, so a typed `nid` row wins, then an untyped image whose
     title/file name says NID, then the employee's only untyped image.
     """
-    if not emp_ids:
-        return {}
-    result = await db.execute(
-        select(EmployeeDocument)
-        .where(
-            EmployeeDocument.employee_id.in_(emp_ids),
-            EmployeeDocument.is_deleted.is_(False),
-            EmployeeDocument.mime_type.like("image/%"),
-        )
-        .order_by(EmployeeDocument.created_at.desc(), EmployeeDocument.id.desc())
-    )
-    typed: dict[int, EmployeeDocument] = {}
-    untyped: dict[int, list[EmployeeDocument]] = {}
-    for doc in result.unique().scalars().all():
-        if doc.doc_type in NID_TYPES:
-            typed.setdefault(doc.employee_id, doc)
-        elif doc.doc_type == "other":
-            untyped.setdefault(doc.employee_id, []).append(doc)
-    for emp_id, docs in untyped.items():
-        if emp_id in typed:
-            continue
-        # shortcut: an untyped image is only guessed when it names NID or is the
-        # employee's only untyped image, upgrade to an explicit picker if more
-        # document types land.
-        hinted = next(
-            (
-                doc
-                for doc in docs
-                if any(h in f"{doc.title or ''} {doc.file_name}".lower() for h in NID_NAME_HINTS)
-            ),
-            None,
-        )
-        if hinted or len(docs) == 1:
-            typed[emp_id] = hinted or docs[0]
-    return typed
+    return await latest_nid_documents(db, emp_ids)
 
 
 def _assert_resignation_employee(emp: Employee) -> None:

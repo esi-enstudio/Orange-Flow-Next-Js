@@ -38,6 +38,15 @@ class TemplateDuplicateIn(BaseModel):
     scope: Literal["house", "global"] = "house"
 
 
+class TemplateAssetOut(BaseModel):
+    id: int
+    template_id: int
+    file_name: str
+    content_type: str
+    size_bytes: int
+    created_at: Optional[str] = None
+
+
 class TemplatePreviewIn(BaseModel):
     template_id: int
     version_number: Optional[int] = None
@@ -46,6 +55,17 @@ class TemplatePreviewIn(BaseModel):
     letterhead_id: Optional[int] = None
     employee_id: Optional[int] = None
     document_data: Dict[str, str] = Field(default_factory=dict)
+
+
+class PreviewAstIn(BaseModel):
+    template_id: int
+    content_json: Dict[str, Any]
+    variables_schema: Dict[str, Any] = Field(default_factory=lambda: {"fields": []})
+    employee_id: Optional[int] = Field(default=None, ge=1)
+    letterhead_id: Optional[int] = None
+    signatory_id: Optional[int] = None
+    document_data: Dict[str, str] = Field(default_factory=dict)
+    values: Dict[str, str] = Field(default_factory=dict)
 
 
 class GeneratedDocumentCreateIn(BaseModel):

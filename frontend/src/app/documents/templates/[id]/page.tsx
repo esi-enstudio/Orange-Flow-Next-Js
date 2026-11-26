@@ -1,9 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, Eye, Plus, Save, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Home,
+  RefreshCw,
+} from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { useAuth } from "@/context/AuthContext";
@@ -11,89 +17,27 @@ import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
 import { getDocumentErrorMessage } from "@/lib/documents";
 import TemplateDeleteButton from "../_components/TemplateDeleteButton";
+import OptionsPanel from "./_components/OptionsPanel";
+import {
+  EMPTY_AST,
+  splitPages,
+  type DocumentAst,
+  type TemplateAsset,
+  type TemplateInfo,
+  type TemplateVersion,
+  type VariableField,
+  type VariableOption,
+} from "./_components/editorTypes";
+import type { SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
 
-type BlockType = "heading" | "paragraph" | "spacer" | "divider" | "signature" | "page_break";
-type Orientation = "portrait" | "landscape";
-type AstBlock = Record<string, unknown> & { id: string; type: BlockType };
-
-interface DocumentAst {
-  schema_version: number;
-  page: {
-    format: "A4";
-    orientation: Orientation;
-    margins: { top: number; right: number; bottom: number; left: number };
-    font_size: number;
-    line_height: number;
-  };
-  blocks: AstBlock[];
-}
-
-interface VariableField {
-  key: string;
-  label: string;
-  label_bn: string;
-  type: string;
-  required: boolean;
-  source: string | null;
-  readonly: boolean;
-  default: string;
-  options: string[];
-}
-
-interface VariableOption {
-  key: string;
-  label: string;
-  label_bn: string;
-  type: string;
-  source: string | null;
-  readonly: boolean;
-}
-
-interface TemplateInfo {
+interface DocumentEmployee {
   id: number;
-  name: string;
-  scope: "global" | "house";
-  is_default: boolean;
-  latest_version: { version_number: number } | null;
-  content_json: DocumentAst;
-}
-
-interface TemplateVersion {
-  id: number;
-  version_number: number;
-  is_published: boolean;
-  published_at: string | null;
-  created_at: string | null;
-  version_notes: string | null;
-}
-
-const EMPTY_AST: DocumentAst = {
-  schema_version: 1,
-  page: {
-    format: "A4",
-    orientation: "portrait",
-    margins: { top: 18, right: 18, bottom: 18, left: 18 },
-    font_size: 12,
-    line_height: 1.7,
-  },
-  blocks: [],
-};
-const inputClass =
-  "min-h-11 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-primary-500/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-gray-100";
-
-function makeBlock(type: BlockType): AstBlock {
-  const id = `block-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  if (type === "heading") return { id, type, text: "", align: "center", size: 14, bold: true, line_height: 1.7 };
-  if (type === "paragraph") return { id, type, text: "", align: "left", size: 12, bold: false, line_height: 1.7 };
-  if (type === "spacer") return { id, type, height: 8 };
-  if (type === "divider") return { id, type, size: 1 };
-  if (type === "signature") {
-    return {
-      id, type, align: "left", size: 12, show_image: true,
-      fallback: { name: "", designation: "", organization: "", phone: "" },
-    };
-  }
-  return { id, type: "page_break" };
+  employee_name: string;
+  dms_code: string | null;
+  employee_id: string | null;
+  itop_number: string | null;
+  employee_type: string | null;
+  house_id: number | null;
 }
 
 function parseTemplateId(value: string | string[] | undefined): number | null {
@@ -102,7 +46,7 @@ function parseTemplateId(value: string | string[] | undefined): number | null {
 }
 
 export default function DocumentTemplateEditorPage() {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const { hasPermission, loading: authLoading, selectedHouse, user } = useAuth();
   const selectedHouseId = selectedHouse?.id;
   const params = useParams<{ id: string }>();
@@ -118,33 +62,56 @@ export default function DocumentTemplateEditorPage() {
     const roleName = role.name.toLowerCase();
     return roleName === "super admin" || roleName === "super_admin";
   }));
-  const headers = useMemo(
-    () => selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {},
-    [selectedHouseId],
-  );
+  const headers = useMemo<Record<string, string>>(() => {
+    const result: Record<string, string> = {};
+    if (selectedHouseId) result["X-House-ID"] = String(selectedHouseId);
+    return result;
+  }, [selectedHouseId]);
+
   const [template, setTemplate] = useState<TemplateInfo | null>(null);
   const [ast, setAst] = useState<DocumentAst>(EMPTY_AST);
   const [fields, setFields] = useState<VariableField[]>([]);
   const [variables, setVariables] = useState<VariableOption[]>([]);
   const [versions, setVersions] = useState<TemplateVersion[]>([]);
+  const [assets, setAssets] = useState<TemplateAsset[]>([]);
   const [sourceVersion, setSourceVersion] = useState<number | null>(null);
+  const [selectedPage, setSelectedPage] = useState(0);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-  const [selectedVariableKey, setSelectedVariableKey] = useState("");
   const [versionNotes, setVersionNotes] = useState("");
-  const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
-  const [previewHtml, setPreviewHtml] = useState("");
-  const [previewError, setPreviewError] = useState("");
+  const [previewValues] = useState<Record<string, string>>({});
+  const [liveHtml, setLiveHtml] = useState("");
+  const [savedHtml, setSavedHtml] = useState("");
+  const [previewMode, setPreviewMode] = useState<"live" | "saved">("live");
+  const [liveError, setLiveError] = useState("");
+  const [savedError, setSavedError] = useState("");
+  const [missingImages, setMissingImages] = useState<string[]>([]);
+  const [employees, setEmployees] = useState<DocumentEmployee[]>([]);
+  const [employeeQuery, setEmployeeQuery] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
+  const [assetUploadError, setAssetUploadError] = useState("");
+  const [refreshToken, setRefreshToken] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const previewRequest = useRef(0);
 
-  const loadVersionHistory = useCallback(async () => {
-    if (!templateId) return [];
+  const loadVersions = useCallback(async () => {
+    if (!templateId) return [] as TemplateVersion[];
     const response = await apiClient.get(`v1/documents/templates/${templateId}/versions`, { headers });
     const rows = response.data.data as TemplateVersion[];
     setVersions(rows);
     return rows;
+  }, [headers, templateId]);
+
+  const loadAssets = useCallback(async () => {
+    if (!templateId) return;
+    try {
+      const response = await apiClient.get(`v1/documents/templates/${templateId}/assets`, { headers });
+      setAssets(response.data.data as TemplateAsset[]);
+    } catch {
+      // Asset listing is optional for read-only users; the editor still renders.
+    }
   }, [headers, templateId]);
 
   const loadTemplate = useCallback(async () => {
@@ -163,14 +130,14 @@ export default function DocumentTemplateEditorPage() {
       const loaded = templateResponse.data.data as TemplateInfo;
       setTemplate(loaded);
       setVariables(variablesResponse.data.data);
-      const history = await loadVersionHistory();
+      await Promise.all([loadVersions(), loadAssets()]);
       const latestVersion = loaded.latest_version?.version_number;
       if (latestVersion) {
-        const latestResponse = await apiClient.get(
+        const versionResponse = await apiClient.get(
           `v1/documents/templates/${templateId}/versions/${latestVersion}`,
           { headers },
         );
-        const version = latestResponse.data.data;
+        const version = versionResponse.data.data;
         setAst(version.content_json);
         setFields(version.variables_schema?.fields || []);
         setSourceVersion(latestVersion);
@@ -178,98 +145,98 @@ export default function DocumentTemplateEditorPage() {
       } else {
         setAst(loaded.content_json || EMPTY_AST);
         setFields([]);
-        setSourceVersion(history[0]?.version_number || null);
+        setSourceVersion(null);
+        setSelectedBlockId(loaded.content_json?.blocks?.[0]?.id || null);
       }
+      setSelectedPage(0);
     } catch (error: unknown) {
       setErrorMessage(getDocumentErrorMessage(error, t("document_template_editor.load_error")));
     } finally {
       setLoading(false);
     }
-  }, [headers, loadVersionHistory, t, templateId]);
+  }, [headers, loadAssets, loadVersions, t, templateId]);
 
   useEffect(() => {
     if (authLoading || !canView) return;
     void loadTemplate();
   }, [authLoading, canView, loadTemplate]);
 
+  // Live unsaved preview: never writes a version or an audit row.
+  useEffect(() => {
+    if (!template || loading || !templateId) return;
+    const requestId = ++previewRequest.current;
+    const timer = window.setTimeout(() => {
+      apiClient.post("v1/documents/render/preview-ast", {
+        template_id: templateId,
+        content_json: ast,
+        variables_schema: { fields },
+        employee_id: selectedEmployeeId,
+        document_data: previewValues,
+      }, { headers })
+        .then((response) => {
+          if (requestId !== previewRequest.current) return;
+          const data = response.data.data;
+          setLiveHtml(data.html || "");
+          setMissingImages(Array.isArray(data.missing_images) ? data.missing_images : []);
+          setLiveError("");
+        })
+        .catch((error: unknown) => {
+          if (requestId !== previewRequest.current) return;
+          setLiveError(getDocumentErrorMessage(error, t("document_template_editor.preview_error")));
+        });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [ast, fields, headers, loading, previewValues, refreshToken, selectedEmployeeId, t, template, templateId]);
+
+  // Preview employee search is preview-only and never stored in the template.
+  useEffect(() => {
+    if (employeeQuery.trim().length < 2 || !selectedHouseId) {
+      setEmployees([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      apiClient.get("v1/documents/employees/search", {
+        params: { q: employeeQuery.trim(), limit: 20 },
+        headers,
+      })
+        .then((response) => setEmployees(response.data.data as DocumentEmployee[]))
+        .catch(() => setEmployees([]));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [employeeQuery, headers, selectedHouseId]);
+
   if (!authLoading && !canView) return <AccessDenied />;
 
   const globalReadOnly = template?.scope === "global" && !isSuperAdmin;
   const editable = canManage && !globalReadOnly;
-  const selectedBlockIndex = ast.blocks.findIndex((block) => block.id === selectedBlockId);
-  const selectedBlock = selectedBlockIndex >= 0 ? ast.blocks[selectedBlockIndex] : null;
-  const patchBlock = (blockId: string, patch: Partial<AstBlock>) => {
-    setAst((current) => ({
-      ...current,
-      blocks: current.blocks.map((block) => block.id === blockId ? { ...block, ...patch } : block),
+  const pages = splitPages(ast.blocks);
+  const pageCount = Math.max(1, pages.length);
+  const currentPage = Math.min(selectedPage + 1, pageCount);
+  const selectedAudience = ast.audience ?? "all";
+
+  const employeeItems: SelectorItem[] = employees
+    .filter((employee) => selectedAudience === "all"
+      || employee.employee_type === selectedAudience)
+    .map((employee) => ({
+      id: employee.id,
+      label: employee.employee_name,
+      sublabel: [employee.dms_code, employee.itop_number].filter(Boolean).join(" · "),
     }));
-  };
 
-  const patchPage = (patch: Partial<DocumentAst["page"]>) => {
-    setAst((current) => ({ ...current, page: { ...current.page, ...patch } }));
-  };
-
-  const moveBlock = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= ast.blocks.length) return;
-    const blocks = [...ast.blocks];
-    [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
-    setAst((current) => ({ ...current, blocks }));
-  };
-
-  const addBlock = (type: BlockType) => {
-    const block = makeBlock(type);
-    setAst((current) => ({ ...current, blocks: [...current.blocks, block] }));
-    setSelectedBlockId(block.id);
-  };
-
-  const removeBlock = (blockId: string) => {
-    const index = ast.blocks.findIndex((block) => block.id === blockId);
-    const next = ast.blocks.filter((block) => block.id !== blockId);
-    setAst((current) => ({ ...current, blocks: next }));
-    if (selectedBlockId === blockId) setSelectedBlockId(next[Math.max(0, index - 1)]?.id || next[0]?.id || null);
-  };
-
-  const insertVariable = (key: string) => {
-    const option = variables.find((item) => item.key === key);
-    if (!selectedBlock) {
-      setErrorMessage(t("document_template_editor.select_text_block"));
-      return;
+  const loadSavedPreview = async (versionNumber: number) => {
+    if (!templateId) return;
+    setSavedError("");
+    try {
+      const response = await apiClient.post("v1/documents/render/preview", {
+        template_id: templateId,
+        version_number: versionNumber,
+        document_data: previewValues,
+      }, { headers });
+      setSavedHtml(response.data.data.html || "");
+      setPreviewMode("saved");
+    } catch (error: unknown) {
+      setSavedError(getDocumentErrorMessage(error, t("document_template_editor.preview_error")));
     }
-    const token = `{{ ${key} }}`;
-    if (selectedBlock.type === "heading" || selectedBlock.type === "paragraph") {
-      const text = typeof selectedBlock.text === "string" ? selectedBlock.text : "";
-      patchBlock(selectedBlock.id, { text: `${text}${text ? " " : ""}${token}` });
-    } else if (selectedBlock.type === "signature") {
-      const fallback = (selectedBlock.fallback && typeof selectedBlock.fallback === "object"
-        ? selectedBlock.fallback
-        : {}) as Record<string, unknown>;
-      const currentName = typeof fallback.name === "string" ? fallback.name : "";
-      patchBlock(selectedBlock.id, {
-        fallback: { ...fallback, name: `${currentName}${currentName ? " " : ""}${token}` },
-      });
-    } else {
-      setErrorMessage(t("document_template_editor.select_text_block"));
-      return;
-    }
-    setFields((current) => current.some((field) => field.key === key)
-      ? current
-      : [...current, {
-          key,
-          label: option?.label || key,
-          label_bn: option?.label_bn || "",
-          type: option?.type || "text",
-          required: !option?.readonly,
-          source: option?.source || null,
-          readonly: option?.readonly || false,
-          default: "",
-          options: [],
-        }]);
-    setErrorMessage("");
-  };
-
-  const updateVariable = (key: string, patch: Partial<VariableField>) => {
-    setFields((current) => current.map((field) => field.key === key ? { ...field, ...patch } : field));
   };
 
   const loadSavedVersion = async (versionNumber: number) => {
@@ -281,28 +248,15 @@ export default function DocumentTemplateEditorPage() {
         `v1/documents/templates/${templateId}/versions/${versionNumber}`,
         { headers },
       );
-      setAst(response.data.data.content_json);
-      setFields(response.data.data.variables_schema?.fields || []);
+      const version = response.data.data;
+      setAst(version.content_json);
+      setFields(version.variables_schema?.fields || []);
       setSourceVersion(versionNumber);
-      setSelectedBlockId(response.data.data.content_json.blocks[0]?.id || null);
-      setPreviewHtml("");
+      setSelectedBlockId(version.content_json.blocks[0]?.id || null);
+      setSelectedPage(0);
+      await loadSavedPreview(versionNumber);
     } catch (error: unknown) {
       setErrorMessage(getDocumentErrorMessage(error, t("document_template_editor.load_error")));
-    }
-  };
-
-  const loadPreview = async (versionNumber: number) => {
-    if (!templateId) return;
-    setPreviewError("");
-    try {
-      const response = await apiClient.post("v1/documents/render/preview", {
-        template_id: templateId,
-        version_number: versionNumber,
-        document_data: previewValues,
-      }, { headers });
-      setPreviewHtml(response.data.data.html);
-    } catch (error: unknown) {
-      setPreviewError(getDocumentErrorMessage(error, t("document_template_editor.preview_error")));
     }
   };
 
@@ -311,7 +265,7 @@ export default function DocumentTemplateEditorPage() {
     setSaving(true);
     setErrorMessage("");
     setSuccessMessage("");
-    setPreviewError("");
+    setLiveError("");
     try {
       const response = await apiClient.post(
         `v1/documents/templates/${templateId}/versions`,
@@ -326,11 +280,15 @@ export default function DocumentTemplateEditorPage() {
       const saved = response.data.data as TemplateVersion;
       setSourceVersion(saved.version_number);
       setVersionNotes("");
-      await loadVersionHistory();
-      setSuccessMessage(publish ? t("document_template_editor.published_success") : t("document_template_editor.saved"));
-      await loadPreview(saved.version_number);
+      await loadVersions();
+      setSuccessMessage(publish
+        ? t("document_template_editor.published_success")
+        : t("document_template_editor.saved"));
+      await loadSavedPreview(saved.version_number);
     } catch (error: unknown) {
-      setErrorMessage(getDocumentErrorMessage(error, t(publish ? "document_template_editor.publish_error" : "document_template_editor.save_error")));
+      setErrorMessage(getDocumentErrorMessage(error, t(
+        publish ? "document_template_editor.publish_error" : "document_template_editor.save_error",
+      )));
     } finally {
       setSaving(false);
     }
@@ -347,7 +305,7 @@ export default function DocumentTemplateEditorPage() {
         {},
         { headers },
       );
-      await loadVersionHistory();
+      await loadVersions();
       setSuccessMessage(t("document_template_editor.published_success"));
     } catch (error: unknown) {
       setErrorMessage(getDocumentErrorMessage(error, t("document_template_editor.publish_error")));
@@ -356,202 +314,259 @@ export default function DocumentTemplateEditorPage() {
     }
   };
 
-  const blockTypeLabel = (type: BlockType) => t(`document_template_editor.${type}`);
-  const alignmentOptions = ["left", "center", "right", "justify"] as const;
-  const addOptions: BlockType[] = ["heading", "paragraph", "spacer", "divider", "signature", "page_break"];
+  const uploadAsset = async (file: File): Promise<boolean> => {
+    if (!templateId || !editable) return false;
+    setAssetUploadError("");
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      await apiClient.post(`v1/documents/templates/${templateId}/assets`, body, { headers });
+      await loadAssets();
+      setRefreshToken((value) => value + 1);
+      return true;
+    } catch (error: unknown) {
+      setAssetUploadError(getDocumentErrorMessage(error, t("document_template_editor.asset_upload_error")));
+      return false;
+    }
+  };
+
+  const deleteAsset = async (assetId: number) => {
+    if (!templateId || !editable) return;
+    setAssetUploadError("");
+    try {
+      await apiClient.delete(`v1/documents/templates/${templateId}/assets/${assetId}`, { headers });
+      setAst((current) => ({
+        ...current,
+        blocks: current.blocks.map((block) =>
+          block.type === "image" && block.asset_id === assetId
+            ? { ...block, asset_id: null }
+            : block),
+      }));
+      await loadAssets();
+      setRefreshToken((value) => value + 1);
+    } catch (error: unknown) {
+      setAssetUploadError(getDocumentErrorMessage(error, t("document_template_editor.asset_upload_error")));
+    }
+  };
+
+  const selectPage = (index: number) => {
+    setSelectedPage(index);
+    const nextPage = splitPages(ast.blocks)[index] ?? [];
+    const firstEditable = nextPage.find((block) => block.type !== "page_break");
+    setSelectedBlockId(firstEditable?.id ?? null);
+  };
+
+  const previewHtml = previewMode === "live" ? liveHtml : savedHtml;
+  const previewErrorMessage = previewMode === "live" ? liveError : savedError;
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("document_template_editor.title")}</h1>
-          <PageGuideModal pageKey="document_template_editor" />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href="/documents/templates" className="inline-flex min-h-11 items-center rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800">{t("common.back")}</Link>
-          {template && (
-            <TemplateDeleteButton
-              templateId={template.id}
-              templateName={template.name}
-              scope={template.scope}
-              isDefault={template.is_default}
-              canManage={canManage}
-              isSuperAdmin={isSuperAdmin}
-              headers={selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {}}
-              onDeleted={handleTemplateDeleted}
-              variant="full"
-            />
-          )}
+    <div className="space-y-4">
+      <nav aria-label={t("document_template_editor.breadcrumb_label")} className="text-[13px]">
+        <ol className="flex flex-wrap items-center gap-1.5 text-gray-500 dark:text-gray-400">
+          <li>
+            <Link href="/" className="inline-flex min-h-11 items-center gap-1.5 transition-colors hover:text-gray-700 dark:hover:text-gray-200">
+              <Home aria-hidden="true" className="size-4" />
+              {t("document_template_editor.breadcrumb_home")}
+            </Link>
+          </li>
+          <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+          <li>{t("document_template_editor.breadcrumb_documents")}</li>
+          <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+          <li>
+            <Link href="/documents/templates" className="inline-flex min-h-11 items-center transition-colors hover:text-gray-700 dark:hover:text-gray-200">
+              {t("document_template_editor.breadcrumb_templates")}
+            </Link>
+          </li>
+          <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+          <li aria-current="page" className="font-medium text-gray-700 dark:text-gray-300">
+            {t("document_template_editor.title")}
+          </li>
+        </ol>
+      </nav>
+      <header className="border-b border-gray-200 pb-4 dark:border-slate-700">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300">
+              <FileText aria-hidden="true" className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {t("document_template_editor.title")}
+                </h1>
+                <PageGuideModal pageKey="document_template_editor" />
+              </div>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {t("document_template_editor.subtitle")}
+              </p>
+            </div>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <Link href="/documents/templates" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800">
+              {t("common.back")}
+            </Link>
+            {template && (
+              <TemplateDeleteButton
+                templateId={template.id}
+                templateName={template.name}
+                scope={template.scope}
+                isDefault={template.is_default}
+                canManage={canManage}
+                isSuperAdmin={isSuperAdmin}
+                headers={headers}
+                onDeleted={handleTemplateDeleted}
+                variant="full"
+              />
+            )}
+          </div>
         </div>
       </header>
+
       {errorMessage && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{errorMessage}</p>}
       {successMessage && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{successMessage}</p>}
       {!selectedHouseId && <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{t("document_template_editor.select_house")}</p>}
+
       {loading ? (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
-          <div className="h-[620px] animate-pulse rounded-2xl bg-gray-100 dark:bg-slate-800" />
-          <div className="h-[620px] animate-pulse rounded-2xl bg-gray-100 dark:bg-slate-800" />
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="order-2 h-[720px] animate-pulse rounded-2xl bg-gray-100 dark:bg-slate-800 lg:order-1" />
+          <div className="order-1 h-[720px] animate-pulse rounded-2xl bg-gray-100 dark:bg-slate-800 lg:order-2" />
         </div>
       ) : !template ? (
-        <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{errorMessage || t("document_template_editor.load_error")}</p>
+        <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+          {errorMessage || t("document_template_editor.load_error")}
+        </p>
       ) : (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-            <div>
-              <p className="font-semibold text-gray-900 dark:text-gray-100">{template.name}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t(`documents.${template.scope}`)} · {sourceVersion ? t("document_template_editor.version", { version: sourceVersion }) : "-"}</p>
-            </div>
-            {globalReadOnly && <p className="text-sm text-amber-700 dark:text-amber-300">{t("document_template_editor.read_only_global")}</p>}
-            {!canManage && <p className="text-sm text-gray-500 dark:text-gray-400">{t("document_template_editor.read_only_permission")}</p>}
-          </div>
-
-          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
-            <section className="space-y-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-6">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <label className="space-y-1.5 text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  {t("document_template_editor.orientation")}
-                  <select
-                    value={ast.page.orientation}
-                    onChange={(event) => patchPage({ orientation: event.target.value as Orientation })}
-                    disabled={!editable}
-                    className={`${inputClass} cursor-pointer disabled:cursor-not-allowed`}
+        <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="order-2 min-w-0 space-y-3 lg:order-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900 sm:p-4">
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-bold text-gray-900 dark:text-gray-100">
+                  {t("document_template_editor.live_preview")}
+                </h2>
+                <p className="truncate text-xs text-gray-500 dark:text-gray-400">{template.name}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode("live")}
+                  className={`min-h-11 cursor-pointer rounded-lg px-3 text-xs font-semibold ${
+                    previewMode === "live"
+                      ? "bg-primary-600 text-white"
+                      : "border border-gray-200 text-gray-700 dark:border-slate-700 dark:text-gray-200"
+                  }`}
+                >
+                  {t("document_template_editor.live_preview")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sourceVersion && void loadSavedPreview(sourceVersion)}
+                  disabled={!sourceVersion}
+                  className={`min-h-11 cursor-pointer rounded-lg px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                    previewMode === "saved"
+                      ? "bg-primary-600 text-white"
+                      : "border border-gray-200 text-gray-700 dark:border-slate-700 dark:text-gray-200"
+                  }`}
+                >
+                  {t("document_template_editor.saved_preview")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRefreshToken((value) => value + 1)}
+                  title={t("document_template_editor.refresh_preview")}
+                  aria-label={t("document_template_editor.refresh_preview")}
+                  className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-slate-700 dark:text-gray-300 dark:hover:bg-slate-800"
+                >
+                  <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => selectPage(Math.max(0, selectedPage - 1))}
+                    disabled={currentPage <= 1}
+                    aria-label={t("common.prev")}
+                    title={t("common.prev")}
+                    className="min-h-11 min-w-11 cursor-pointer rounded-lg text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-800"
                   >
-                    <option value="portrait">{t("document_template_editor.portrait")}</option>
-                    <option value="landscape">{t("document_template_editor.landscape")}</option>
-                  </select>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {addOptions.map((type) => (
-                    <button key={type} type="button" onClick={() => addBlock(type)} disabled={!editable || ast.blocks.length >= 300} className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-gray-200 dark:hover:bg-slate-800">
-                      <Plus className="h-3.5 w-3.5" />{blockTypeLabel(type)}
-                    </button>
-                  ))}
+                    <ChevronLeft className="mx-auto h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <span className="min-w-20 px-1 text-center text-xs font-semibold text-gray-700 dark:text-gray-200">
+                    {t("document_template_editor.page_counter", { current: currentPage, total: pageCount })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => selectPage(Math.min(pageCount - 1, selectedPage + 1))}
+                    disabled={currentPage >= pageCount}
+                    aria-label={t("common.next")}
+                    title={t("common.next")}
+                    className="min-h-11 min-w-11 cursor-pointer rounded-lg text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-800"
+                  >
+                    <ChevronRight className="mx-auto h-4 w-4" aria-hidden="true" />
+                  </button>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-3">
-                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("document_template_editor.blocks")}</h2>
-                {ast.blocks.length === 0 && <p className="rounded-xl bg-gray-50 p-4 text-sm text-gray-500 dark:bg-slate-950 dark:text-gray-400">{t("documents.no_templates")}</p>}
-                {ast.blocks.map((block, index) => {
-                  const fallback = (block.fallback && typeof block.fallback === "object" ? block.fallback : {}) as Record<string, unknown>;
-                  return (
-                    <article key={block.id} className={`space-y-3 rounded-xl border p-3 ${selectedBlockId === block.id ? "border-primary-400 ring-1 ring-primary-400/30" : "border-gray-200 dark:border-slate-700"}`} onClick={() => setSelectedBlockId(block.id)}>
-                      <div className="flex items-center justify-between gap-2">
-                        <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedBlockId(block.id); }} className="min-h-11 cursor-pointer text-sm font-semibold text-gray-900 dark:text-gray-100">{index + 1}. {blockTypeLabel(block.type)}</button>
-                        <div className="flex items-center gap-1">
-                          <button type="button" aria-label={t("common.move_up")} title={t("common.move_up")} disabled={!editable || index === 0} onClick={(event) => { event.stopPropagation(); moveBlock(index, -1); }} className="min-h-11 min-w-11 cursor-pointer rounded-lg text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-800"><ArrowUp className="mx-auto h-4 w-4" /></button>
-                          <button type="button" aria-label={t("common.move_down")} title={t("common.move_down")} disabled={!editable || index === ast.blocks.length - 1} onClick={(event) => { event.stopPropagation(); moveBlock(index, 1); }} className="min-h-11 min-w-11 cursor-pointer rounded-lg text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-slate-800"><ArrowDown className="mx-auto h-4 w-4" /></button>
-                          <button type="button" aria-label={t("common.delete")} title={t("common.delete")} disabled={!editable} onClick={(event) => { event.stopPropagation(); removeBlock(block.id); }} className="min-h-11 min-w-11 cursor-pointer rounded-lg text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-950/30"><Trash2 className="mx-auto h-4 w-4" /></button>
-                        </div>
-                      </div>
+            {missingImages.length > 0 && previewMode === "live" && (
+              <p role="status" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                {t("document_template_editor.missing_images", { sources: missingImages.join(", ") })}
+              </p>
+            )}
 
-                      {(block.type === "heading" || block.type === "paragraph") && (
-                        <>
-                          <textarea value={typeof block.text === "string" ? block.text : ""} onChange={(event) => patchBlock(block.id, { text: event.target.value })} disabled={!editable} maxLength={20000} rows={block.type === "heading" ? 2 : 4} className={`${inputClass} min-h-0 resize-y`} aria-label={t("document_template_editor.block_text")} />
-                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                            <label className="text-xs text-gray-500 dark:text-gray-400">{t("document_template_editor.alignment")}<select value={String(block.align || "left")} onChange={(event) => patchBlock(block.id, { align: event.target.value })} disabled={!editable} className={`${inputClass} mt-1 cursor-pointer`}>{alignmentOptions.map((item) => <option key={item} value={item}>{t(`document_template_editor.${item}`)}</option>)}</select></label>
-                            <label className="text-xs text-gray-500 dark:text-gray-400">{t("document_template_editor.font_size")}<input type="number" min={6} max={40} value={Number(block.size || 12)} onChange={(event) => patchBlock(block.id, { size: Number(event.target.value) })} disabled={!editable} className={`${inputClass} mt-1`} /></label>
-                            <label className="text-xs text-gray-500 dark:text-gray-400">{t("document_template_editor.line_height")}<input type="number" min={1} max={3} step={0.1} value={Number(block.line_height || 1.7)} onChange={(event) => patchBlock(block.id, { line_height: Number(event.target.value) })} disabled={!editable} className={`${inputClass} mt-1`} /></label>
-                            <label className="flex min-h-11 cursor-pointer items-center gap-2 pt-4 text-sm text-gray-700 dark:text-gray-300"><input type="checkbox" checked={Boolean(block.bold)} onChange={(event) => patchBlock(block.id, { bold: event.target.checked })} disabled={!editable} className="h-4 w-4 cursor-pointer rounded border-gray-300 disabled:cursor-not-allowed" />{t("document_template_editor.bold")}</label>
-                          </div>
-                        </>
-                      )}
-
-                      {block.type === "spacer" && <label className="block max-w-xs text-xs text-gray-500 dark:text-gray-400">{t("document_template_editor.spacer_height")}<input type="number" min={1} max={100} value={Number(block.height || 8)} onChange={(event) => patchBlock(block.id, { height: Number(event.target.value) })} disabled={!editable} className={`${inputClass} mt-1`} /></label>}
-                      {block.type === "divider" && <label className="block max-w-xs text-xs text-gray-500 dark:text-gray-400">{t("document_template_editor.divider_size")}<input type="number" min={0.5} max={4} step={0.5} value={Number(block.size || 1)} onChange={(event) => patchBlock(block.id, { size: Number(event.target.value) })} disabled={!editable} className={`${inputClass} mt-1`} /></label>}
-                      {block.type === "signature" && (
-                        <>
-                          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input type="checkbox" checked={Boolean(block.show_image)} onChange={(event) => patchBlock(block.id, { show_image: event.target.checked })} disabled={!editable} className="h-4 w-4 cursor-pointer rounded border-gray-300 disabled:cursor-not-allowed" />{t("document_template_editor.show_signature_image")}</label>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {(["name", "designation", "organization", "phone"] as const).map((key) => (
-                              <label key={key} className="text-xs text-gray-500 dark:text-gray-400">{t(`document_template_editor.fallback_${key}`)}<input value={typeof fallback[key] === "string" ? fallback[key] as string : ""} onChange={(event) => patchBlock(block.id, { fallback: { ...fallback, [key]: event.target.value } })} disabled={!editable} className={`${inputClass} mt-1`} /></label>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-
-              <div className="grid grid-cols-1 items-end gap-3 border-t border-gray-100 pt-4 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {t("document_template_editor.available_variables")}
-                  <select value={selectedVariableKey} onChange={(event) => setSelectedVariableKey(event.target.value)} disabled={!editable || !variables.length} className={`${inputClass} mt-1 cursor-pointer disabled:cursor-not-allowed`}>
-                    <option value="">—</option>
-                    {variables.map((variable) => <option key={variable.key} value={variable.key}>{language === "bn" ? variable.label_bn || variable.label : variable.label} · {variable.key}</option>)}
-                  </select>
-                </label>
-                <button type="button" onClick={() => selectedVariableKey && insertVariable(selectedVariableKey)} disabled={!editable || !selectedVariableKey} className="min-h-11 cursor-pointer rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-gray-200">{t("document_template_editor.insert_variable")}</button>
-              </div>
-
-              <div className="space-y-3 border-t border-gray-100 pt-4 dark:border-slate-800">
-                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">{t("document_template_editor.variables")}</h2>
-                {fields.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{t("document_template_editor.no_variables")}</p>
-                ) : fields.map((field) => (
-                  <div key={field.key} className="grid grid-cols-1 items-center gap-3 rounded-xl bg-gray-50 p-3 dark:bg-slate-950 sm:grid-cols-[minmax(0,1fr)_auto]">
-                    <div className="min-w-0">
-                      <p className="truncate font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">{`{{ ${field.key} }}`}{field.readonly && <span className="ml-2 font-sans font-normal text-gray-500">· {language === "bn" ? "স্বয়ংক্রিয়" : "auto"}</span>}</p>
-                      <label className="mt-2 block text-xs text-gray-500 dark:text-gray-400">{t("document_template_editor.default_value")}<input value={field.default || ""} onChange={(event) => updateVariable(field.key, { default: event.target.value })} disabled={!editable || field.readonly} className={`${inputClass} mt-1`} /></label>
-                    </div>
-                    <label className={`flex min-h-11 cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300 ${field.readonly ? "opacity-50" : ""}`}>
-                      <input type="checkbox" checked={field.required} onChange={(event) => updateVariable(field.key, { required: event.target.checked })} disabled={!editable || field.readonly} className="h-4 w-4 cursor-pointer rounded border-gray-300 disabled:cursor-not-allowed" />
-                      {t("document_template_editor.required")}
-                    </label>
-                  </div>
-                ))}
-              </div>
-
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t("document_template_editor.version_notes")}<input value={versionNotes} onChange={(event) => setVersionNotes(event.target.value)} disabled={!editable} maxLength={1000} className={`${inputClass} mt-1`} /></label>
-              <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4 dark:border-slate-800">
-                <button type="button" onClick={() => void saveVersion(false)} disabled={!editable || saving} className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-gray-200"><Save className="h-4 w-4" />{saving ? t("document_template_editor.saving") : t("document_template_editor.save_draft")}</button>
-                <button type="button" onClick={() => void saveVersion(true)} disabled={!editable || saving} className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50">{t("document_template_editor.publish_version")}</button>
-              </div>
-            </section>
-
-            <aside className="space-y-5">
-              <section className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-5">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">{t("document_template_editor.version_history")}</h2>
-                  <span className="text-xs text-gray-500">{sourceVersion ? t("document_template_editor.version", { version: sourceVersion }) : "-"}</span>
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 p-3 dark:border-slate-700 dark:bg-slate-950 sm:p-6">
+              {previewErrorMessage ? (
+                <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+                  {previewErrorMessage}
+                </p>
+              ) : previewHtml ? (
+                <iframe
+                  title={t("document_template_editor.live_preview")}
+                  srcDoc={previewHtml}
+                  sandbox=""
+                  className="mx-auto aspect-[210/297] w-full min-w-0 max-w-[794px] bg-white shadow-lg"
+                />
+              ) : (
+                <div className="flex min-h-96 items-center justify-center rounded-xl bg-white p-6 text-center text-sm text-gray-500 dark:bg-slate-900 dark:text-gray-400">
+                  {t("document_template_editor.preview_loading")}
                 </div>
-                <div className="space-y-2">
-                  {versions.map((version) => (
-                    <div key={version.id} className="flex items-center gap-2 rounded-xl border border-gray-100 p-2.5 dark:border-slate-800">
-                      <button type="button" onClick={() => void loadSavedVersion(version.version_number)} className="min-h-11 min-w-0 flex-1 cursor-pointer text-left">
-                        <span className="block font-semibold text-gray-800 dark:text-gray-200">{t("document_template_editor.version", { version: version.version_number })}</span>
-                        <span className="text-[11px] text-gray-500 dark:text-gray-400">{version.is_published ? t("document_template_editor.published") : t("document_template_editor.unpublished")} · {version.version_notes || "-"}</span>
-                      </button>
-                      {!version.is_published && editable && <button type="button" onClick={() => void publishVersion(version.version_number)} disabled={saving} className="min-h-11 cursor-pointer rounded-lg px-2 text-xs font-semibold text-primary-700 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-300 dark:hover:bg-primary-950/30">{t("document_template_editor.publish_saved")}</button>}
-                    </div>
-                  ))}
-                </div>
-              </section>
+              )}
+            </div>
+          </section>
 
-              <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 p-4 dark:border-slate-800">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">{t("document_template_editor.preview")}</h2>
-                  <button type="button" onClick={() => sourceVersion && void loadPreview(sourceVersion)} disabled={!sourceVersion || !selectedHouseId} className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg bg-sky-50 px-3 text-xs font-semibold text-sky-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-sky-950/40 dark:text-sky-200"><Eye className="h-4 w-4" />{t("document_template_editor.preview")}</button>
-                </div>
-                {fields.filter((field) => !field.readonly).length > 0 && (
-                  <div className="grid grid-cols-1 gap-2 border-b border-gray-100 p-4 dark:border-slate-800 sm:grid-cols-2">
-                    {fields.filter((field) => !field.readonly).map((field) => (
-                      <label key={field.key} className="text-xs text-gray-500 dark:text-gray-400">{language === "bn" ? field.label_bn || field.label : field.label}<input value={previewValues[field.key] || ""} onChange={(event) => setPreviewValues((current) => ({ ...current, [field.key]: event.target.value }))} placeholder={field.default || ""} className={`${inputClass} mt-1`} /></label>
-                    ))}
-                  </div>
-                )}
-                {previewError ? (
-                  <p role="alert" className="p-4 text-sm text-red-700 dark:text-red-300">{previewError}</p>
-                ) : previewHtml ? (
-                  <iframe title={t("document_template_editor.preview")} srcDoc={previewHtml} sandbox="" className="h-[640px] w-full bg-white" />
-                ) : (
-                  <div className="flex min-h-48 items-center justify-center p-6 text-center text-sm text-gray-500 dark:text-gray-400">{t("document_template_editor.preview_empty")}</div>
-                )}
-              </section>
-            </aside>
+          <div className="order-1 min-w-0 lg:order-2">
+            <OptionsPanel
+              template={template}
+              ast={ast}
+              fields={fields}
+              variables={variables}
+              versions={versions}
+              sourceVersion={sourceVersion}
+              assets={assets}
+              employeeItems={employeeItems}
+              employeeQuery={employeeQuery}
+              selectedEmployeeId={selectedEmployeeId}
+              onEmployeeSearchChange={setEmployeeQuery}
+              onSelectEmployee={setSelectedEmployeeId}
+              selectedPage={selectedPage}
+              onSelectPage={selectPage}
+              selectedBlockId={selectedBlockId}
+              onSelectBlock={setSelectedBlockId}
+              onAstChange={setAst}
+              onFieldsChange={setFields}
+              versionNotes={versionNotes}
+              onVersionNotesChange={setVersionNotes}
+              onSave={(publish) => void saveVersion(publish)}
+              onPublishVersion={(versionNumber) => void publishVersion(versionNumber)}
+              onLoadVersion={(versionNumber) => void loadSavedVersion(versionNumber)}
+              onUploadAsset={uploadAsset}
+              onDeleteAsset={deleteAsset}
+              uploadError={assetUploadError}
+              editable={editable}
+              saving={saving}
+              globalReadOnly={globalReadOnly}
+              canManage={canManage}
+            />
           </div>
-        </>
+        </div>
       )}
     </div>
   );

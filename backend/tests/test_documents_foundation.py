@@ -230,9 +230,10 @@ def test_noc_ast_has_no_raw_html():
 
 async def test_seed_is_idempotent(db):
     first = await document_seed.seed_documents_module(db)
+    # One global default per document type: NOC and RESIGNATION.
     assert first["types"] == len(document_seed.DOCUMENT_TYPES)
-    assert first["templates"] == 1
-    assert first["versions"] == 1
+    assert first["templates"] == 2
+    assert first["versions"] == 2
 
     second = await document_seed.seed_documents_module(db)
     assert second == {"types": 0, "templates": 0, "versions": 0}
@@ -241,16 +242,31 @@ async def test_seed_is_idempotent(db):
     templates = (await db.execute(select(func.count(DocumentTemplate.id)))).scalar()
     versions = (await db.execute(select(func.count(DocumentTemplateVersion.id)))).scalar()
     assert types == len(document_seed.DOCUMENT_TYPES)
-    assert templates == 1
-    assert versions == 1
+    assert templates == 2
+    assert versions == 2
+    seeded_names = set((await db.execute(select(DocumentTemplate.name))).scalars().all())
+    assert seeded_names == {
+        document_seed.NOC_TEMPLATE_NAME,
+        document_seed.RESIGNATION_TEMPLATE_NAME,
+    }
 
 
 async def test_seed_publishes_the_default_noc_version(db):
     await document_seed.seed_documents_module(db)
-    version = (await db.execute(select(DocumentTemplateVersion))).scalar_one()
+    noc = (await db.execute(
+        select(DocumentTemplate).where(
+            DocumentTemplate.name == document_seed.NOC_TEMPLATE_NAME
+        )
+    )).scalar_one()
+    version = (await db.execute(
+        select(DocumentTemplateVersion).where(
+            DocumentTemplateVersion.template_id == noc.id
+        )
+    )).scalar_one()
     assert version.is_published is True
     assert version.published_at is not None
-    assert version.content_json["schema_version"] == document_ast.AST_SCHEMA_VERSION
+    # Existing NOC bodies stay on v1; only newly authored templates start at v2.
+    assert version.content_json["schema_version"] == 1
 
 
 # --------------------------------------------------------------------------- #

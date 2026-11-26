@@ -359,6 +359,7 @@ export default function DocumentTemplatesPage() {
         open={createOpen}
         onClose={closeCreate}
         types={types}
+        houses={user?.houses ?? []}
         selectedHouseId={selectedHouseId}
         selectedHouseName={selectedHouseName}
         canCreateGlobal={canCreateGlobal}

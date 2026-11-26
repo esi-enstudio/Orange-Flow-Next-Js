@@ -39,8 +39,8 @@ from typing import Iterable, Optional
 
 # Bump when the block structure changes in a way that needs a converter. Stored
 # templates keep their own version, so old templates keep rendering.
-AST_SCHEMA_VERSION = 1
-SUPPORTED_AST_VERSIONS = (1,)
+AST_SCHEMA_VERSION = 2
+SUPPORTED_AST_VERSIONS = (1, 2)
 
 BLOCK_TYPES = (
     "heading",
@@ -49,7 +49,11 @@ BLOCK_TYPES = (
     "divider",
     "signature",
     "page_break",
+    "image",
 )
+IMAGE_SOURCES = ("resignation_letter", "employee_nid")
+IMAGE_SOURCE_KINDS = ("dynamic", "manual")
+AUDIENCES = ("all", "rso", "bp")
 ALIGNMENTS = ("left", "center", "right", "justify")
 ORIENTATIONS = ("portrait", "landscape")
 FIELD_TYPES = ("text", "textarea", "date", "number", "select")
@@ -172,7 +176,13 @@ def _block_id(value) -> str:
     return uuid.uuid4().hex[:12]
 
 
-def _clean_block(raw) -> Optional[dict]:
+def _asset_id(value) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise AstError("asset_id must be a positive integer")
+    return value
+
+
+def _clean_block(raw, schema_version: int = AST_SCHEMA_VERSION) -> Optional[dict]:
     """Normalise one block. Returns None for an unknown block type."""
     if not isinstance(raw, dict):
         raise AstError("Every block must be an object")
@@ -204,6 +214,30 @@ def _clean_block(raw) -> Optional[dict]:
                 "organization": _text(fallback.get("organization"), 200),
                 "phone": _text(fallback.get("phone"), 100),
             }
+    elif block_type == "image":
+        if schema_version < 2:
+            raise AstError("Image blocks require template schema version 2")
+        source_kind = raw.get("source_kind")
+        if source_kind not in IMAGE_SOURCE_KINDS:
+            raise AstError(f"Unknown image source kind: {source_kind!r}")
+        source = None
+        asset_id = None
+        if source_kind == "dynamic":
+            source = raw.get("source")
+            if source not in IMAGE_SOURCES:
+                raise AstError(f"Unknown image source: {source!r}")
+            if raw.get("asset_id") is not None:
+                raise AstError("asset_id is only valid for manual image blocks")
+        else:
+            asset_id = _asset_id(raw.get("asset_id"))
+        block["source_kind"] = source_kind
+        block["source"] = source
+        block["asset_id"] = asset_id
+        block["align"] = _align(raw.get("align"), "center")
+        block["max_width_mm"] = int(_number(raw.get("max_width_mm"), 170, 20, 190))
+        block["max_height_mm"] = int(_number(raw.get("max_height_mm"), 240, 20, 260))
+        block["required"] = _flag(raw.get("required"), True)
+        block["fallback_text"] = _text(raw.get("fallback_text"), 200)
     # page_break carries nothing else
 
     return block
@@ -241,10 +275,15 @@ def validate_ast(payload) -> dict:
     if len(blocks_raw) > MAX_BLOCKS:
         raise AstError(f"A template may have at most {MAX_BLOCKS} blocks")
 
-    blocks = [_clean_block(raw) for raw in blocks_raw]
+    audience = payload.get("audience", "all")
+    if audience not in AUDIENCES:
+        raise AstError(f"Unknown audience: {audience!r}")
+
+    blocks = [_clean_block(raw, schema_version) for raw in blocks_raw]
 
     return {
-        "schema_version": AST_SCHEMA_VERSION,
+        "schema_version": schema_version,
+        "audience": audience,
         "page": {
             "format": "A4",
             "orientation": orientation,
@@ -254,6 +293,37 @@ def validate_ast(payload) -> dict:
         },
         "blocks": blocks,
     }
+
+
+def collect_image_sources(ast: dict) -> set:
+    """Allow-listed dynamic image source keys used by the AST."""
+    return {
+        block["source"]
+        for block in ast.get("blocks", [])
+        if block.get("type") == "image" and block.get("source_kind") == "dynamic" and block.get("source")
+    }
+
+
+def collect_asset_ids(ast: dict) -> set:
+    """Manual template asset ids referenced by the AST."""
+    return {
+        block["asset_id"]
+        for block in ast.get("blocks", [])
+        if block.get("type") == "image" and block.get("source_kind") == "manual" and block.get("asset_id")
+    }
+
+
+def collect_required_image_keys(ast: dict) -> set:
+    """Image keys marked required, in the same form the resolver returns."""
+    keys = set()
+    for block in ast.get("blocks", []):
+        if block.get("type") != "image" or not block.get("required", True):
+            continue
+        if block.get("source_kind") == "manual" and block.get("asset_id"):
+            keys.add(f"manual:{block['asset_id']}")
+        elif block.get("source"):
+            keys.add(block["source"])
+    return keys
 
 
 # --------------------------------------------------------------------------- #

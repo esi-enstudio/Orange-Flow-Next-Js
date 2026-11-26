@@ -1,14 +1,33 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, FileText, CheckCircle2, AlertCircle, HelpCircle, Search, ChevronLeft, ChevronRight, Upload, Loader2, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  FileText,
+  HelpCircle,
+  Home,
+  LayoutTemplate,
+  Loader2,
+  RefreshCw,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import EntitySelector, { type SelectorItem } from "@/app/zoom-in/_components/EntitySelector";
 import { cn } from "@/lib/utils";
+import { getDocumentErrorMessage } from "@/lib/documents";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import PageGuideModal from "@/components/PageGuideModal";
@@ -22,6 +41,78 @@ function fileSize(bytes: number): string {
   return bytes >= 1024 * 1024
     ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+interface ResignationTemplate {
+  id: number;
+  name: string;
+  scope: "global" | "house";
+  is_default: boolean;
+  is_active: boolean;
+  latest_version?: {
+    version_number?: number;
+    is_published?: boolean;
+    published_version?: number;
+  } | null;
+}
+
+/** apiClient keeps structured codes in `error_code` while flattening `detail`. */
+function getDocumentErrorCode(error: unknown): string {
+  if (typeof error !== "object" || error === null || !("response" in error)) return "";
+  const data = (error as { response?: { data?: unknown } }).response?.data;
+  if (typeof data !== "object" || data === null || !("error_code" in data)) return "";
+  const code = (data as { error_code?: unknown }).error_code;
+  return typeof code === "string" ? code : "";
+}
+
+function PageHeader({
+  action,
+  title,
+  subtitle,
+  t,
+}: {
+  action: React.ReactNode;
+  title: string;
+  subtitle: string;
+  t: (path: string, params?: Record<string, string | number | undefined>) => string;
+}) {
+  return (
+    <header className="border-b border-gray-200 pb-4 dark:border-slate-700">
+      <nav aria-label={t("resignation_docs.breadcrumb_label")} className="-mt-1 mb-3 text-[13px]">
+        <ol className="flex flex-wrap items-center gap-1.5 text-gray-500 dark:text-gray-400">
+          <li>
+            <Link href="/" className="inline-flex min-h-11 items-center gap-1.5 transition-colors hover:text-gray-700 dark:hover:text-gray-200">
+              <Home aria-hidden="true" className="size-4" />
+              {t("resignation_docs.breadcrumb_home")}
+            </Link>
+          </li>
+          <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+          <li>
+            <Link href="/employees" className="inline-flex min-h-11 items-center transition-colors hover:text-gray-700 dark:hover:text-gray-200">
+              {t("resignation_docs.breadcrumb_employees")}
+            </Link>
+          </li>
+          <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+          <li aria-current="page" className="font-medium text-gray-700 dark:text-gray-300">{title}</li>
+        </ol>
+      </nav>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300">
+            <FileText aria-hidden="true" className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{title}</h1>
+              <PageGuideModal pageKey="resignation_docs" />
+            </div>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
+          </div>
+        </div>
+        {action}
+      </div>
+    </header>
+  );
 }
 
 /** Authenticated image endpoint turned into an object URL (plain <img> gets 401). */
@@ -91,13 +182,38 @@ export default function ResignationDocumentsPage() {
   const { t } = useLanguage();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { hasPermission } = useAuth();
+  const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
+  const selectedHouseId = selectedHouse?.id;
+  const headers = useMemo<Record<string, string>>(() => {
+    const result: Record<string, string> = {};
+    if (selectedHouseId) result["X-House-ID"] = String(selectedHouseId);
+    return result;
+  }, [selectedHouseId]);
+  const canReadTemplates = hasPermission("documents.templates.view") || hasPermission("documents.create");
+  const canCreateDocument = hasPermission("documents.create");
+  const canGenerateDocument = hasPermission("documents.generate");
+  const canDownloadDocument = hasPermission("documents.download");
 
   const empId = Number(searchParams.get("emp_id"));
   const hasEmpId = Number.isFinite(empId) && empId > 0;
   const [loading, setLoading] = useState(hasEmpId);
   const [data, setData] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
+
+  // Published RESIGNATION templates are the authoring source of truth. The
+  // legacy package endpoint stays on the server but is no longer surfaced.
+  const [templates, setTemplates] = useState<ResignationTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState("");
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [generationError, setGenerationError] = useState("");
+  const [failedDraftId, setFailedDraftId] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState("");
+  const [downloadTarget, setDownloadTarget] = useState<{ documentId: number; versionNumber: number } | null>(null);
+  const previewRequestId = useRef(0);
 
   // Employee picker (shown when no emp_id is in the URL, e.g. from the sidebar)
   const [overview, setOverview] = useState<{ data: any[]; pagination: any } | null>(null);
@@ -158,6 +274,86 @@ export default function ResignationDocumentsPage() {
     return () => clearTimeout(timer);
   }, [hasEmpId, page, search]);
 
+  const loadTemplates = useCallback(async () => {
+    if (!hasEmpId || !canReadTemplates) return;
+    setTemplatesLoading(true);
+    setTemplatesError("");
+    try {
+      const typesResponse = await apiClient.get("v1/documents/types");
+      const resignationType = (typesResponse.data.data as Array<{ id: number; code: string }>).find(
+        (item) => item.code === "RESIGNATION",
+      );
+      if (!resignationType) {
+        setTemplates([]);
+        setTemplatesError(t("resignation_docs.template_load_error"));
+        return;
+      }
+      const response = await apiClient.get("v1/documents/templates", {
+        params: { document_type_id: resignationType.id, per_page: 100 },
+        headers,
+      });
+      const published = (response.data.data as ResignationTemplate[]).filter(
+        (template) => template.is_active
+          && (template.latest_version?.is_published || template.latest_version?.published_version),
+      );
+      setTemplates(published);
+      setSelectedTemplateId((current) => published.some((item) => item.id === current)
+        ? current
+        : (published.find((item) => item.is_default) ?? published[0])?.id ?? null);
+    } catch (error: unknown) {
+      setTemplates([]);
+      setTemplatesError(getDocumentErrorMessage(error, t("resignation_docs.template_load_error")));
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }, [canReadTemplates, hasEmpId, headers, t]);
+
+  useEffect(() => {
+    if (authLoading || !hasEmpId) return;
+    void loadTemplates();
+  }, [authLoading, hasEmpId, loadTemplates]);
+
+  const templateItems = useMemo<SelectorItem[]>(() => templates.map((template) => ({
+    id: template.id,
+    label: template.name,
+    sublabel: t("resignation_docs.template_version", {
+      version: template.latest_version?.published_version ?? template.latest_version?.version_number ?? "-",
+    }),
+    badge: template.scope === "global" ? t("documents.global") : t("documents.house"),
+  })), [templates, t]);
+
+  const requestPreview = useCallback(async () => {
+    if (!hasEmpId || !selectedTemplateId || !selectedHouseId) {
+      setPreviewHtml("");
+      return;
+    }
+    const requestId = ++previewRequestId.current;
+    setPreviewLoading(true);
+    setPreviewError("");
+    try {
+      const response = await apiClient.post("v1/documents/render/preview", {
+        template_id: selectedTemplateId,
+        employee_id: empId,
+        document_data: {},
+      }, { headers });
+      if (requestId !== previewRequestId.current) return;
+      setPreviewHtml(response.data.data.html || "");
+    } catch (error: unknown) {
+      if (requestId !== previewRequestId.current) return;
+      setPreviewError(getDocumentErrorMessage(error, t("resignation_docs.preview_error")));
+    } finally {
+      if (requestId === previewRequestId.current) setPreviewLoading(false);
+    }
+  }, [empId, hasEmpId, headers, selectedHouseId, selectedTemplateId, t]);
+
+  useEffect(() => {
+    if (!hasEmpId || !selectedTemplateId) {
+      setPreviewHtml("");
+      return;
+    }
+    void requestPreview();
+  }, [data, hasEmpId, requestPreview, selectedTemplateId]);
+
   const uploadDocument = async (kind: "resignation_letter" | "nid", file: File) => {
     const setBusy = kind === "resignation_letter" ? setUploadingLetter : setUploadingNid;
     setBusy(true);
@@ -208,64 +404,151 @@ export default function ResignationDocumentsPage() {
     }
   };
 
-  const generatePdf = async () => {
-    setGenerating(true);
+  const generationErrorMessage = useCallback((error: unknown) => {
+    const code = getDocumentErrorCode(error);
+    if (code === "IMAGE_SOURCE_MISSING") {
+      // The api interceptor flattens structured details to a string, so use
+      // the already-loaded document status to name the missing scans.
+      const missingValues: unknown[] = Array.isArray(data?.missing) ? data.missing : [];
+      const missing = missingValues.filter((item): item is string =>
+        typeof item === "string" && ["resignation_letter", "nid", "employee_nid"].includes(item));
+      const labelFor = (source: string) =>
+        source === "resignation_letter"
+          ? t("resignation_docs.resignation_letter")
+          : source === "employee_nid" || source === "nid"
+            ? t("resignation_docs.nid")
+            : source;
+      const sources = missing.length > 0
+        ? missing.map(labelFor)
+        : [t("resignation_docs.resignation_letter"), t("resignation_docs.nid")];
+      return t("resignation_docs.error_image_source_missing", { sources: sources.join(", ") });
+    }
+    const errorKeys: Record<string, string> = {
+      EMPLOYEE_NOT_RESIGNED: "error_not_resigned",
+      RESIGNATION_LETTER_MISSING: "error_letter_missing",
+      NID_MISSING: "error_nid_missing",
+      LETTERHEAD_NOT_CONFIGURED: "error_letterhead_missing",
+      RESIGNATION_FILE_MISSING: "error_file_missing",
+      PDF_GENERATION_FAILED: "error_pdf_generation",
+      AUDIENCE_MISMATCH: "error_audience_mismatch",
+      DOCUMENT_TYPE_UNAVAILABLE: "error_document_type_unavailable",
+      DOCUMENT_NOT_DRAFT: "error_document_not_draft",
+      DOCUMENT_FIELDS_REQUIRED: "error_document_fields_required",
+      TEMPLATE_FORBIDDEN: "error_template_forbidden",
+      TEMPLATE_NOT_FOUND: "error_template_forbidden",
+      TEMPLATE_MISSING: "error_template_forbidden",
+      TEMPLATE_VERSION_MISSING: "error_template_forbidden",
+      HOUSE_REQUIRED: "select_house",
+      HOUSE_NOT_FOUND: "select_house",
+      VERSION_NOT_FOUND: "error_pdf_generation",
+      PDF_NOT_FOUND: "error_file_missing",
+    };
+    const key = errorKeys[code];
+    return key
+      ? t(`resignation_docs.${key}`)
+      : getDocumentErrorMessage(error, t("resignation_docs.generate_failed"));
+  }, [data, t]);
+
+  const downloadGeneratedVersion = useCallback(async (documentId: number, versionNumber: number) => {
+    setDownloadError("");
     try {
-      const res = await apiClient.post(
-        `employees/${empId}/resignation-package`,
-        {},
-        { responseType: "blob" }
+      const response = await apiClient.get(
+        `v1/documents/${documentId}/versions/${versionNumber}/download`,
+        { headers, responseType: "blob" },
       );
-      const url = window.URL.createObjectURL(
-        new Blob([res.data], { type: "application/pdf" })
-      );
-      const link = document.createElement("a");
-      link.href = url;
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+      const anchor = window.document.createElement("a");
+      anchor.href = url;
       const filenamePart = (value: string | number) =>
         String(value).trim().replace(/[\/\\:*?"<>|]+/g, "_");
-      const dmsCode = filenamePart(data.employee?.dms_code || empId);
-      const employeeName = filenamePart(data.employee?.employee_name || "Employee");
-      link.download = `${dmsCode}_${employeeName}_Resign_Letter.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const dmsCode = filenamePart(data?.employee?.dms_code || empId);
+      const employeeName = filenamePart(data?.employee?.employee_name || "Employee");
+      anchor.download = `${dmsCode}_${employeeName}_Resign_Letter_v${versionNumber}.pdf`;
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
       window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-      toast.success(t("resignation_docs.generate_success"));
-    } catch (err: any) {
-      let detail = err.response?.data?.detail;
-      if (err.response?.data instanceof Blob) {
-        try {
-          const payload = JSON.parse(await err.response.data.text());
-          detail = payload.detail;
-        } catch {
-          detail = undefined;
-        }
-      }
+      setDownloadTarget(null);
+      toast.success(t("resignation_docs.download_success"));
+    } catch (error: unknown) {
+      setDownloadTarget({ documentId, versionNumber });
+      setDownloadError(getDocumentErrorMessage(error, t("resignation_docs.download_error")));
+    }
+  }, [data, empId, headers, t]);
 
-      const errorKeys: Record<string, string> = {
-        EMPLOYEE_NOT_RESIGNED: "error_not_resigned",
-        RESIGNATION_LETTER_MISSING: "error_letter_missing",
-        NID_MISSING: "error_nid_missing",
-        LETTERHEAD_NOT_CONFIGURED: "error_letterhead_missing",
-        RESIGNATION_FILE_MISSING: "error_file_missing",
-        PDF_GENERATION_FAILED: "error_pdf_generation",
-      };
-      const message = detail?.code
-        ? t(`resignation_docs.${errorKeys[detail.code] || "generate_failed"}`)
-        : typeof detail === "string"
-          ? detail
-          : t("resignation_docs.generate_failed");
+  const generateDraftVersion = useCallback(async (draftId: number) => {
+    const generated = await apiClient.post(`v1/documents/${draftId}/generate`, {}, { headers });
+    const versionNumber = Number(generated.data.data.version.version_number);
+    if (!Number.isFinite(versionNumber) || versionNumber < 1) {
+      throw new Error("Missing generated version number");
+    }
+    setFailedDraftId(null);
+    toast.success(t("resignation_docs.generate_success"));
+    if (canDownloadDocument) await downloadGeneratedVersion(draftId, versionNumber);
+  }, [canDownloadDocument, downloadGeneratedVersion, headers, t]);
+
+  const generateAndDownload = async () => {
+    if (!selectedTemplateId) {
+      setGenerationError(t("resignation_docs.no_template_selected"));
+      return;
+    }
+    if (!selectedHouseId) {
+      setGenerationError(t("resignation_docs.select_house"));
+      return;
+    }
+    if (!canCreateDocument || !canGenerateDocument) {
+      setGenerationError(t("resignation_docs.generate_no_permission"));
+      return;
+    }
+    setGenerating(true);
+    setGenerationError("");
+    setDownloadError("");
+    setDownloadTarget(null);
+    setFailedDraftId(null);
+    let draftId: number | null = null;
+    try {
+      const draftResponse = await apiClient.post("v1/documents", {
+        template_id: selectedTemplateId,
+        employee_id: empId,
+        document_data: {},
+      }, { headers });
+      draftId = Number(draftResponse.data.data.id);
+      if (!Number.isFinite(draftId) || draftId < 1) {
+        throw new Error("Missing draft id");
+      }
+      // The draft is audited immediately. If generation fails it stays here
+      // and the user can retry without creating a second draft.
+      setFailedDraftId(draftId);
+      await generateDraftVersion(draftId);
+    } catch (error: unknown) {
+      if (draftId !== null) setFailedDraftId(draftId);
+      const message = generationErrorMessage(error);
+      setGenerationError(message);
       toast.error(message);
     } finally {
       setGenerating(false);
     }
   };
 
-  if (!hasPermission("employees.resignation_view")) {
-    return <AccessDenied />;
-  }
+  const retryGeneration = async () => {
+    if (failedDraftId === null || !canGenerateDocument) return;
+    setGenerating(true);
+    setGenerationError("");
+    setDownloadError("");
+    setDownloadTarget(null);
+    try {
+      await generateDraftVersion(failedDraftId);
+    } catch (error: unknown) {
+      setFailedDraftId(failedDraftId);
+      const message = generationErrorMessage(error);
+      setGenerationError(message);
+      toast.error(message);
+    } finally {
+      setGenerating(false);
+    }
+  };
 
-  if (loading) {
+  if (authLoading || loading) {
     // Content-aware skeleton: mirrors the header, the employee card and the
     // three document cards so the layout does not jump when the data arrives.
     return (
@@ -300,6 +583,10 @@ export default function ResignationDocumentsPage() {
     );
   }
 
+  if (!hasPermission("employees.resignation_view")) {
+    return <AccessDenied />;
+  }
+
   if (!hasEmpId) {
     const rows = overview?.data ?? [];
     const meta = overview?.pagination;
@@ -316,23 +603,20 @@ export default function ResignationDocumentsPage() {
 
     return (
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <FileText className="w-6 h-6 text-primary-500" />
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {t("resignation_docs.page_title")}
-            </h1>
-            <PageGuideModal pageKey="resignation_docs" />
-          </div>
-          <Link
-            href="/employees"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-medium text-sm cursor-pointer transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            {t("resignation_docs.open_employees")}
-          </Link>
-        </div>
+        <PageHeader
+          title={t("resignation_docs.page_title")}
+          subtitle={t("resignation_docs.list_subtitle")}
+          t={t}
+          action={(
+            <Link
+              href="/employees"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
+            >
+              <ArrowLeft aria-hidden="true" className="size-4" />
+              {t("resignation_docs.open_employees")}
+            </Link>
+          )}
+        />
 
         {/* Search */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 sm:p-6">
@@ -583,22 +867,21 @@ export default function ResignationDocumentsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {t("resignation_docs.page_title")}
-          </h1>
-          <PageGuideModal pageKey="resignation_docs" />
-        </div>
-        <button
-          onClick={() => router.back()}
-          className="px-4 py-2 rounded-xl border bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-medium cursor-pointer transition-colors flex items-center gap-2"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          {t("common.back")}
-        </button>
-      </div>
+      <PageHeader
+        title={t("resignation_docs.page_title")}
+        subtitle={t("resignation_docs.subtitle")}
+        t={t}
+        action={(
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
+          >
+            <ArrowLeft aria-hidden="true" className="size-4" />
+            {t("common.back")}
+          </button>
+        )}
+      />
 
       {/* Employee Info Card */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6">
@@ -622,6 +905,141 @@ export default function ResignationDocumentsPage() {
           </div>
         </div>
       </div>
+
+      {/* Template + final preview: the uploaded scans stay the source of truth. */}
+      <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-6">
+        <div className="flex min-w-0 flex-col gap-5 lg:flex-row lg:items-start">
+          <div className="min-w-0 w-full lg:max-w-[360px]">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+                <LayoutTemplate aria-hidden="true" className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  {t("resignation_docs.template_title")}
+                </h2>
+                <p className="mt-1 break-words text-sm text-gray-500 dark:text-gray-400">
+                  {t("resignation_docs.template_description")}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              {!canReadTemplates ? (
+                <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                  {t("resignation_docs.template_no_permission")}
+                </p>
+              ) : templatesLoading ? (
+                <div role="status" aria-label={t("resignation_docs.template_loading")} className="animate-pulse">
+                  <div className="h-4 w-32 rounded-md bg-gray-200 dark:bg-slate-700" />
+                  <div className="mt-2 h-11 w-full rounded-xl bg-gray-100 dark:bg-slate-800" />
+                </div>
+              ) : templatesError ? (
+                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+                  <p className="break-words">{templatesError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadTemplates()}
+                    className="mt-2 inline-flex min-h-11 cursor-pointer items-center gap-1.5 text-sm font-semibold hover:underline"
+                  >
+                    <RefreshCw aria-hidden="true" className="size-4" />
+                    {t("resignation_docs.template_retry")}
+                  </button>
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm dark:border-slate-600">
+                  <p className="break-words text-gray-600 dark:text-gray-300">
+                    {t("resignation_docs.template_empty")}
+                  </p>
+                  <Link
+                    href="/documents/templates"
+                    className="mt-2 inline-flex min-h-11 cursor-pointer items-center gap-1.5 font-semibold text-primary-600 hover:underline dark:text-primary-400"
+                  >
+                    <ExternalLink aria-hidden="true" className="size-4" />
+                    {t("resignation_docs.template_manage")}
+                  </Link>
+                </div>
+              ) : (
+                <EntitySelector
+                  label={t("resignation_docs.template_label")}
+                  items={templateItems}
+                  selectedIds={selectedTemplateId === null ? [] : [selectedTemplateId]}
+                  onChange={(ids) => {
+                    const value = Number(ids[0]);
+                    setSelectedTemplateId(ids.length > 0 && Number.isFinite(value) ? value : null);
+                  }}
+                  single
+                  closeOnSelect
+                  showSelectAll={false}
+                  disabled={!canReadTemplates}
+                  placeholder={t("resignation_docs.template_placeholder")}
+                  searchPlaceholder={t("resignation_docs.template_search")}
+                  emptyMessage={t("resignation_docs.template_empty")}
+                  noResultsMessage={t("resignation_docs.template_no_results")}
+                  selectedLabel={t("resignation_docs.template_selected_label")}
+                  clearLabel={t("common.clear")}
+                />
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void requestPreview()}
+                disabled={!canReadTemplates || !selectedTemplateId || !selectedHouseId || previewLoading}
+                className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
+              >
+                <RefreshCw aria-hidden="true" className={`size-4 ${previewLoading ? "animate-spin motion-reduce:animate-none" : ""}`} />
+                {t("resignation_docs.preview_action")}
+              </button>
+              {selectedTemplateId && hasPermission("documents.templates.view") && (
+                <Link
+                  href={`/documents/templates/${selectedTemplateId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-500/10"
+                >
+                  <ExternalLink aria-hidden="true" className="size-4" />
+                  {t("resignation_docs.open_template")}
+                </Link>
+              )}
+            </div>
+
+            {!selectedHouseId && (
+              <p className="mt-2 break-words text-xs text-gray-500 dark:text-gray-400">
+                {t("resignation_docs.select_house")}
+              </p>
+            )}
+            {previewLoading && (
+              <p role="status" className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                {t("resignation_docs.preview_loading")}
+              </p>
+            )}
+            {previewError && (
+              <p role="alert" className="mt-2 break-words text-xs text-red-600 dark:text-red-400">
+                {previewError}
+              </p>
+            )}
+          </div>
+
+          <div className="min-w-0 w-full flex-1">
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800">
+              <iframe
+                title={t("resignation_docs.preview_frame_title")}
+                srcDoc={previewHtml}
+                sandbox=""
+                referrerPolicy="no-referrer"
+                className="h-[360px] w-full bg-white sm:h-[420px]"
+              />
+            </div>
+            {!previewHtml && !previewLoading && !previewError && (
+              <p className="mt-2 break-words text-xs text-gray-500 dark:text-gray-400">
+                {t("resignation_docs.preview_empty")}
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* Status Grid */}
       <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -888,24 +1306,91 @@ export default function ResignationDocumentsPage() {
       )}
 
       {/* Actions */}
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <button
-          onClick={generatePdf}
-          disabled={!data.can_generate || generating || !hasPermission("employees.resignation_generate")}
-          className={cn(
-            "px-6 py-3 rounded-xl font-medium cursor-pointer transition-colors flex items-center gap-2 text-lg disabled:cursor-not-allowed",
-            data.can_generate && hasPermission("employees.resignation_generate")
-              ? "bg-primary-500 text-white hover:bg-primary-600"
-              : "bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
-          )}>
-          {generating ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <FileText className="w-5 h-5" />
-          )}
-          {t(generating ? "resignation_docs.generating" : "resignation_docs.generate_pdf")}
-        </button>
-      </div>
+      <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-6">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {t("resignation_docs.actions_title")}
+            </h2>
+            <p className="mt-1 break-words text-xs text-gray-500 dark:text-gray-400">
+              {t("resignation_docs.actions_description")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void generateAndDownload()}
+            disabled={
+              !data.can_generate
+              || generating
+              || !hasPermission("employees.resignation_generate")
+              || !canCreateDocument
+              || !canGenerateDocument
+              || !selectedTemplateId
+              || !selectedHouseId
+            }
+            className={cn(
+              "inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition-colors disabled:cursor-not-allowed sm:w-auto",
+              data.can_generate
+                && hasPermission("employees.resignation_generate")
+                && canCreateDocument
+                && canGenerateDocument
+                && selectedTemplateId
+                && selectedHouseId
+                ? "bg-primary-600 text-white hover:bg-primary-700"
+                : "bg-gray-200 text-gray-500 dark:bg-slate-700 dark:text-gray-400",
+            )}
+          >
+            {generating ? (
+              <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Download aria-hidden="true" className="size-4" />
+            )}
+            {t(generating ? "resignation_docs.generating" : "resignation_docs.generate_pdf")}
+          </button>
+        </div>
+
+        {generationError && (
+          <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+            <p className="break-words">{generationError}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              {failedDraftId !== null && canGenerateDocument && (
+                <button
+                  type="button"
+                  onClick={() => void retryGeneration()}
+                  disabled={generating}
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 font-semibold hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw aria-hidden="true" className="size-4" />
+                  {t("resignation_docs.retry_generate")}
+                </button>
+              )}
+              {failedDraftId !== null && hasPermission("documents.view") && (
+                <Link
+                  href={`/documents/${failedDraftId}`}
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 font-semibold hover:underline"
+                >
+                  <ExternalLink aria-hidden="true" className="size-4" />
+                  {t("resignation_docs.open_draft")}
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
+
+        {downloadError && downloadTarget && (
+          <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            <p className="break-words">{downloadError}</p>
+            <button
+              type="button"
+              onClick={() => void downloadGeneratedVersion(downloadTarget.documentId, downloadTarget.versionNumber)}
+              className="mt-2 inline-flex min-h-11 cursor-pointer items-center gap-1.5 font-semibold hover:underline"
+            >
+              <RefreshCw aria-hidden="true" className="size-4" />
+              {t("resignation_docs.retry_download")}
+            </button>
+          </div>
+        )}
+      </section>
 
       {/* Info Box */}
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-6">

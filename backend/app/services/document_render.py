@@ -21,7 +21,8 @@ import os
 from typing import Optional
 
 from app.services import document_ast
-from app.services.resignation_pdf import DESIGNATIONS, _font_face, _image_data_uri, bn_date
+from app.services.resignation_pdf import DESIGNATIONS, _base_values, _font_face, _image_data_uri, bn_date
+from app.utils.timezone import now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ def resolve_context(
     house=None,
     document: Optional[dict] = None,
     signatory=None,
+    resignation: bool = False,
 ) -> tuple:
     """Build the print context and list the required fields still empty.
 
@@ -115,6 +117,16 @@ def resolve_context(
         key = field["key"]
         if field.get("type") == "date" and str(context.get(key, "")).strip():
             context[key] = bn_date(context[key])
+
+    if resignation and employee is not None and house is not None:
+        # Print parity with the standalone resignation package: Bangla-first
+        # names/digits, full designation and house placeholders. `values` (and
+        # therefore the stored document_data) is deliberately left untouched.
+        base = _base_values(house, employee.__dict__, now_naive().date())
+        for key in context:
+            value = base.get(key)
+            if value is not None and str(value).strip():
+                context[key] = value
 
     missing = [
         field["key"]
@@ -189,7 +201,33 @@ def _signature_html(block: dict, context: dict, signatory) -> str:
     )
 
 
-def _block_html(block: dict, context: dict, signatory) -> str:
+def _image_html(block: dict, context: dict, images: dict) -> str:
+    """Render a resolved private image, or its escaped fallback text."""
+    key = (
+        f"manual:{block['asset_id']}"
+        if block.get("source_kind") == "manual"
+        else block.get("source")
+    )
+    uri = images.get(key, "") if images else ""
+    if not isinstance(uri, str) or not uri.startswith("data:image/"):
+        uri = ""
+    style = (
+        f"text-align:{block.get('align', 'center')};"
+        f"max-width:{block.get('max_width_mm', 170)}mm;"
+        f"max-height:{block.get('max_height_mm', 240)}mm"
+    )
+    if uri:
+        return (
+            f'<figure class="doc-image" style="{style}">'
+            f'<img src="{html.escape(uri, quote=True)}" alt=""></figure>'
+        )
+    fallback = _substitute(block.get("fallback_text", ""), context)
+    if not fallback.strip():
+        return ""
+    return f'<figure class="doc-image" style="{style}"><figcaption>{fallback}</figcaption></figure>'
+
+
+def _block_html(block: dict, context: dict, signatory, images: Optional[dict] = None) -> str:
     block_type = block["type"]
 
     if block_type in ("heading", "paragraph"):
@@ -212,6 +250,9 @@ def _block_html(block: dict, context: dict, signatory) -> str:
 
     if block_type == "page_break":
         return '<div class="page-break"></div>'
+
+    if block_type == "image":
+        return _image_html(block, context, images or {})
 
     # Unreachable: validate_ast rejects unknown types.
     return ""
@@ -290,6 +331,9 @@ def _page_css(page: dict, *, embed_fonts: bool = True) -> str:
         + ".doc-p{margin:0 0 3mm 0;white-space:pre-wrap;overflow-wrap:break-word}"
         + ".doc-divider{border:0;border-top:1px solid #000;margin:3mm 0}"
         + ".page-break{page-break-after:always;break-after:page;height:0}"
+        + ".doc-image{margin:2mm 0;break-inside:avoid;page-break-inside:avoid}"
+        + ".doc-image img{max-width:100%;height:auto;display:inline-block}"
+        + ".doc-image figcaption{color:#555;font-size:10pt}"
         + ".letterhead{margin:0 0 6mm 0}"
         + ".letterhead .logo{max-height:18mm;max-width:45mm;display:block;margin-bottom:2mm}"
         + ".letterhead .org{font-size:15pt;font-weight:700;line-height:1.3}"
@@ -304,7 +348,9 @@ def _page_css(page: dict, *, embed_fonts: bool = True) -> str:
         "font-size:8pt;color:#555;border-top:0.3mm solid #bbb;padding-top:1.5mm}"
         + "@media print{html,body{background:#fff!important;-webkit-print-color-adjust:exact;"
         "print-color-adjust:exact}.doc-heading,.sig{break-inside:avoid;page-break-inside:avoid}"
-        ".page-break{break-after:page;page-break-after:always}.doc-footer{position:fixed}}"
+        ".page-break{break-after:page;page-break-after:always}"
+        ".doc-image{break-inside:avoid;page-break-inside:avoid}"
+        ".doc-footer{position:fixed}}"
     )
 
 
@@ -317,6 +363,7 @@ def render_html(
     title: Optional[str] = None,
     embed_fonts: bool = True,
     house_letterhead_path: Optional[str] = None,
+    images: Optional[dict[str, str]] = None,
 ) -> str:
     """Full printable HTML for one document.
 
@@ -333,7 +380,7 @@ def render_html(
     # A house image is the single source of truth for branded output. The
     # legacy text header/footer is only a fallback when no image was uploaded.
     body = [house_image or letterhead_html(letterhead)]
-    body.extend(_block_html(block, context, signatory) for block in ast["blocks"])
+    body.extend(_block_html(block, context, signatory, images) for block in ast["blocks"])
     if not house_image:
         body.append(footer_html(letterhead))
     document_title = html.escape(_text(title or "Document"))

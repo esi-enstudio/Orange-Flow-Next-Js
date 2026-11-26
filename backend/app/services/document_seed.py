@@ -41,6 +41,11 @@ NOC_TEMPLATE_DESCRIPTION = (
     "Global NOC template seeded from the resignation letterhead text. "
     "House-specific templates override it."
 )
+RESIGNATION_TEMPLATE_NAME = "Banglalink Distribution House - Resignation Standard"
+RESIGNATION_TEMPLATE_DESCRIPTION = (
+    "Global three-page resignation template: handwritten letter, NID and "
+    "the house letterhead letter. House-specific templates override it."
+)
 
 
 def _chunks() -> list:
@@ -86,7 +91,9 @@ def build_noc_ast() -> dict:
         blocks.append({"type": "paragraph", "text": chunk, "align": "justify"})
 
     return {
-        "schema_version": document_ast.AST_SCHEMA_VERSION,
+        # Existing seeded NOC bodies stay on v1; only newly authored templates
+        # start from the v2 schema.
+        "schema_version": 1,
         "page": {
             "format": "A4",
             "orientation": "portrait",
@@ -106,8 +113,153 @@ def noc_template_payload() -> tuple:
     return ast, schema
 
 
+def _image_block(block_id: str, source: str, fallback_text: str) -> dict:
+    return {
+        "id": block_id,
+        "type": "image",
+        "source_kind": "dynamic",
+        "source": source,
+        "align": "center",
+        "max_width_mm": 170,
+        "max_height_mm": 240,
+        "required": True,
+        "fallback_text": fallback_text,
+    }
+
+
+def build_resignation_ast() -> dict:
+    """Three-page AST: scan, NID, then the Bangla letterhead letter."""
+    blocks = [
+        _image_block(
+            "res-letter",
+            "resignation_letter",
+            "Handwritten resignation letter / হাতে লেখা পদত্যাগপত্র",
+        ),
+        {"id": "res-page-1", "type": "page_break"},
+        _image_block("res-nid", "employee_nid", "Employee NID / জাতীয় পরিচয়পত্র"),
+        {"id": "res-page-2", "type": "page_break"},
+    ]
+
+    chunks = _chunks()
+    for index, chunk in enumerate(chunks):
+        line_count = len([line for line in chunk.splitlines() if line.strip()])
+        if index == len(chunks) - 1 and line_count == 4:
+            blocks.append({**_signature_block(chunk), "id": f"res-block-{index}"})
+        elif chunk.startswith("বিষয়"):
+            blocks.append(
+                {
+                    "id": f"res-block-{index}",
+                    "type": "heading",
+                    "text": chunk,
+                    "align": "left",
+                    "size": 13,
+                    "bold": True,
+                }
+            )
+        else:
+            blocks.append(
+                {
+                    "id": f"res-block-{index}",
+                    "type": "paragraph",
+                    "text": chunk,
+                    "align": "justify",
+                }
+            )
+
+    return {
+        "schema_version": document_ast.AST_SCHEMA_VERSION,
+        # Both RSO and BP can use the global seed; narrower templates can be
+        # authored per house in the editor.
+        "audience": "all",
+        "page": {
+            "format": "A4",
+            "orientation": "portrait",
+            "margins": {"top": 18, "right": 18, "bottom": 18, "left": 18},
+            "font_size": 12,
+            "line_height": 1.7,
+        },
+        "blocks": blocks,
+    }
+
+
+def resignation_template_payload() -> tuple:
+    """Validated (ast, variables_schema) for the default RESIGNATION template."""
+    ast = document_ast.validate_ast(build_resignation_ast())
+    schema = document_ast.schema_from_keys(document_ast.collect_variables(ast))
+    schema = document_ast.validate_variables_schema(schema, ast)
+    return ast, schema
+
+
+async def _ensure_global_template(
+    db: AsyncSession,
+    *,
+    document_type: DocumentType,
+    name: str,
+    description: str,
+    template_mode: str,
+    payload_factory,
+    version_notes: str,
+    created: dict,
+) -> None:
+    """Create a global template and its first published version if missing.
+
+    An existing template is never edited or versioned by the seed: authored
+    changes survive every restart.
+    """
+    template = (
+        await db.execute(
+            select(DocumentTemplate).where(
+                DocumentTemplate.name == name,
+                DocumentTemplate.house_id.is_(None),
+                DocumentTemplate.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if template is None:
+        ast, schema = payload_factory()
+        template = DocumentTemplate(
+            document_type_id=document_type.id,
+            house_id=None,
+            name=name,
+            template_mode=template_mode,
+            description=description,
+            is_default=True,
+            is_active=True,
+        )
+        db.add(template)
+        await db.flush()
+        created["templates"] += 1
+    else:
+        ast = schema = None
+
+    has_version = (
+        await db.execute(
+            select(DocumentTemplateVersion.id).where(
+                DocumentTemplateVersion.template_id == template.id
+            )
+        )
+    ).first()
+
+    if has_version is None:
+        if ast is None:
+            ast, schema = payload_factory()
+        db.add(
+            DocumentTemplateVersion(
+                template_id=template.id,
+                version_number=1,
+                content_json=ast,
+                variables_schema=schema,
+                version_notes=version_notes,
+                is_published=True,
+                published_at=now_naive(),
+            )
+        )
+        created["versions"] += 1
+
+
 async def seed_documents_module(db: AsyncSession) -> dict:
-    """Insert missing document types and the global NOC template. Returns counts."""
+    """Insert missing document types and the two global templates. Returns counts."""
     created = {"types": 0, "templates": 0, "versions": 0}
 
     if db.get_bind().dialect.name == "postgresql":
@@ -138,65 +290,30 @@ async def seed_documents_module(db: AsyncSession) -> dict:
     if created["types"]:
         await db.flush()
 
-    noc_type = (
-        await db.execute(
-            select(DocumentType).where(
-                DocumentType.code == "NOC", DocumentType.is_deleted.is_(False)
-            )
-        )
-    ).scalar_one_or_none()
-
-    if noc_type is not None:
-        template = (
+    seeds = (
+        ("NOC", NOC_TEMPLATE_NAME, NOC_TEMPLATE_DESCRIPTION, "PREDEFINED", noc_template_payload, "Seeded default NOC template"),
+        ("RESIGNATION", RESIGNATION_TEMPLATE_NAME, RESIGNATION_TEMPLATE_DESCRIPTION, "VISUAL", resignation_template_payload, "Seeded default RESIGNATION template"),
+    )
+    for code, name, description, mode, payload_factory, notes in seeds:
+        document_type = (
             await db.execute(
-                select(DocumentTemplate).where(
-                    DocumentTemplate.name == NOC_TEMPLATE_NAME,
-                    DocumentTemplate.house_id.is_(None),
-                    DocumentTemplate.is_deleted.is_(False),
+                select(DocumentType).where(
+                    DocumentType.code == code, DocumentType.is_deleted.is_(False)
                 )
             )
         ).scalar_one_or_none()
-
-        if template is None:
-            ast, schema = noc_template_payload()
-            template = DocumentTemplate(
-                document_type_id=noc_type.id,
-                house_id=None,
-                name=NOC_TEMPLATE_NAME,
-                template_mode="PREDEFINED",
-                description=NOC_TEMPLATE_DESCRIPTION,
-                is_default=True,
-                is_active=True,
-            )
-            db.add(template)
-            await db.flush()
-            created["templates"] += 1
-        else:
-            ast = schema = None
-
-        has_version = (
-            await db.execute(
-                select(DocumentTemplateVersion.id).where(
-                    DocumentTemplateVersion.template_id == template.id
-                )
-            )
-        ).first()
-
-        if has_version is None:
-            if ast is None:
-                ast, schema = noc_template_payload()
-            db.add(
-                DocumentTemplateVersion(
-                    template_id=template.id,
-                    version_number=1,
-                    content_json=ast,
-                    variables_schema=schema,
-                    version_notes="Seeded default NOC template",
-                    is_published=True,
-                    published_at=now_naive(),
-                )
-            )
-            created["versions"] += 1
+        if document_type is None:
+            continue
+        await _ensure_global_template(
+            db,
+            document_type=document_type,
+            name=name,
+            description=description,
+            template_mode=mode,
+            payload_factory=payload_factory,
+            version_notes=notes,
+            created=created,
+        )
 
     await db.commit()
 

@@ -26,6 +26,7 @@ from app.models.documents import (
     DocumentLetterhead,
     DocumentSignatory,
     DocumentTemplate,
+    DocumentTemplateAsset,
     DocumentTemplateVersion,
     DocumentType,
     DocumentVersion,
@@ -49,6 +50,8 @@ from app.schemas.documents import (
     DocumentSignatoryUpdateIn,
     GeneratedDocumentCreateIn,
     GeneratedDocumentUpdateIn,
+    PreviewAstIn,
+    TemplateAssetOut,
     TemplateCreateIn,
     TemplateDuplicateIn,
     TemplatePreviewIn,
@@ -56,10 +59,11 @@ from app.schemas.documents import (
     TemplateVersionIn,
 )
 from app.services import document_assets
-from app.services import document_ast, document_render
+from app.services import document_ast, document_images, document_render
 from app.services import document_numbering, document_pdf
 from app.services import document_service as svc
 from app.services import house_letterhead
+from app.services import template_assets
 from app.utils.activity_logger import log_activity
 from app.utils.access_control import is_super_admin_user
 from app.utils.timezone import now_naive
@@ -570,6 +574,35 @@ def _validate_required_fields(fields: list, context: dict) -> None:
         )
 
 
+def _assert_resignation_generation(
+    *,
+    ast: dict,
+    employee: Optional[Employee],
+    house: House,
+) -> None:
+    """House/employee gates shared by every template-based resignation print."""
+    audience = ast.get("audience", "all")
+    employee_type = str(getattr(employee, "employee_type", "") or "").strip().lower()
+    if audience in ("rso", "bp") and employee_type != audience:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "AUDIENCE_MISMATCH",
+                "message": f"This template is for {audience.upper()} employees only",
+            },
+        )
+    if employee is None or str(getattr(employee, "status", "")) != "Resigned":
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "EMPLOYEE_NOT_RESIGNED", "message": "The employee has not resigned yet"},
+        )
+    if not house_letterhead.configured(house):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "LETTERHEAD_NOT_CONFIGURED", "message": "This house has no letterhead configured"},
+        )
+
+
 async def _render_document_version(
     db: AsyncSession,
     document: GeneratedDocument,
@@ -595,6 +628,34 @@ async def _render_document_version(
     template = await db.get(DocumentTemplate, document.template_id)
     if template is None:
         raise HTTPException(status_code=422, detail={"code": "TEMPLATE_MISSING", "message": "The saved template is unavailable"})
+
+    ast = svc._validated_ast(template_version.content_json)
+    is_resignation = document_type.code == "RESIGNATION"
+    required_keys = document_ast.collect_required_image_keys(ast)
+    images: dict = {}
+    missing_images: list[str] = []
+    if required_keys:
+        # Resolve before allocating a number: a missing scan must not consume
+        # a document number or leave a half-generated version behind.
+        images, missing_images = await document_images.resolve_image_sources(
+            db,
+            house_id=document.house_id,
+            template_id=template.id,
+            employee=employee,
+            ast=ast,
+        )
+    unresolved = sorted(required_keys & set(missing_images))
+    if unresolved:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "IMAGE_SOURCE_MISSING",
+                "message": "Upload or select every required image before generating",
+                "sources": unresolved,
+            },
+        )
+    if is_resignation:
+        _assert_resignation_generation(ast=ast, employee=employee, house=house)
 
     version_number = document.current_version + 1
     if allocate_number:
@@ -627,15 +688,17 @@ async def _render_document_version(
             "document_title": document.document_title,
         },
         signatory=signatory,
+        resignation=is_resignation,
     )
     _validate_required_fields(fields, context)
     html_document = document_render.render_html(
-        template_version.content_json,
+        ast,
         context,
         letterhead=letterhead,
         signatory=signatory,
         title=document.document_title,
         house_letterhead_path=_house_render_path(house),
+        images=images,
     )
     stored_path = None
     document_id = document.id
@@ -1352,6 +1415,136 @@ async def get_template(
     return {"success": True, "data": data}
 
 
+def _serialize_template_asset(asset: DocumentTemplateAsset) -> dict:
+    return TemplateAssetOut(
+        id=asset.id,
+        template_id=asset.template_id,
+        file_name=asset.file_name,
+        content_type=asset.content_type,
+        size_bytes=asset.size_bytes,
+        created_at=asset.created_at.isoformat() if asset.created_at else None,
+    ).model_dump()
+
+
+@router.post("/templates/{template_id}/assets", status_code=status.HTTP_201_CREATED)
+async def upload_template_asset(
+    template_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission(MANAGE)),
+):
+    template = await svc.get_template(db, template_id)
+    svc.assert_template_readable(template, house_context)
+    svc.assert_template_writable(template, house_context, current_user)
+    try:
+        asset = await template_assets.store(
+            db,
+            template=template,
+            house_id=template.house_id,
+            file=file,
+            user=current_user,
+        )
+    except template_assets.InvalidAssetImage as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "INVALID_IMAGE", "message": str(exc)}
+        ) from exc
+    await _audit(
+        db, request, current_user, "create", template,
+        new_values={"asset_id": asset.id, "file_name": asset.file_name},
+    )
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    await db.refresh(asset)
+    return {"success": True, "data": _serialize_template_asset(asset)}
+
+
+@router.get("/templates/{template_id}/assets")
+async def list_template_assets(
+    template_id: int,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission(VIEW)),
+):
+    template = await svc.get_template(db, template_id)
+    svc.assert_template_readable(template, house_context)
+    query = select(DocumentTemplateAsset).where(
+        DocumentTemplateAsset.template_id == template_id,
+        DocumentTemplateAsset.is_deleted.is_(False),
+        or_(
+            DocumentTemplateAsset.house_id.is_(None),
+            DocumentTemplateAsset.house_id == house_context,
+        ),
+    )
+    rows = (await db.execute(query.order_by(DocumentTemplateAsset.id))).unique().scalars().all()
+    return {"success": True, "data": [_serialize_template_asset(row) for row in rows]}
+
+
+@router.get("/templates/{template_id}/assets/{asset_id}/file")
+async def stream_template_asset(
+    template_id: int,
+    asset_id: int,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission(VIEW)),
+):
+    template = await svc.get_template(db, template_id)
+    svc.assert_template_readable(template, house_context)
+    asset = await template_assets.load_for_render(
+        db, template_id=template_id, asset_id=asset_id, house_id=house_context
+    )
+    if asset is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "TEMPLATE_ASSET_NOT_FOUND", "message": "Template asset not found"},
+        )
+    path = template_assets.fs_path(asset.storage_path)
+    if not path:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "TEMPLATE_ASSET_NOT_FOUND", "message": "Template asset not found"},
+        )
+    return FileResponse(
+        path,
+        media_type=asset.content_type,
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.delete("/templates/{template_id}/assets/{asset_id}")
+async def delete_template_asset(
+    template_id: int,
+    asset_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission(MANAGE)),
+):
+    template = await svc.get_template(db, template_id)
+    svc.assert_template_readable(template, house_context)
+    svc.assert_template_writable(template, house_context, current_user)
+    asset = await template_assets.load_for_render(
+        db, template_id=template_id, asset_id=asset_id, house_id=house_context
+    )
+    if asset is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "TEMPLATE_ASSET_NOT_FOUND", "message": "Template asset not found"},
+        )
+    asset.is_deleted = True
+    asset.deleted_by = current_user.id
+    await _audit(
+        db, request, current_user, "delete", template,
+        old_values={"asset_id": asset.id, "file_name": asset.file_name},
+    )
+    await db.commit()
+    return {"success": True, "data": {"id": asset.id, "deleted": True}}
+
+
 @router.patch("/templates/{template_id}")
 async def update_template(
     template_id: int,
@@ -1553,6 +1746,8 @@ async def render_preview(
     """Render a template as HTML for the in-app preview (no PDF, no fonts)."""
     template = await svc.get_template(db, payload.template_id)
     svc.assert_template_readable(template, house_context)
+    preview_type = await db.get(DocumentType, template.document_type_id)
+    is_resignation = preview_type is not None and preview_type.code == "RESIGNATION"
 
     if payload.version_number is not None:
         version = await svc.get_version(db, template.id, payload.version_number)
@@ -1591,6 +1786,7 @@ async def render_preview(
             "document_title": template.name,
         },
         signatory=signatory,
+        resignation=is_resignation,
     )
     html_document = document_render.render_html(
         version.content_json,
@@ -1608,6 +1804,76 @@ async def render_preview(
             "version_number": version.version_number,
             "html": html_document,
             "missing": missing,
+        },
+    }
+
+
+@router.post("/render/preview-ast")
+async def render_preview_ast(
+    payload: PreviewAstIn,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission(VIEW)),
+):
+    """Render an unsaved AST exactly as generation would, with no DB writes."""
+    template = await svc.get_template(db, payload.template_id)
+    svc.assert_template_readable(template, house_context)
+    ast = svc._validated_ast(payload.content_json)
+    preview_type = await db.get(DocumentType, template.document_type_id)
+    is_resignation = preview_type is not None and preview_type.code == "RESIGNATION"
+
+    scope_house_id = house_context or 0
+    house = await db.get(House, house_context) if house_context is not None else None
+    employee = await _employee_for_house(db, payload.employee_id, scope_house_id)
+    letterhead = await _resolve_letterhead_for_house(
+        db, scope_house_id, payload.letterhead_id, house=house
+    )
+    signatory = await svc.resolve_signatory(
+        db, house_id=scope_house_id, signatory_id=payload.signatory_id
+    )
+
+    fields = (payload.variables_schema or {}).get("fields", [])
+    values = dict(document_render.preview_values(fields))
+    submitted = {**payload.document_data, **payload.values}
+    values.update(_clean_document_data(fields, submitted))
+    preview_date = values.get("document_date") or now_naive().date().isoformat()
+    context, missing = document_render.resolve_context(
+        fields,
+        values,
+        employee=employee,
+        house=house,
+        document={
+            "document_number": "PREVIEW",
+            "document_date": preview_date,
+            "document_title": template.name,
+        },
+        signatory=signatory,
+        resignation=is_resignation,
+    )
+    images, missing_images = await document_images.resolve_image_sources(
+        db,
+        house_id=scope_house_id,
+        template_id=template.id,
+        employee=employee,
+        ast=ast,
+    )
+    html_document = document_render.render_html(
+        ast,
+        context,
+        letterhead=letterhead,
+        signatory=signatory,
+        title=template.name,
+        embed_fonts=False,
+        house_letterhead_path=_house_render_path(house),
+        images=images,
+    )
+    return {
+        "success": True,
+        "data": {
+            "template_id": template.id,
+            "html": html_document,
+            "missing": missing,
+            "missing_images": missing_images,
         },
     }
 
