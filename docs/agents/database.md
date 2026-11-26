@@ -16,6 +16,16 @@ Must consider:
 
 Use created_at, updated_at, created_by, updated_by where applicable.
 
+## Schema changes on existing deployments
+
+Alembic is **not** in the container boot path; `init_db()` runs `create_all`
+(which does not alter existing tables) plus the registered `_migrate_*` steps.
+Therefore every additive column/index change must also have an idempotent
+`_migrate_*` step registered in `init_db()`. Reuse the existing Alembic revision
+from that step (see `_migrate_live_c2c_inbound_files_destination()`) so there is
+one definition of the change. Without the boot step, deployed databases keep the
+old schema while the ORM selects the new column and every affected query fails.
+
 ---
 
 ## Soft Delete Convention

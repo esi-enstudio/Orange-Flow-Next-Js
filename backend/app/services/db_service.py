@@ -3,7 +3,7 @@ import json
 import logging
 from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, inspect, or_, select, text
 from config.settings import DATABASE_URL
 from app.models.base import Base
 from app.utils.timezone import now_naive
@@ -548,6 +548,58 @@ async def _migrate_live_c2c_entity_ids():
             logger.info("Migration complete: live_c2c entity IDs and route status")
     except Exception as error:
         _startup_fatal("live_c2c entity ID migration failed", error)
+
+
+def _table_column_names(connection, table_name: str) -> set[str]:
+    return {column["name"] for column in inspect(connection).get_columns(table_name)}
+
+
+def _apply_live_c2c_destination_migration(connection):
+    from alembic.operations import Operations
+    from alembic.runtime.migration import MigrationContext
+
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "e1f2a3b4c5d6_snapshot_live_c2c_delivery_destination.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "live_c2c_destination_migration", migration_path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load migration at {migration_path}")
+
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    context = MigrationContext.configure(connection)
+    with Operations.context(context):
+        migration.upgrade()
+
+
+async def _migrate_live_c2c_inbound_files_destination(db_engine=None):
+    """Add the queued-file destination snapshot on databases created before it.
+
+    Alembic is not part of the boot path, so an existing deployment keeps the
+    old table while the ORM already selects the new column. Applying the
+    existing Alembic revision here keeps one migration definition and makes
+    boot idempotent.
+    """
+    active_engine = db_engine or engine
+    try:
+        async with active_engine.begin() as connection:
+            columns = await connection.run_sync(
+                _table_column_names, "live_c2c_inbound_files"
+            )
+            if "destination_group_jid" in columns:
+                return
+            logger.info("Migrating live_c2c_inbound_files: adding destination_group_jid...")
+            await connection.run_sync(_apply_live_c2c_destination_migration)
+            logger.info("Migration complete: live_c2c inbound destination snapshot")
+    except Exception as error:
+        # Serving traffic with a missing column would fail every scheduler
+        # iteration, so this one is boot-blocking like the entity-ID rollout.
+        _startup_fatal("live_c2c inbound destination migration failed", error)
 
 
 async def _migrate_employee_sr_no():
@@ -3084,6 +3136,7 @@ async def init_db():
         await _migrate_bp_target_remove_soft_delete()
         await _migrate_live_c2c_entity_ids()
         await _migrate_live_c2c_drop_soft_delete()
+        await _migrate_live_c2c_inbound_files_destination()
         await _migrate_lifting_soft_delete()
         await _migrate_lifting_deposit_slip()
         await _migrate_lifting_pull_fields()
