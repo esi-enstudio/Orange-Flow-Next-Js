@@ -45,6 +45,7 @@ interface AuthContextType {
   logout: () => void;
   refreshStatus: () => Promise<void>;
   updateUser: (updates: Partial<User>) => void;
+  setSelectedHouse: (houseId: number | null) => Promise<void>;
   hasPermission: (permission: string) => boolean;
   selectedHouse: { id: number } | null;
 }
@@ -129,6 +130,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser((currentUser) => currentUser ? { ...currentUser, ...updates } : currentUser);
   };
 
+  const setSelectedHouse = async (houseId: number | null) => {
+    const response = await apiClient.put("auth/selected-house", { house_id: houseId });
+    updateUser({ selected_house_id: response.data.selected_house_id });
+  };
+
   // Protected route logic
   useEffect(() => {
     if (!loading && initialized !== null) {
@@ -169,6 +175,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
+  // A stored house that is no longer assigned to the user must not become the
+  // active workspace; fall back to the first house returned by /auth/me.
+  const activeHouseId =
+    user?.selected_house_id && user.houses?.some((house) => house.id === user.selected_house_id)
+      ? user.selected_house_id
+      : (user?.houses?.[0]?.id ?? null);
+
   return (
     <AuthContext.Provider value={{ 
       user, 
@@ -178,12 +191,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout, 
       refreshStatus,
       updateUser,
+      setSelectedHouse,
       hasPermission,
-      selectedHouse: user?.selected_house_id
-        ? { id: user.selected_house_id }
-        : user?.houses && user.houses.length > 0
-          ? { id: user.houses[0].id }
-          : null,
+      selectedHouse: activeHouseId !== null ? { id: activeHouseId } : null,
     }}>
       {children}
     </AuthContext.Provider>

@@ -101,7 +101,7 @@ const inputClass =
 
 export default function RoutesPage() {
   const router = useRouter();
-  const { selectedHouse, updateUser, hasPermission, loading: authLoading } = useAuth();
+  const { selectedHouse, setSelectedHouse, hasPermission, loading: authLoading } = useAuth();
   const { t } = useLanguage();
 
   const [rows, setRows] = useState<RouteRow[]>([]);
@@ -423,7 +423,7 @@ export default function RoutesPage() {
       if (result?.house_ids?.length) {
         const importedHouseId = result.house_ids[0];
         setScopeHouseId(importedHouseId);
-        updateUser({ selected_house_id: importedHouseId });
+        await setSelectedHouse(importedHouseId);
         fetchRoutes({ id: importedHouseId });
       } else {
         fetchRoutes();
