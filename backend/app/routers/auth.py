@@ -1,6 +1,7 @@
 import os
 import uuid
 import io
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
@@ -11,7 +12,7 @@ from pydantic import EmailStr
 
 from config.settings import settings
 from app.routers.deps import (
-    get_db, get_current_user, has_permission,
+    get_db, get_current_user, has_permission, require_house_context,
     verify_password, get_password_hash, create_access_token,
     create_password_reset_token, verify_password_reset_token,
     check_login_rate_limit
@@ -25,6 +26,9 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+class SelectedHouseUpdate(BaseModel):
+    house_id: Optional[int] = None
 from app.schemas.user import UserSchema, UserCreate
 from app.schemas.role import RoleSchema
 from app.schemas.house import HouseSchema
@@ -172,6 +176,53 @@ async def update_profile(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+@router.put("/selected-house")
+async def set_selected_house(
+    payload: SelectedHouseUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change only the caller's workspace house; membership rules still apply."""
+    requested_id = payload.house_id
+    if requested_id is None:
+        # require_house_context's first-house fallback covers tenant roles only,
+        # and the users_houses pivot has no guaranteed order. Pick the same
+        # default the UI uses — active houses first, then the oldest — so reset
+        # is deterministic for every role. Explicit ids still go through the
+        # guard, which stays the single judge of tenant membership.
+        houses = sorted(
+            current_user.houses, key=lambda h: (not h.is_active, h.id)
+        )
+        if not houses:
+            raise HTTPException(status_code=400, detail="Please select a house first")
+        requested_id = houses[0].id
+
+    resolved_id = await require_house_context(
+        x_house_id=requested_id, current_user=current_user
+    )
+    house_result = await db.execute(select(House).where(House.id == resolved_id))
+    house = house_result.scalar_one_or_none()
+    if house is None:
+        raise HTTPException(status_code=400, detail="House not found")
+
+    old_values = {"selected_house_id": current_user.selected_house_id}
+    current_user.selected_house_id = resolved_id
+    new_values = {"selected_house_id": resolved_id}
+    await log_activity(
+        db,
+        current_user.id,
+        current_user.name,
+        "auth",
+        "edit",
+        record_id=resolved_id,
+        record_identifier=house.name,
+        old_values=old_values,
+        new_values=new_values,
+        request=request,
+    )
+    return {"selected_house_id": resolved_id}
 
 @router.post("/profile-pic")
 async def upload_profile_pic(
