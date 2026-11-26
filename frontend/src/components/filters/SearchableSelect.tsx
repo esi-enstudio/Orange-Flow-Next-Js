@@ -19,6 +19,8 @@ interface SearchableSelectProps {
   disabledReason?: string;
   loading?: boolean;
   onSearchChange?: (q: string) => void;
+  /** Render the menu inline instead of on `document.body` (needed inside high z-index drawers). */
+  portal?: boolean;
   /**
    * Hide the option list until the query reaches this many characters. Set it when
    * the options are fully loaded up-front (long lists), so nothing is listed before
@@ -46,6 +48,7 @@ export default function SearchableSelect({
   disabledReason,
   loading = false,
   onSearchChange,
+  portal = true,
   className,
 }: SearchableSelectProps) {
   const { t } = useLanguage();
@@ -76,7 +79,7 @@ export default function SearchableSelect({
         clearLabel={t("common.clear")}
         selectedLabel={t("activations.filters.selected")}
         onSearchChange={onSearchChange}
-        portal
+        portal={portal}
       />
     </FilterField>
   );

@@ -51,7 +51,23 @@ interface SerialFilters {
   status: string;
   dateFrom: string;
   dateTo: string;
+  /** True while the date range is the implicit today-only window, not a user choice. */
+  dateIsDefault: boolean;
 }
+
+const todayDateRange = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const today = `${y}-${m}-${d}`;
+  return { dateFrom: today, dateTo: today };
+};
+
+// Resolve the implicit window at use time so a tab left open overnight never
+// queries yesterday; an explicit user range is honoured as entered.
+const effectiveDateRange = (value: SerialFilters) =>
+  value.dateIsDefault ? todayDateRange() : { dateFrom: value.dateFrom, dateTo: value.dateTo };
 
 export default function SCSerialsPage() {
   const { hasPermission, loading: authLoading, selectedHouse } = useAuth();
@@ -68,18 +84,9 @@ export default function SCSerialsPage() {
   const perPage = 5;
 
   // filters
-  const todayDateRange = () => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const today = `${y}-${m}-${d}`;
-    return { dateFrom: today, dateTo: today };
-  };
-
   const defaultFilters = (): SerialFilters => {
     const { dateFrom, dateTo } = todayDateRange();
-    return { serialFrom: "", serialTo: "", mrp: "", status: "", dateFrom, dateTo };
+    return { serialFrom: "", serialTo: "", mrp: "", status: "", dateFrom, dateTo, dateIsDefault: true };
   };
 
   const [search, setSearch] = useState("");
@@ -97,27 +104,20 @@ export default function SCSerialsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [search]);
 
-  const hasDrawerFilters = (value: SerialFilters) => {
-    const { dateFrom, dateTo } = todayDateRange();
-    return Boolean(
-      value.serialFrom.trim() ||
-      value.serialTo.trim() ||
-      value.mrp ||
-      value.status ||
-      value.dateFrom !== dateFrom ||
-      value.dateTo !== dateTo,
-    );
-  };
+  const hasDrawerFilters = (value: SerialFilters) => Boolean(
+    value.serialFrom.trim() ||
+    value.serialTo.trim() ||
+    value.mrp ||
+    value.status ||
+    !value.dateIsDefault,
+  );
 
-  const activeFilterCount = () => {
-    const { dateFrom, dateTo } = todayDateRange();
-    return [
-      Boolean(filters.serialFrom.trim() || filters.serialTo.trim()),
-      Boolean(filters.mrp),
-      Boolean(filters.status),
-      Boolean(filters.dateFrom !== dateFrom || filters.dateTo !== dateTo),
-    ].filter(Boolean).length;
-  };
+  const activeFilterCount = () => [
+    Boolean(filters.serialFrom.trim() || filters.serialTo.trim()),
+    Boolean(filters.mrp),
+    Boolean(filters.status),
+    !filters.dateIsDefault,
+  ].filter(Boolean).length;
 
   const openFilters = () => {
     setDraftFilters(filters);
@@ -130,6 +130,12 @@ export default function SCSerialsPage() {
       serialFrom: draftFilters.serialFrom.trim(),
       serialTo: draftFilters.serialTo.trim(),
     };
+    // Refresh the displayed default window at Apply time as well.
+    if (next.dateIsDefault) {
+      const { dateFrom, dateTo } = todayDateRange();
+      next.dateFrom = dateFrom;
+      next.dateTo = dateTo;
+    }
     setFilters(next);
     setDraftFilters(next);
     setPage(1);
@@ -225,8 +231,9 @@ export default function SCSerialsPage() {
       const serialFrom = filters.serialFrom.trim();
       const serialTo = filters.serialTo.trim();
       if (!searchTerm && !serialFrom && !serialTo) {
-        if (filters.dateFrom) params.date_from = filters.dateFrom;
-        if (filters.dateTo) params.date_to = filters.dateTo;
+        const { dateFrom, dateTo } = effectiveDateRange(filters);
+        if (dateFrom) params.date_from = dateFrom;
+        if (dateTo) params.date_to = dateTo;
       }
       if (searchTerm) {
         params.search = searchTerm;
@@ -451,8 +458,9 @@ export default function SCSerialsPage() {
         if (filters.mrp) params.mrp = Number(filters.mrp);
         if (filters.status) params.status = filters.status;
         if (!serialFrom && !serialTo) {
-          if (filters.dateFrom) params.date_from = filters.dateFrom;
-          if (filters.dateTo) params.date_to = filters.dateTo;
+          const { dateFrom, dateTo } = effectiveDateRange(filters);
+          if (dateFrom) params.date_from = dateFrom;
+          if (dateTo) params.date_to = dateTo;
         }
       }
       const res = await apiClient.post("/v1/scratch-card-serials/select-all", null, { params, headers: houseHeaders });
@@ -870,6 +878,7 @@ export default function SCSerialsPage() {
                   searchPlaceholder={t('scratch_card_serials.filter_amount_search')}
                   emptyMessage={t('scratch_card_serials.no_products')}
                   noResultsMessage={t('scratch_card_serials.no_products')}
+                  portal={false}
                 />
                 <SearchableSelect
                   label={t('scratch_card_serials.filter_status')}
@@ -884,15 +893,26 @@ export default function SCSerialsPage() {
                   searchPlaceholder={t('scratch_card_serials.filter_status_search')}
                   emptyMessage={t('scratch_card_serials.filter_all_status')}
                   noResultsMessage={t('scratch_card_serials.filter_all_status')}
+                  portal={false}
                 />
                 <DateRangePicker
+                  id="sc-date-range"
                   label={t('scratch_card_serials.filter_date_range')}
                   value={{ from: draftFilters.dateFrom || null, to: draftFilters.dateTo || null }}
-                  onChange={range => setDraftFilters(prev => ({
-                    ...prev,
-                    dateFrom: range.from ?? "",
-                    dateTo: range.to ?? "",
-                  }))}
+                  onChange={range => setDraftFilters(prev => {
+                    // Clearing must restore the mandatory today-only window,
+                    // never silently widen the list to all history.
+                    if (!range.from && !range.to) {
+                      const { dateFrom, dateTo } = todayDateRange();
+                      return { ...prev, dateFrom, dateTo, dateIsDefault: true };
+                    }
+                    return {
+                      ...prev,
+                      dateFrom: range.from ?? "",
+                      dateTo: range.to ?? "",
+                      dateIsDefault: false,
+                    };
+                  })}
                 />
               </div>
 
