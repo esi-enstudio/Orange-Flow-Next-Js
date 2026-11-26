@@ -50,6 +50,8 @@ interface Props {
   subtitle?: string;
   /** Offer the portrait/landscape image-layout picker (orientation-aware reports only). */
   supportsOrientation?: boolean;
+  /** Image layout pre-selected for new schedules and direct sends. */
+  defaultOrientation?: "portrait" | "landscape";
   onClose: () => void;
 }
 
@@ -204,6 +206,11 @@ const emptyForm: FormState = {
   ends_never: true,
 };
 
+const createEmptyForm = (orientation: FormState["orientation"]): FormState => ({
+  ...emptyForm,
+  orientation,
+});
+
 const emptyContactForm: ContactFormState = {
   name: "",
   phone_number: "",
@@ -278,6 +285,7 @@ export default function ReportDeliveryModal({
   title = "Report Delivery",
   subtitle = "Auto-send the report daily at a fixed time",
   supportsOrientation = false,
+  defaultOrientation = "portrait",
   onClose,
 }: Props) {
   const [status, setStatus] = useState<WsStatus | null>(null);
@@ -307,7 +315,7 @@ export default function ReportDeliveryModal({
   const [sendNowTarget, setSendNowTarget] = useState<ScheduleItem | null>(null);
   const [showDirectConfirm, setShowDirectConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [form, setForm] = useState<FormState>(() => createEmptyForm(defaultOrientation));
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [waTargetTab, setWaTargetTab] = useState<"groups" | "contacts">("groups");
   const [contactSearch, setContactSearch] = useState("");
@@ -434,7 +442,7 @@ export default function ReportDeliveryModal({
     setContactDeletingId(null);
     setSendNowTarget(null);
     setShowDirectConfirm(false);
-    setForm(emptyForm);
+    setForm(createEmptyForm(defaultOrientation));
     setWaTargetTab("groups");
     setContactSearch("");
     setGroupSearch("");
@@ -864,7 +872,7 @@ export default function ReportDeliveryModal({
         toast.success(form.channel === "telegram" ? "Telegram schedule created" : "Schedule created");
       }
       setEditingId(null);
-      setForm(emptyForm);
+      setForm(createEmptyForm(defaultOrientation));
       setSelectedGroupIds(new Set());
       setSelectedContactIds(new Set());
       fetchAll();
@@ -2219,7 +2227,7 @@ export default function ReportDeliveryModal({
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 mt-2">
                   {editingId && (
                     <button
-                      onClick={() => { setEditingId(null); setForm(emptyForm); setSelectedGroupIds(new Set()); setSelectedContactIds(new Set()); }}
+                      onClick={() => { setEditingId(null); setForm(createEmptyForm(defaultOrientation)); setSelectedGroupIds(new Set()); setSelectedContactIds(new Set()); }}
                       className="px-4 min-h-[44px] rounded-xl border border-gray-200 dark:border-slate-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 w-full sm:w-auto"
                     >
                       Cancel

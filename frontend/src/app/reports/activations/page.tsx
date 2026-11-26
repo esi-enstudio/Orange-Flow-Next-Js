@@ -1324,6 +1324,7 @@ export default function ActivationDashboardPage() {
           houseId={selectedHouseId ? Number(selectedHouseId) : null}
           reportType="activation"
           supportsOrientation
+          defaultOrientation="landscape"
           title={t("activation_report.whatsapp.title")}
           subtitle={t("activation_report.dashboard_title")}
           onClose={() => setShowReportDelivery(false)}
