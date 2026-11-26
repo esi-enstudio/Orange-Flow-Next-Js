@@ -18,6 +18,7 @@ import { useFullscreen } from "@/context/FullscreenContext";
 import { FullscreenControls } from "./FullscreenControls";
 import { NotificationBell } from "./NotificationBell";
 import { NotificationsProvider } from "@/context/NotificationsContext";
+import { HouseSwitcher } from "@/components/houses/HouseSwitcher";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user } = useAuth();
@@ -101,6 +102,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                <Link href="/sync" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/10 rounded-xl transition-all" title="DMS Sync">
                  <CloudDownload className="w-5 h-5" />
                </Link>
+                <HouseSwitcher />
                 <LanguageSwitcher />
                 <ThemeToggle />
                 <FullscreenControls />
@@ -110,6 +112,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
           </div>
         </header>
+
+        {/* The desktop header is hidden on phones; keep the house picker reachable. */}
+        <div className="flex items-center px-2 md:hidden">
+          <HouseSwitcher />
+        </div>
         
         <main className={cn(
           "flex-1",
