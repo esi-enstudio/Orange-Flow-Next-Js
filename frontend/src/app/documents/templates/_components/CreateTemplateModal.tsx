@@ -66,6 +66,8 @@ export default function CreateTemplateModal({
   const [saving, setSaving] = useState(false);
   const typeRef = useRef<HTMLSelectElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const scopeHintId =
+    form.scope === "house" && selectedHouseName ? "create-template-scope-hint" : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -270,7 +272,11 @@ export default function CreateTemplateModal({
                         value={form.scope}
                         onChange={(event) => setField("scope", event.target.value as FormState["scope"])}
                         aria-invalid={Boolean(fieldError("scope"))}
-                        aria-describedby={fieldError("scope") ? "create-template-scope-error" : undefined}
+                        aria-describedby={
+                          [fieldError("scope") ? "create-template-scope-error" : null, scopeHintId]
+                            .filter(Boolean)
+                            .join(" ") || undefined
+                        }
                         className={`${fieldClass} mt-1.5`}
                       >
                         <option value="house">{t("documents.house")}</option>
@@ -282,8 +288,8 @@ export default function CreateTemplateModal({
                         </span>
                       )}
                     </label>
-                    {form.scope === "house" && selectedHouseName && (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {scopeHintId && (
+                      <p id={scopeHintId} className="mt-1 break-words text-xs text-gray-500 dark:text-gray-400">
                         {t("documents.house_scope_hint", { house: selectedHouseName })}
                       </p>
                     )}
