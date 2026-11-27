@@ -53,6 +53,12 @@ These five apply to almost every change. Details are in the linked docs.
 
 ---
 
+## Branch Workflow
+
+Always work directly on the `main` branch. Do not create or use git worktrees or feature branches unless the user explicitly asks for isolation or a separate branch.
+
+---
+
 ## Rule Precedence — AGENTS.md vs Skills vs Tools
 
 Two independent rule sources are loaded in every session: **this file** (project rules) and **agent skills** (process techniques). They do not carry equal weight. When they disagree, resolve in this order:
