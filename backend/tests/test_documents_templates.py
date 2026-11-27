@@ -791,6 +791,89 @@ async def test_bulk_delete_validates_ids(api, db):
     assert oversized.status_code == 422
 
 
+# --------------------------------------------------------------------------- #
+# Select all (delete all)
+# --------------------------------------------------------------------------- #
+
+async def test_select_all_returns_all_deletable_ids_in_house_scope(api, db):
+    client, state = api
+    house = await _make_house(db)
+    noc = await _seed(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    ids = [
+        await _post_template(client, headers, noc.id, "A1"),
+        await _post_template(client, headers, noc.id, "A2"),
+        await _post_template(client, headers, noc.id, "A3"),
+    ]
+
+    response = await client.post("/api/v1/documents/templates/select-all", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["total"] == 3
+    assert set(response.json()["data"]["ids"]) == set(ids)
+
+
+async def test_select_all_excludes_other_houses_and_global_for_tenant(api, db):
+    client, state = api
+    house_a = await _make_house(db, code="HA", name="House A")
+    house_b = await _make_house(db, code="HB", name="House B")
+    noc = await _seed(db)
+    headers_a = {"X-House-ID": str(house_a.id)}
+    headers_b = {"X-House-ID": str(house_b.id)}
+
+    state["user"] = _user(house_a)
+    a_id = await _post_template(client, headers_a, noc.id, "A template")
+    state["user"] = _user(house_b)
+    b_id = await _post_template(client, headers_b, noc.id, "B template")
+    state["user"] = _user(None, role="Super Admin", permissions=())
+    global_id = await _post_template(client, {}, noc.id, "Global template", scope="global")
+
+    state["user"] = _user(house_a)
+    tenant = await client.post(
+        "/api/v1/documents/templates/select-all", headers=headers_a
+    )
+    assert tenant.status_code == 200, tenant.text
+    assert tenant.json()["data"]["ids"] == [a_id]
+
+    state["user"] = _user(None, role="Super Admin", permissions=())
+    admin = await client.post("/api/v1/documents/templates/select-all")
+    assert admin.status_code == 200, admin.text
+    expected_globals = {
+        row[0]
+        for row in (
+            await db.execute(
+                select(DocumentTemplate.id).where(
+                    DocumentTemplate.house_id.is_(None),
+                    DocumentTemplate.is_deleted.is_(False),
+                )
+            )
+        ).all()
+    }
+    assert set(admin.json()["data"]["ids"]) == expected_globals
+    assert global_id in admin.json()["data"]["ids"]
+    assert a_id not in admin.json()["data"]["ids"]
+    assert b_id not in admin.json()["data"]["ids"]
+
+
+async def test_select_all_ignores_search_and_pagination(api, db):
+    client, state = api
+    house = await _make_house(db)
+    noc = await _seed(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    for name in ("A1", "A2", "A3"):
+        await _post_template(client, headers, noc.id, name)
+
+    response = await client.post(
+        "/api/v1/documents/templates/select-all?search=nomatch&page=9&per_page=1",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["total"] == 3
+    assert len(data["ids"]) == 3
+
+
 async def test_activity_log_is_written_on_create(api, db):
     client, state = api
     house = await _make_house(db)

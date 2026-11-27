@@ -1428,6 +1428,34 @@ async def bulk_delete_templates(
     return {"success": True, "data": {"deleted": len(deleted_ids), "skipped": skipped}}
 
 
+@router.post("/templates/select-all")
+async def select_all_deletable_templates(
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission(VIEW)),
+):
+    query = select(DocumentTemplate.id).where(
+        DocumentTemplate.is_deleted.is_(False),
+        DocumentTemplate.is_active.is_(True),
+    )
+    if house_context is None:
+        query = query.where(DocumentTemplate.house_id.is_(None))
+    else:
+        query = query.where(
+            or_(
+                DocumentTemplate.house_id.is_(None),
+                DocumentTemplate.house_id == house_context,
+            )
+        )
+        if not is_super_admin_user(current_user):
+            query = query.where(DocumentTemplate.house_id.is_not(None))
+    ids = [
+        int(row)
+        for row in (await db.execute(query.order_by(DocumentTemplate.id))).scalars().all()
+    ]
+    return {"success": True, "data": {"ids": ids, "total": len(ids)}}
+
+
 @router.get("/templates/{template_id}")
 async def get_template(
     template_id: int,
