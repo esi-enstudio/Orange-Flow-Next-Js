@@ -133,7 +133,7 @@ export default function DocumentTemplatesPage() {
       }
       await loadTemplates(page, search);
     },
-    [loadTemplates, page, pagination?.has_prev, search, templates],
+    [loadTemplates, page, pagination?.has_prev, search, setPage, templates],
   );
 
   const houseHeaders = selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {};
@@ -325,7 +325,7 @@ export default function DocumentTemplatesPage() {
       </header>
 
       <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-        <div className="border-b border-gray-200 p-4 dark:border-slate-700 sm:p-6">
+        <div className="border-b border-gray-200 px-4 py-3 dark:border-slate-700 sm:px-6">
           <label className="relative block max-w-md">
             <span className="sr-only">{t("documents.search")}</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -511,40 +511,41 @@ export default function DocumentTemplatesPage() {
             ))}
           </div>
 
-          {pagination && pagination.total_pages > 1 && (
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t("documents.page_count", { page: pagination.page, total: pagination.total_pages, count: pagination.total })}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPage((current) => Math.max(1, current - 1));
-                    clearSelection();
-                  }}
-                  disabled={!pagination.has_prev}
-                  className="min-h-11 min-w-11 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200"
-                >
-                  {t("common.prev")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPage((current) => current + 1);
-                    clearSelection();
-                  }}
-                  disabled={!pagination.has_next}
-                  className="min-h-11 min-w-11 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200"
-                >
-                  {t("common.next")}
-                </button>
-              </div>
-            </div>
-          )}
           </div>
         )}
       </section>
+
+      {!loading && !loadError && templates.length > 0 && pagination && pagination.total_pages > 1 && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("documents.page_count", { page: pagination.page, total: pagination.total_pages, count: pagination.total })}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPage((current) => Math.max(1, current - 1));
+                clearSelection();
+              }}
+              disabled={!pagination.has_prev}
+              className="min-h-11 min-w-11 cursor-pointer rounded-xl border border-gray-200 bg-white text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200"
+            >
+              {t("common.prev")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPage((current) => current + 1);
+                clearSelection();
+              }}
+              disabled={!pagination.has_next}
+              className="min-h-11 min-w-11 cursor-pointer rounded-xl border border-gray-200 bg-white text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200"
+            >
+              {t("common.next")}
+            </button>
+          </div>
+        </div>
+      )}
 
       <CreateTemplateModal
         open={createOpen}
