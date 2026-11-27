@@ -1,4 +1,4 @@
-import type { ReactNode, ComponentType, SVGProps } from "react";
+import type { ComponentType, SVGProps } from "react";
 import { WhatsAppLogo, TelegramLogo, GmailLogo } from "@/app/connections/_components/logos";
 
 export type ConnectionProvider = "whatsapp" | "telegram" | "gmail";
