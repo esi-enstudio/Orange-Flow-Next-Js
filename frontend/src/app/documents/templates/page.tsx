@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, FilePlus2, FileText, Home, RefreshCw, Search } from "lucide-react";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
@@ -45,7 +46,7 @@ interface Pagination {
 function TemplateSkeleton() {
   return (
     <div className="space-y-3 animate-pulse">
-      {Array.from({ length: 20 }).map((_, index) => (
+      {Array.from({ length: 10 }).map((_, index) => (
         <div
           key={index}
           className="h-[68px] rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-800 dark:bg-slate-800"
@@ -77,8 +78,10 @@ export default function DocumentTemplatesPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const closeCreate = useCallback(() => setCreateOpen(false), []);
+  const clearSelection = () => setSelectedIds(new Set());
   const handleTemplateCreated = useCallback(
     (templateId: number) => {
       setCreateOpen(false);
@@ -93,7 +96,7 @@ export default function DocumentTemplatesPage() {
     try {
       const [templateResponse, typeResponse] = await Promise.all([
         apiClient.get("v1/documents/templates", {
-          params: { page: pageNumber, per_page: 20, search: keyword || undefined },
+          params: { page: pageNumber, per_page: 10, search: keyword || undefined },
           headers: selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {},
         }),
         apiClient.get("v1/documents/types"),
@@ -122,6 +125,43 @@ export default function DocumentTemplatesPage() {
     },
     [loadTemplates, page, pagination?.has_prev, search, templates],
   );
+
+  const eligibleIds = templates
+    .filter((item) => canManage && (item.scope !== "global" || canCreateGlobal))
+    .map((item) => item.id);
+  const selectedOnPage = eligibleIds.filter((id) => selectedIds.has(id)).length;
+  const pageCheckboxState = selectedOnPage === 0
+    ? false
+    : selectedOnPage === eligibleIds.length
+      ? true
+      : "indeterminate";
+  const isTemplateEligible = (template: Template) =>
+    canManage && (template.scope !== "global" || canCreateGlobal);
+
+  const toggleTemplate = (id: number) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (eligibleIds.every((id) => next.has(id))) {
+        eligibleIds.forEach((id) => next.delete(id));
+      } else {
+        eligibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectedHouseId]);
 
   useEffect(() => {
     if (authLoading || !canView) return;
@@ -209,6 +249,7 @@ export default function DocumentTemplatesPage() {
             onChange={(event) => {
               setSearch(event.target.value);
               setPage(1);
+              clearSelection();
             }}
             placeholder={t("documents.search")}
             className="w-full cursor-text rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-100"
@@ -240,10 +281,34 @@ export default function DocumentTemplatesPage() {
         </div>
       ) : (
         <>
+          {selectedIds.size > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-primary-200 bg-primary-50 p-3 dark:border-primary-500/30 dark:bg-primary-500/10">
+              <p className="text-sm font-medium text-primary-800 dark:text-primary-200">
+                {t("documents.selected_count", { count: selectedIds.size })}
+              </p>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="min-h-11 cursor-pointer rounded-xl border border-primary-200 bg-white px-4 text-sm font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-slate-900 dark:text-primary-300 dark:hover:bg-slate-800"
+              >
+                {t("documents.clear_selection")}
+              </button>
+            </div>
+          )}
           <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800/60">
+                  <th className="px-2 py-1">
+                    <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+                      <Checkbox
+                        aria-label={t("documents.select_all_page")}
+                        checked={pageCheckboxState}
+                        onCheckedChange={toggleAllOnPage}
+                        disabled={eligibleIds.length === 0}
+                      />
+                    </label>
+                  </th>
                   <th className="px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("documents.template")}</th>
                   <th className="px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("documents.type")}</th>
                   <th className="px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("documents.scope")}</th>
@@ -255,6 +320,16 @@ export default function DocumentTemplatesPage() {
               <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                 {templates.map((template) => (
                   <tr key={template.id}>
+                    <td className="px-2 py-1">
+                      <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+                        <Checkbox
+                          aria-label={t("documents.select_template", { name: template.name })}
+                          checked={selectedIds.has(template.id)}
+                          onCheckedChange={() => toggleTemplate(template.id)}
+                          disabled={!isTemplateEligible(template)}
+                        />
+                      </label>
+                    </td>
                     <td className="px-2 py-1">
                       <Link href={`/documents/templates/${template.id}`} className="font-medium text-primary-700 hover:underline dark:text-primary-300">{template.name}</Link>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400">
@@ -287,7 +362,15 @@ export default function DocumentTemplatesPage() {
           <div className="space-y-3 lg:hidden">
             {templates.map((template) => (
               <article key={template.id} className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-                <h2 className="font-semibold text-gray-900 dark:text-gray-100"><Link href={`/documents/templates/${template.id}`} className="hover:text-primary-700 hover:underline dark:hover:text-primary-300">{template.name}</Link></h2>
+                <label className="flex min-h-11 cursor-pointer items-center gap-3">
+                  <Checkbox
+                    aria-label={t("documents.select_template", { name: template.name })}
+                    checked={selectedIds.has(template.id)}
+                    onCheckedChange={() => toggleTemplate(template.id)}
+                    disabled={!isTemplateEligible(template)}
+                  />
+                  <h2 className="font-semibold text-gray-900 dark:text-gray-100"><Link href={`/documents/templates/${template.id}`} className="hover:text-primary-700 hover:underline dark:hover:text-primary-300">{template.name}</Link></h2>
+                </label>
                 <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
                   {template.template_mode === "VISUAL" ? t("documents.visual") : t("documents.predefined")}
                   {template.is_default ? ` · ${t("documents.default")}` : ""}
@@ -335,7 +418,10 @@ export default function DocumentTemplatesPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  onClick={() => {
+                    setPage((current) => Math.max(1, current - 1));
+                    clearSelection();
+                  }}
                   disabled={!pagination.has_prev}
                   className="min-h-11 min-w-11 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200"
                 >
@@ -343,7 +429,10 @@ export default function DocumentTemplatesPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPage((current) => current + 1)}
+                  onClick={() => {
+                    setPage((current) => current + 1);
+                    clearSelection();
+                  }}
                   disabled={!pagination.has_next}
                   className="min-h-11 min-w-11 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200"
                 >
