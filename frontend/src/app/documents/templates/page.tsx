@@ -324,28 +324,31 @@ export default function DocumentTemplatesPage() {
         </div>
       </header>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 sm:p-6">
-        <label className="relative block max-w-md">
-          <span className="sr-only">{t("documents.search")}</span>
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-              clearSelection();
-            }}
-            placeholder={t("documents.search")}
-            className="w-full cursor-text rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-100"
-          />
-        </label>
-      </section>
+      <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <div className="border-b border-gray-200 p-4 dark:border-slate-700 sm:p-6">
+          <label className="relative block max-w-md">
+            <span className="sr-only">{t("documents.search")}</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+                clearSelection();
+              }}
+              placeholder={t("documents.search")}
+              className="w-full cursor-text rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-100"
+            />
+          </label>
+        </div>
 
-      {loading ? (
-        <TemplateSkeleton />
-      ) : loadError ? (
-        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900/50 dark:bg-red-950/20">
+        {loading ? (
+          <div className="p-4 sm:p-6">
+            <TemplateSkeleton />
+          </div>
+        ) : loadError ? (
+          <div role="alert" className="m-4 rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900/50 dark:bg-red-950/20 sm:m-6">
           <p className="text-sm font-medium text-red-700 dark:text-red-300">
             {t("documents.load_error")}
           </p>
@@ -357,16 +360,16 @@ export default function DocumentTemplatesPage() {
             {t("documents.try_again")}
           </button>
         </div>
-      ) : templates.length === 0 ? (
-        <div className="rounded-2xl border border-gray-200 bg-white py-14 text-center dark:border-slate-700 dark:bg-slate-900">
-          <FileText className="mx-auto mb-3 h-10 w-10 text-gray-300 dark:text-slate-600" />
-          <p className="font-semibold text-gray-800 dark:text-gray-200">
-            {t("documents.no_templates")}
-          </p>
-        </div>
-      ) : (
-        <>
-          {selectedIds.size > 0 && (
+        ) : templates.length === 0 ? (
+          <div className="py-14 text-center">
+            <FileText className="mx-auto mb-3 h-10 w-10 text-gray-300 dark:text-slate-600" />
+            <p className="font-semibold text-gray-800 dark:text-gray-200">
+              {t("documents.no_templates")}
+            </p>
+          </div>
+        ) : (
+          <div className="p-4 sm:p-6">
+            {selectedIds.size > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-primary-200 bg-primary-50 p-3 dark:border-primary-500/30 dark:bg-primary-500/10">
               <p className="text-sm font-medium text-primary-800 dark:text-primary-200">
                 {t("documents.selected_count", { count: selectedIds.size })}
@@ -393,7 +396,7 @@ export default function DocumentTemplatesPage() {
               </div>
             </div>
           )}
-          <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:block">
+          <div className="hidden lg:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800/60">
@@ -457,7 +460,7 @@ export default function DocumentTemplatesPage() {
             </table>
           </div>
 
-          <div className="space-y-3 lg:hidden">
+          <div className="mt-3 space-y-3 lg:hidden">
             {templates.map((template) => (
               <article key={template.id} className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
                 <label className="flex min-h-11 cursor-pointer items-center gap-3">
@@ -509,7 +512,7 @@ export default function DocumentTemplatesPage() {
           </div>
 
           {pagination && pagination.total_pages > 1 && (
-            <div className="flex items-center justify-between gap-3">
+            <div className="mt-4 flex items-center justify-between gap-3">
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {t("documents.page_count", { page: pagination.page, total: pagination.total_pages, count: pagination.total })}
               </p>
@@ -539,8 +542,9 @@ export default function DocumentTemplatesPage() {
               </div>
             </div>
           )}
-        </>
-      )}
+          </div>
+        )}
+      </section>
 
       <CreateTemplateModal
         open={createOpen}
