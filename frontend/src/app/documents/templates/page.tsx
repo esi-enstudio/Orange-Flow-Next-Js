@@ -3,13 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, FilePlus2, FileText, Home, RefreshCw, Search } from "lucide-react";
+import { ChevronRight, FilePlus2, FileText, Home, RefreshCw, Search, Trash2 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import PageGuideModal from "@/components/PageGuideModal";
 import { AccessDenied } from "@/components/ui/AccessDenied";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/i18n/useLanguage";
 import apiClient from "@/lib/api";
+import { getDocumentErrorMessage } from "@/lib/documents";
 import CreateTemplateModal from "./_components/CreateTemplateModal";
 import TemplateDeleteButton from "./_components/TemplateDeleteButton";
 
@@ -79,6 +82,13 @@ export default function DocumentTemplatesPage() {
   const [loadError, setLoadError] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState<{
+    ids: number[];
+    title: string;
+    message: string;
+  } | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
 
   const closeCreate = useCallback(() => setCreateOpen(false), []);
   const clearSelection = () => setSelectedIds(new Set());
@@ -125,6 +135,70 @@ export default function DocumentTemplatesPage() {
     },
     [loadTemplates, page, pagination?.has_prev, search, templates],
   );
+
+  const houseHeaders = selectedHouseId ? { "X-House-ID": String(selectedHouseId) } : {};
+
+  const runBulkDelete = async (ids: number[]) => {
+    if (bulkDeleting || ids.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const response = await apiClient.post(
+        "v1/documents/templates/bulk-delete",
+        { template_ids: ids },
+        { headers: houseHeaders },
+      );
+      const deleted = response.data.data.deleted as number;
+      toast.success(t("documents.bulk_delete_success", { count: deleted }));
+      setBulkConfirm(null);
+      clearSelection();
+      const remainingOnPage = templates.filter((item) => !ids.includes(item.id)).length;
+      if (remainingOnPage === 0 && pagination?.has_prev && page > 1) {
+        setPage((current) => current - 1);
+      } else {
+        await loadTemplates(page, search);
+      }
+    } catch (error) {
+      toast.error(getDocumentErrorMessage(error, t("documents.bulk_delete_error")));
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    setBulkConfirm({
+      ids,
+      title: t("documents.delete_selected_title", { count: ids.length }),
+      message: t("documents.delete_selected_message", { count: ids.length }),
+    });
+  };
+
+  const handleDeleteAll = async () => {
+    if (selectingAll) return;
+    setSelectingAll(true);
+    try {
+      const response = await apiClient.post(
+        "v1/documents/templates/select-all",
+        {},
+        { headers: houseHeaders },
+      );
+      const ids = response.data.data.ids as number[];
+      if (ids.length === 0) {
+        toast(t("documents.delete_all_none"));
+        return;
+      }
+      setBulkConfirm({
+        ids,
+        title: t("documents.delete_all_title"),
+        message: t("documents.delete_all_message", { count: ids.length }),
+      });
+    } catch (error) {
+      toast.error(getDocumentErrorMessage(error, t("documents.bulk_delete_error")));
+    } finally {
+      setSelectingAll(false);
+    }
+  };
 
   const eligibleIds = templates
     .filter((item) => canManage && (item.scope !== "global" || canCreateGlobal))
@@ -220,17 +294,28 @@ export default function DocumentTemplatesPage() {
               <button
                 type="button"
                 onClick={() => setCreateOpen(true)}
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
+                className="inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-700 sm:w-auto"
               >
                 <FilePlus2 aria-hidden="true" className="size-4" />
                 {t("documents.new_template")}
+              </button>
+            )}
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => void handleDeleteAll()}
+                disabled={loading || selectingAll}
+                className="inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/50 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-slate-800"
+              >
+                <Trash2 aria-hidden="true" className="size-4" />
+                {t("documents.delete_all")}
               </button>
             )}
             <button
               type="button"
               onClick={() => void loadTemplates(page, search)}
               disabled={loading}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
+              className="inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto dark:border-slate-700 dark:bg-slate-900 dark:text-gray-200 dark:hover:bg-slate-800"
             >
               <RefreshCw aria-hidden="true" className={`size-4 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`} />
               {t("documents.refresh")}
@@ -286,13 +371,26 @@ export default function DocumentTemplatesPage() {
               <p className="text-sm font-medium text-primary-800 dark:text-primary-200">
                 {t("documents.selected_count", { count: selectedIds.size })}
               </p>
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="min-h-11 cursor-pointer rounded-xl border border-primary-200 bg-white px-4 text-sm font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-slate-900 dark:text-primary-300 dark:hover:bg-slate-800"
-              >
-                {t("documents.clear_selection")}
-              </button>
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="min-h-11 min-w-11 cursor-pointer rounded-xl border border-primary-200 bg-white px-4 text-sm font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-500/30 dark:bg-slate-900 dark:text-primary-300 dark:hover:bg-slate-800"
+                >
+                  {t("documents.clear_selection")}
+                </button>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelected}
+                    disabled={bulkDeleting}
+                    className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 aria-hidden="true" className="size-4" />
+                    {t("documents.delete_selected")}
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900 lg:block">
@@ -453,6 +551,20 @@ export default function DocumentTemplatesPage() {
         selectedHouseName={selectedHouseName}
         canCreateGlobal={canCreateGlobal}
         onCreated={handleTemplateCreated}
+      />
+      <ConfirmationModal
+        isOpen={bulkConfirm !== null}
+        onClose={() => {
+          if (!bulkDeleting) setBulkConfirm(null);
+        }}
+        onConfirm={() => {
+          if (bulkConfirm) void runBulkDelete(bulkConfirm.ids);
+        }}
+        title={bulkConfirm?.title ?? ""}
+        message={bulkConfirm?.message}
+        confirmText={t("documents.delete_confirm")}
+        type="danger"
+        loading={bulkDeleting}
       />
     </div>
   );
