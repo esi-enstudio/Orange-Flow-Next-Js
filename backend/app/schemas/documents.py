@@ -38,6 +38,10 @@ class TemplateDuplicateIn(BaseModel):
     scope: Literal["house", "global"] = "house"
 
 
+class BulkTemplateDeleteIn(BaseModel):
+    template_ids: List[int] = Field(..., min_length=1, max_length=5000)
+
+
 class TemplateAssetOut(BaseModel):
     id: int
     template_id: int

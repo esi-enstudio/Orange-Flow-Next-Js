@@ -44,6 +44,7 @@ from app.routers.deps import (
     require_house_context,
 )
 from app.schemas.documents import (
+    BulkTemplateDeleteIn,
     DocumentLetterheadCreateIn,
     DocumentLetterheadUpdateIn,
     DocumentSignatoryCreateIn,
@@ -1394,6 +1395,37 @@ async def create_template(
     )
     data["version"] = svc.serialize_version(version, include_content=True)
     return {"success": True, "data": data}
+
+
+@router.post("/templates/bulk-delete")
+async def bulk_delete_templates(
+    payload: BulkTemplateDeleteIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    house_context: Optional[int] = Depends(get_house_context),
+    current_user: User = Depends(has_permission(MANAGE)),
+):
+    deleted_ids: list[int] = []
+    skipped = 0
+    for template_id in dict.fromkeys(payload.template_ids):
+        template = await db.get(DocumentTemplate, template_id)
+        if template is None or template.is_deleted:
+            skipped += 1
+            continue
+        old_values = {"name": template.name, "house_id": template.house_id}
+        try:
+            svc.assert_template_writable(template, house_context, current_user)
+        except HTTPException:
+            skipped += 1
+            continue
+        await svc.delete_template(db, template, house_id=house_context, user=current_user)
+        await _audit(
+            db, request, current_user, "delete", template,
+            old_values=old_values,
+        )
+        deleted_ids.append(template_id)
+    await db.commit()
+    return {"success": True, "data": {"deleted": len(deleted_ids), "skipped": skipped}}
 
 
 @router.get("/templates/{template_id}")

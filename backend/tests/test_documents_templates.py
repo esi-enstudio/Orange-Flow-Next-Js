@@ -666,6 +666,131 @@ async def test_soft_delete_hides_template(api, db):
     assert template_id not in {row["id"] for row in listed.json()["data"]}
 
 
+# --------------------------------------------------------------------------- #
+# Bulk delete
+# --------------------------------------------------------------------------- #
+
+async def _post_template(client, headers, document_type_id, name, scope=None):
+    payload = {
+        "document_type_id": document_type_id,
+        "name": name,
+        "content_json": _ast(),
+        "variables_schema": _schema("employee_name"),
+    }
+    if scope is not None:
+        payload["scope"] = scope
+    response = await client.post(
+        "/api/v1/documents/templates", headers=headers, json=payload
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["data"]["id"]
+
+
+async def test_bulk_delete_happy_path_writes_audit(api, db):
+    client, state = api
+    house = await _make_house(db)
+    noc = await _seed(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    ids = [
+        await _post_template(client, headers, noc.id, "Bulk A"),
+        await _post_template(client, headers, noc.id, "Bulk B"),
+    ]
+
+    response = await client.post(
+        "/api/v1/documents/templates/bulk-delete",
+        headers=headers,
+        json={"template_ids": ids},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == {"deleted": 2, "skipped": 0}
+
+    listed = await client.get("/api/v1/documents/templates", headers=headers)
+    assert not set(ids) & {row["id"] for row in listed.json()["data"]}
+
+    logs = (
+        await db.execute(
+            select(ActivityLog).where(
+                ActivityLog.module == "document_template",
+                ActivityLog.action == "delete",
+            )
+        )
+    ).scalars().all()
+    assert len(logs) == 2
+    assert {log.record_id for log in logs} == set(ids)
+
+
+async def test_bulk_delete_dedupes_and_skips_missing(api, db):
+    client, state = api
+    house = await _make_house(db)
+    noc = await _seed(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    template_id = await _post_template(client, headers, noc.id, "Dedup me")
+
+    response = await client.post(
+        "/api/v1/documents/templates/bulk-delete",
+        headers=headers,
+        json={"template_ids": [template_id, template_id, 999999]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == {"deleted": 1, "skipped": 1}
+
+
+async def test_bulk_delete_skips_cross_house_and_global_for_non_super_admin(api, db):
+    client, state = api
+    house_a = await _make_house(db, code="HA", name="House A")
+    house_b = await _make_house(db, code="HB", name="House B")
+    noc = await _seed(db)
+    headers_a = {"X-House-ID": str(house_a.id)}
+
+    state["user"] = _user(house_a)
+    a_id = await _post_template(client, headers_a, noc.id, "A template")
+    state["user"] = _user(house_b)
+    b_id = await _post_template(
+        client, {"X-House-ID": str(house_b.id)}, noc.id, "B template"
+    )
+    state["user"] = _user(None, role="Super Admin", permissions=())
+    global_id = await _post_template(client, {}, noc.id, "Global template", scope="global")
+    state["user"] = _user(house_a)
+
+    response = await client.post(
+        "/api/v1/documents/templates/bulk-delete",
+        headers=headers_a,
+        json={"template_ids": [a_id, b_id, global_id]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == {"deleted": 1, "skipped": 2}
+
+    remaining = (
+        await db.execute(
+            select(DocumentTemplate).where(
+                DocumentTemplate.id.in_([a_id, b_id, global_id])
+            )
+        )
+    ).scalars().all()
+    by_id = {template.id: template for template in remaining}
+    assert by_id[a_id].is_deleted is True
+    assert by_id[b_id].is_deleted is False
+    assert by_id[global_id].is_deleted is False
+
+
+async def test_bulk_delete_validates_ids(api, db):
+    client, state = api
+    house = await _make_house(db)
+    state["user"] = _user(house)
+    headers = {"X-House-ID": str(house.id)}
+    url = "/api/v1/documents/templates/bulk-delete"
+
+    empty = await client.post(url, headers=headers, json={"template_ids": []})
+    assert empty.status_code == 422
+
+    oversized = await client.post(
+        url, headers=headers, json={"template_ids": list(range(5001))}
+    )
+    assert oversized.status_code == 422
+
+
 async def test_activity_log_is_written_on_create(api, db):
     client, state = api
     house = await _make_house(db)
